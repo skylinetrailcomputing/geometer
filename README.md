@@ -10,7 +10,12 @@ A free, open-source WebXR sandbox of geometry exhibits aimed at undergraduate st
 
 ## Try it
 
-> Coming soon. Once deployed, open this URL in a WebXR-capable browser (Quest browser, Chrome with WebXR enabled, etc.) and click **Enter VR**.
+Live at <https://skylinetrailcomputing.github.io/geometer/>. Open in either:
+
+- A **Quest browser** (Quest 3, 3S, 2, Pro) — see [`DEV_QUEST_SETUP.md`](DEV_QUEST_SETUP.md) for first-run guidance.
+- **Desktop Chrome** with WebXR enabled — useful for inspection, but a connected headset is needed to enter a real VR session.
+
+Click **Enter VR** once the page loads.
 
 ## Run locally
 
