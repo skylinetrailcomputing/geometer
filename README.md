@@ -38,7 +38,7 @@ Then open the printed URL on `localhost`. WebXR sessions require either `localho
 
 ## Contributing
 
-Issues and PRs welcome. Before opening a PR, run `pre-commit run --all-files` locally — the hooks check for accidental secret commits.
+Issues and PRs welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for workflow and conventions, and [`VISION.md`](VISION.md) for the project's thesis and what makes a topic a fit.
 
 ## License
 
