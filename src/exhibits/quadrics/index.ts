@@ -19,6 +19,12 @@ const VERTEX_SHADER = /* glsl */ `
 const FRAGMENT_SHADER = /* glsl */ `
   precision highp float;
 
+  // Three.js auto-populates projectionMatrix on every program, but only
+  // declares it in vertex-shader prefixes — fragment shaders have to
+  // declare it explicitly to use it. (viewMatrix and cameraPosition are
+  // declared automatically.)
+  uniform mat4 projectionMatrix;
+
   uniform vec3  uSurfaceCenter;
   uniform float uA;
   uniform float uB;
