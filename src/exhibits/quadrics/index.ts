@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import type { Exhibit, ExhibitContext } from '../../shell/Exhibit';
 import { registerExhibit } from '../../shell/registry';
+import { classify } from './classify';
+import { Label } from './Label';
 import { Slider } from './Slider';
 
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -3);
+const FAMILY_LABEL_POSITION = new THREE.Vector3(0, 2.4, -3);
 const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 const BOUND = 2.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
@@ -154,13 +157,25 @@ const FRAGMENT_SHADER = /* glsl */ `
 let material: THREE.ShaderMaterial | undefined;
 let sliders: Slider[] = [];
 let controllers: THREE.Object3D[] = [];
+let familyLabel: Label | undefined;
+let camera: THREE.Camera | undefined;
 let elapsed = 0;
+
+// Format a coefficient value for the secondary label line: explicit sign,
+// two decimal places. Per SPEC.md "Label content" — the explicit sign keeps
+// the visual jump from +0.05 to −0.05 unambiguous through the zero detent.
+function formatCoeff(name: string, v: number): string {
+  const sign = v < 0 ? '−' : '+';
+  return `${name} = ${sign}${Math.abs(v).toFixed(2)}`;
+}
 
 const quadricsExhibit: Exhibit = {
   id: 'quadrics',
   title: 'Quadric surfaces',
 
-  mount({ scene, renderer }: ExhibitContext) {
+  mount({ scene, renderer, camera: cam }: ExhibitContext) {
+    camera = cam;
+
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(10, 10),
       new THREE.MeshStandardMaterial({ color: 0x222244 }),
@@ -210,6 +225,10 @@ const quadricsExhibit: Exhibit = {
     });
 
     controllers = setupControllers(scene, renderer, sliders);
+
+    familyLabel = new Label();
+    familyLabel.group.position.copy(FAMILY_LABEL_POSITION);
+    scene.add(familyLabel.group);
   },
 
   update({ delta }) {
@@ -224,6 +243,15 @@ const quadricsExhibit: Exhibit = {
       elapsed += delta;
       const a = Math.cos((2 * Math.PI * elapsed) / SWEEP_PERIOD);
       material.uniforms.uA.value = a;
+    }
+    if (familyLabel) {
+      const [a, b, c, d] = sliders.map((s) => s.value);
+      const { family } = classify(a, b, c, d);
+      familyLabel.setPrimary(family);
+      familyLabel.setSecondary(
+        sliders.map((s) => formatCoeff(s.label, s.value)).join(', '),
+      );
+      if (camera) familyLabel.faceCamera(camera);
     }
   },
 };
