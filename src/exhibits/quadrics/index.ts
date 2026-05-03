@@ -6,7 +6,14 @@ import { Label } from './Label';
 import { Slider } from './Slider';
 
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -3);
-const FAMILY_LABEL_POSITION = new THREE.Vector3(0, 2.4, -3);
+// Above-and-forward of the surface. The surface render volume reaches
+// y = SURFACE_CENTER.y + BOUND = 4.0 at small-coefficient states, so a
+// label at z = SURFACE_CENTER.z would be buried for any large-surface
+// state. Forward placement (z = -2.0) gives 1.0 m of depth separation
+// from the surface center, so when their screen-space rectangles
+// overlap stereo parallax + the depth buffer keep the label clearly in
+// front. y = 3.5 is 1.0 m above the default ellipsoid's top (y = 2.5).
+const FAMILY_LABEL_POSITION = new THREE.Vector3(0, 3.5, -2.0);
 const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 const BOUND = 2.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
