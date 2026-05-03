@@ -13,7 +13,7 @@ per-slider value labels, and world-axis gridlines on the surface for
 
 ## Demo
 
-![Quadric surfaces exhibit on Quest 3S — drag the four sliders (a, b, c, d) to morph the surface; the family label updates in real time across degeneracy boundaries](screenshots/quadrics.png)
+![Quest 3S view of the quadrics exhibit: a blue ellipsoid surface with faint world-axis gridlines for depth cues, an "Ellipsoid" classification label, and the labeled a/b/c sliders with their current values below](screenshots/quadrics.jpg)
 
 Drag the `a`, `b`, `c`, `d` sliders to morph the surface; the family
 label classifies the result in real time as you cross degeneracy
