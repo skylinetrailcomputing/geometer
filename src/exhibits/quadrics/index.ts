@@ -66,6 +66,15 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform vec3  uLightDir;
   uniform vec3  uBaseColor;
 
+  // World-axis gridlines (#34). GRID_FREQ = 2.0 → lines every 0.5 m.
+  // GRID_COLOR is near-black so the lines read as "carved into" the
+  // surface; GRID_INTENSITY caps how much they darken at line-center.
+  // Hardcoded for v0.1 — promote to uniforms only if headset iteration
+  // wants live tuning.
+  const float GRID_FREQ = 2.0;
+  const float GRID_INTENSITY = 0.6;
+  const vec3  GRID_COLOR = vec3(0.05);
+
   varying vec3 vWorldPos;
 
   float fImplicit(vec3 p) {
@@ -148,14 +157,28 @@ const FRAGMENT_SHADER = /* glsl */ `
     }
 
     float lambert = max(dot(n, normalize(uLightDir)), 0.0);
-    vec3 color = uBaseColor * (0.2 + 0.8 * lambert);
+    vec3 baseColor = uBaseColor * (0.2 + 0.8 * lambert);
+
+    // World-axis gridlines as a depth cue (#34): distance from each
+    // hit-world coordinate to the nearest integer multiple of
+    // (1 / GRID_FREQ). Anti-aliased via fwidth so the line stays one
+    // pixel regardless of viewing angle or distance. Mix darkens the
+    // surface where it crosses a gridline — reads as "carved into" the
+    // surface rather than overlaid on it. Walking around the surface
+    // gives parallax through the grid: stronger 3D readout than a
+    // uniformly-lit single-color quadric.
+    vec3 hitWorld = pHit + uSurfaceCenter;
+    vec3 g = abs(fract(hitWorld * GRID_FREQ) - 0.5);
+    float lineDist = min(min(g.x, g.y), g.z);
+    float lineWidth = 1.5 * fwidth(lineDist);
+    float mask = 1.0 - smoothstep(0.0, lineWidth, lineDist);
+    vec3 color = mix(baseColor, GRID_COLOR, mask * GRID_INTENSITY);
     gl_FragColor = vec4(color, 1.0);
 
     // Write the implicit-surface depth, not the bounding cube's. Quest's
     // asynchronous spacewarp reprojects per-pixel from the depth buffer; with
     // the cube's depth (meters off from the visible surface), reprojection
     // smears the surface into a translucent / negative-space ghost.
-    vec3 hitWorld = pHit + uSurfaceCenter;
     vec4 clip = projectionMatrix * viewMatrix * vec4(hitWorld, 1.0);
     gl_FragDepth = (clip.z / clip.w) * 0.5 + 0.5;
   }

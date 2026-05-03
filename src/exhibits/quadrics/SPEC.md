@@ -128,6 +128,23 @@ drags through a degeneracy.
 Units are meters. The user's head start position is the WebXR session
 origin (`y ≈ 1.6` for a standing user).
 
+## Surface rendering
+
+The quadric is ray-marched in a fragment shader against a world-aligned
+bounding cube. Per-fragment depth is written from the implicit-surface
+hit point so Quest's async spacewarp reprojects against the visible
+surface rather than the bounding cube (#3 / earlier).
+
+**World-axis gridlines** (#34) are mixed into the surface color at every
+fragment whose hit point is near an integer multiple of the grid spacing
+on any of the three world axes. The grid is anchored to world `(0, 0, 0)`
+— not to the surface center — so the surface reads as carved out of a
+fixed 3D coordinate frame, and walking around the surface in roomscale
+gives parallax through the grid lines (stronger 3D readout than a
+uniformly-lit single-color quadric). Line spacing 0.5 m, near-black
+"carved" line color, anti-aliased via `fwidth`. Decorative depth cue
+only — labels / measurement come in v0.2.
+
 ## Label content
 
 Two lines, billboarded:
@@ -186,4 +203,6 @@ them.
 - Equation rendering (LaTeX-style).
 - Multiple simultaneous surfaces for side-by-side comparison.
 - Save / load preset coefficient configurations.
-- Per-axis labels and gridlines.
+- Per-axis labels and *measurement* gridlines (numbered tick marks on
+  the world axes). Distinct from v0.1's decorative depth-cue gridlines
+  (above) — those are unlabeled and exist purely for parallax.
