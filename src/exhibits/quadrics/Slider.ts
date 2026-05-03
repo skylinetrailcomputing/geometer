@@ -21,8 +21,19 @@ const DEFAULT_DRAG_GAIN = 1.75;
 // Lets the user park exactly on a degeneracy boundary instead of approximating.
 const ZERO_DETENT = 0.05;
 
+// Ray–thumb hit-test radius is this multiple of the thumb's visual radius.
+// Wider than the visual makes re-grab forgiving when the hand drifts off-aim
+// during release — especially after a zero-snap, where the thumb jumps to
+// `value = 0` while the controller is still pointed where the drag ended.
+// Used identically by `tryGrab` and `updateHover` so the highlight region
+// equals the actual grabbable region.
+const GRAB_RADIUS_MULTIPLIER = 2.75;
+
 const HAPTIC_AMPLITUDE = 0.5;
 const HAPTIC_DURATION_MS = 10;
+
+const THUMB_BASE_COLOR = 0xeeaa33;
+const THUMB_HOVER_EMISSIVE = 0x884422;
 
 interface ControllerWithGamepad extends THREE.Object3D {
   userData: { gamepad?: Gamepad };
@@ -41,6 +52,7 @@ export class Slider {
   private currentValue: number;
   private grabbedBy: THREE.Object3D | null = null;
   private lastControllerLocalX = 0;
+  private hovered = false;
 
   constructor(options: SliderOptions) {
     this.opts = {
@@ -71,7 +83,7 @@ export class Slider {
 
     this.thumb = new THREE.Mesh(
       new THREE.SphereGeometry(this.opts.thumbRadius, 16, 12),
-      new THREE.MeshStandardMaterial({ color: 0xeeaa33 }),
+      new THREE.MeshStandardMaterial({ color: THUMB_BASE_COLOR }),
     );
     this.group.add(this.thumb);
 
@@ -96,15 +108,7 @@ export class Slider {
    */
   tryGrab(controller: THREE.Object3D): boolean {
     if (this.grabbedBy) return false;
-
-    const rayOrigin = new THREE.Vector3();
-    const rayDir = new THREE.Vector3();
-    controller.getWorldPosition(rayOrigin);
-    rayDir.set(0, 0, -1).applyQuaternion(controller.getWorldQuaternion(new THREE.Quaternion()));
-
-    this.thumb.getWorldPosition(this.thumbWorld);
-    const r = this.opts.thumbRadius * 1.5;
-    if (!raySphereHit(rayOrigin, rayDir, this.thumbWorld, r)) return false;
+    if (!this.rayHitsThumb(controller)) return false;
 
     this.grabbedBy = controller;
     this.lastControllerLocalX = this.controllerLocalX(controller);
@@ -116,6 +120,34 @@ export class Slider {
     if (this.grabbedBy !== controller) return;
     this.grabbedBy = null;
     pulse(controller);
+  }
+
+  /**
+   * Per-frame hover update. Lights the thumb's emissive when any controller's
+   * ray is within the grab region — a "you can grab now" affordance that also
+   * exposes the wider hit radius to the user. No-op while grabbed (the user
+   * already has it).
+   */
+  updateHover(controllers: readonly THREE.Object3D[]): void {
+    const hovered =
+      this.grabbedBy === null &&
+      controllers.some((c) => this.rayHitsThumb(c));
+    if (hovered === this.hovered) return;
+    this.hovered = hovered;
+    const mat = this.thumb.material as THREE.MeshStandardMaterial;
+    mat.emissive.setHex(hovered ? THUMB_HOVER_EMISSIVE : 0x000000);
+  }
+
+  private rayHitsThumb(controller: THREE.Object3D): boolean {
+    const rayOrigin = new THREE.Vector3();
+    const rayDir = new THREE.Vector3();
+    controller.getWorldPosition(rayOrigin);
+    rayDir.set(0, 0, -1).applyQuaternion(
+      controller.getWorldQuaternion(new THREE.Quaternion()),
+    );
+    this.thumb.getWorldPosition(this.thumbWorld);
+    const r = this.opts.thumbRadius * GRAB_RADIUS_MULTIPLIER;
+    return raySphereHit(rayOrigin, rayDir, this.thumbWorld, r);
   }
 
   /**

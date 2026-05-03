@@ -148,6 +148,7 @@ const FRAGMENT_SHADER = /* glsl */ `
 
 let material: THREE.ShaderMaterial | undefined;
 let sliders: Slider[] = [];
+let controllers: THREE.Object3D[] = [];
 let elapsed = 0;
 
 const quadricsExhibit: Exhibit = {
@@ -203,10 +204,11 @@ const quadricsExhibit: Exhibit = {
       return slider;
     });
 
-    setupControllers(scene, renderer, sliders);
+    controllers = setupControllers(scene, renderer, sliders);
   },
 
   update({ delta }) {
+    for (const s of sliders) s.updateHover(controllers);
     for (const s of sliders) s.update();
     if (material) {
       for (const s of sliders) {
@@ -225,7 +227,7 @@ function setupControllers(
   scene: THREE.Scene,
   renderer: THREE.WebGLRenderer,
   sliders: readonly Slider[],
-): void {
+): THREE.Object3D[] {
   // Visible 1 m laser line along controller −Z, so the user can see where
   // they're aiming before pressing the trigger.
   const rayGeom = new THREE.BufferGeometry().setFromPoints([
@@ -238,10 +240,12 @@ function setupControllers(
     opacity: 0.6,
   });
 
+  const out: THREE.Object3D[] = [];
   for (const i of [0, 1] as const) {
     const controller = renderer.xr.getController(i);
     controller.add(new THREE.Line(rayGeom, rayMat));
     scene.add(controller);
+    out.push(controller);
 
     controller.addEventListener('connected', (event: { data: XRInputSource }) => {
       const inputSource = event.data;
@@ -262,6 +266,7 @@ function setupControllers(
       for (const s of sliders) s.releaseFromController(controller);
     });
   }
+  return out;
 }
 
 registerExhibit(quadricsExhibit);
