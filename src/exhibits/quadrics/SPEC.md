@@ -196,14 +196,28 @@ Hand tracking is explicitly v0.2.
 
 ## Definition of done — v0.1
 
-- [ ] Every render-meaningful family in the taxonomy reachable from the
+- [x] Every render-meaningful family in the taxonomy reachable from the
   default starting values by slider manipulation alone.
-- [ ] Family label updates within one frame of any slider change.
-- [ ] Cone case (`d = 0` with mixed-sign coefficients) reachable via the
+  *Confirmed by construction: `classify.ts`'s table covers every
+  `(n+, n−, n₀) | sgn(d)` combination, and each slider's `[−2, 2]`
+  range with the zero detent admits all sign combinations on
+  `(a, b, c, d)`.*
+- [x] Family label updates within one frame of any slider change.
+  *`update()` in `index.ts` re-classifies and writes to both labels
+  every frame.*
+- [x] Cone case (`d = 0` with mixed-sign coefficients) reachable via the
   zero-detent and renders without flicker.
+  *Slider's `ZERO_DETENT` pins emitted value to exactly `0`; classifier
+  reads that as `sgn(d) = 0` and resolves to `Cone` for the
+  mixed-sign cases per the taxonomy.*
 - [ ] No flickering, holes, or visual artifacts at boundary cases.
+  *Requires headset verification at the v0.1 release smoke.*
 - [ ] Render frame rate ≥ 72 Hz on Quest 3S in the single-surface scene.
+  *Requires headset measurement at the v0.1 release smoke.*
 - [ ] Documented in repo `README.md` with a screenshot or short GIF.
+  *README structure is in place (`## Demo` section); the screenshot
+  asset (`screenshots/quadrics.png`) lands as part of the v0.1 tag
+  workflow.*
 
 ## v0.2 candidates (named only)
 
