@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Exhibit, ExhibitContext } from '../../shell/Exhibit';
 import { registerExhibit } from '../../shell/registry';
 
-const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -1);
+const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -3);
 const BOUND = 2.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 
@@ -112,6 +112,14 @@ const FRAGMENT_SHADER = /* glsl */ `
     float lambert = max(dot(n, normalize(uLightDir)), 0.0);
     vec3 color = uBaseColor * (0.2 + 0.8 * lambert);
     gl_FragColor = vec4(color, 1.0);
+
+    // Write the implicit-surface depth, not the bounding cube's. Quest's
+    // asynchronous spacewarp reprojects per-pixel from the depth buffer; with
+    // the cube's depth (meters off from the visible surface), reprojection
+    // smears the surface into a translucent / negative-space ghost.
+    vec3 hitWorld = pHit + uSurfaceCenter;
+    vec4 clip = projectionMatrix * viewMatrix * vec4(hitWorld, 1.0);
+    gl_FragDepth = (clip.z / clip.w) * 0.5 + 0.5;
   }
 `;
 
