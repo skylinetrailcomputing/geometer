@@ -122,8 +122,7 @@ drags through a degeneracy.
 |----------------|---------------------|---------------------------------------|
 | Surface center | `(0, 1.5, −3)`      | ~2 m in front of the standing user; close enough to walk up to, far enough that the bounding volume doesn't clip through the spawn point. |
 | Slider rack    | `(0, 1.0, −0.7)`    | Below-and-in-front; reachable with controllers without a step. |
-| Family label   | `(0, 3.5, −2.0)`    | Above and in front of the surface. The surface volume reaches `y ≈ 4.0` at small-coefficient states, so the label uses depth/parallax separation (1 m closer in `z` than the surface center) to stay readable when their screen-space rectangles overlap. Yaw-only billboarded (#29). |
-| Rack readout   | `(0, 1.4, −0.7)`    | Compact second classification readout above the slider rack so the family name sits in the user's gaze area while interacting (#33). Family name only — per-slider labels render values inline. Yaw-only billboarded. |
+| Rack readout   | `(0, 1.4, −0.7)`    | Single classification readout above the slider rack — the family name sits in the user's gaze area while interacting (#33). Family name only; per-slider labels render values inline. Yaw-only billboarded (#29). A second surface-anchored "hero" label was tried alongside this one in v0.1 development and removed as redundant per first-headset feedback. |
 | Floor          | `y = 0`             | Inherited from the shell convention; visual horizon and comfort anchor. |
 
 Units are meters. The user's head start position is the WebXR session
@@ -148,28 +147,17 @@ only — labels / measurement come in v0.2.
 
 ## Label content
 
-Two classification labels with different jobs, plus one label per slider:
-
-- **Surface-anchored family label** — two lines, billboarded. The
-  room-scale "hero" — anchors the classification to what's visually
-  being classified.
-  - **Family name** (large): one of the `Family` strings from the
-    taxonomy (e.g., `Hyperboloid (1 sheet)`, `Cone`, `Empty set`,
-    `Degenerate`).
-  - **Coefficient values** (small):
-    `a = +1.00, b = +1.00, c = +1.00, d = +1.00`, updating in real
-    time. Sign is always shown explicitly so the visual jump from
-    `+0.05` to `−0.05` is unambiguous to the learner.
+One classification readout plus one label per slider:
 
 - **Rack readout** — single line, billboarded, anchored above the
-  slider rack. Compact in-flight feedback during a drag — the user
-  shouldn't have to look up at the surface label to know what state
-  they're in. Family name only; coefficient values are already
-  rendered by the per-slider labels.
+  slider rack. The family name sits in the user's gaze area during
+  interaction. Renders one of the `Family` strings from the taxonomy
+  (e.g., `Hyperboloid (1 sheet)`, `Cone`, `Empty set`, `Degenerate`).
 
 - **Per-slider labels** — variable name (large) and signed value to
-  two decimals (small), parented to each slider's group. See
-  "Slider model" above.
+  two decimals (small), parented to each slider's group. Sign is
+  always shown explicitly so the visual jump from `+0.05` to `−0.05`
+  is unambiguous to the learner. See "Slider model" above.
 
 All labels re-classify / re-format every frame.
 
@@ -196,14 +184,28 @@ Hand tracking is explicitly v0.2.
 
 ## Definition of done — v0.1
 
-- [ ] Every render-meaningful family in the taxonomy reachable from the
+- [x] Every render-meaningful family in the taxonomy reachable from the
   default starting values by slider manipulation alone.
-- [ ] Family label updates within one frame of any slider change.
-- [ ] Cone case (`d = 0` with mixed-sign coefficients) reachable via the
+  *Confirmed by construction: `classify.ts`'s table covers every
+  `(n+, n−, n₀) | sgn(d)` combination, and each slider's `[−2, 2]`
+  range with the zero detent admits all sign combinations on
+  `(a, b, c, d)`.*
+- [x] Family label updates within one frame of any slider change.
+  *`update()` in `index.ts` re-classifies and writes to both labels
+  every frame.*
+- [x] Cone case (`d = 0` with mixed-sign coefficients) reachable via the
   zero-detent and renders without flicker.
+  *Slider's `ZERO_DETENT` pins emitted value to exactly `0`; classifier
+  reads that as `sgn(d) = 0` and resolves to `Cone` for the
+  mixed-sign cases per the taxonomy.*
 - [ ] No flickering, holes, or visual artifacts at boundary cases.
+  *Requires headset verification at the v0.1 release smoke.*
 - [ ] Render frame rate ≥ 72 Hz on Quest 3S in the single-surface scene.
+  *Requires headset measurement at the v0.1 release smoke.*
 - [ ] Documented in repo `README.md` with a screenshot or short GIF.
+  *README structure is in place (`## Demo` section); the screenshot
+  asset (`screenshots/quadrics.png`) lands as part of the v0.1 tag
+  workflow.*
 
 ## v0.2 candidates (named only)
 
