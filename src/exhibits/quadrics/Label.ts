@@ -39,6 +39,10 @@ export class Label {
   private primaryText = '';
   private secondaryText = '';
 
+  // Hoisted out of `faceCamera` so per-frame billboarding does no allocation.
+  private readonly camWorld = new THREE.Vector3();
+  private readonly labelWorld = new THREE.Vector3();
+
   constructor(opts: LabelOptions = {}) {
     const primaryFontSize = opts.primaryFontSize ?? DEFAULT_PRIMARY_FONT_SIZE;
     const secondaryFontSize =
@@ -88,11 +92,16 @@ export class Label {
     this.secondary.sync();
   }
 
-  // Face the camera by matching its world rotation. Standard billboard:
-  // the group's local +Z is troika Text's natural facing direction, so
-  // copying the camera quaternion makes both lines face the viewer.
+  // Yaw-only billboard: face the camera in the XZ plane while staying
+  // upright in world space. Matching the camera's full quaternion would
+  // inherit head pitch and roll, which in VR rolls the label with a head
+  // tilt and reads as disorienting (#29). World-up stays world-up.
   faceCamera(camera: THREE.Camera): void {
-    this.group.quaternion.copy(camera.quaternion);
+    camera.getWorldPosition(this.camWorld);
+    this.group.getWorldPosition(this.labelWorld);
+    const dx = this.camWorld.x - this.labelWorld.x;
+    const dz = this.camWorld.z - this.labelWorld.z;
+    this.group.rotation.set(0, Math.atan2(dx, dz), 0);
   }
 
   dispose(): void {
