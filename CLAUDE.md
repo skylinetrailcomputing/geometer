@@ -5,6 +5,9 @@
 ## Multi-agent autonomy policy
 @/Users/bradmartin/claude-workspace-2026/knowledge/agents/autonomy-policy.md
 
+## Open-source repo policy
+@/Users/bradmartin/claude-workspace-2026/knowledge/oss-repo-policy.md
+
 ## Repo-specific rules
 
 - **Public OSS repo.** Never commit anything that references FullContact
