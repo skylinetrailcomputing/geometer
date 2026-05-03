@@ -118,7 +118,7 @@ drags through a degeneracy.
 |----------------|---------------------|---------------------------------------|
 | Surface center | `(0, 1.5, −3)`      | ~2 m in front of the standing user; close enough to walk up to, far enough that the bounding volume doesn't clip through the spawn point. |
 | Slider rack    | `(0, 1.0, −0.7)`    | Below-and-in-front; reachable with controllers without a step. |
-| Family label   | `(0, 2.4, −3)`      | Above the surface, billboarded to face the user. |
+| Family label   | `(0, 3.5, −2.0)`    | Above and in front of the surface. The surface volume reaches `y ≈ 4.0` at small-coefficient states, so the label uses depth/parallax separation (1 m closer in `z` than the surface center) to stay readable when their screen-space rectangles overlap. Yaw-only billboarded (#29). |
 | Floor          | `y = 0`             | Inherited from the shell convention; visual horizon and comfort anchor. |
 
 Units are meters. The user's head start position is the WebXR session
