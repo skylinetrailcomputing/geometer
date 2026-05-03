@@ -9,9 +9,14 @@ const BOUND = 2.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 
 // Vertical stacking pitch for the rack. SPEC pins the rack center but
-// not per-slider positions; horizontal arrangement would be ~1.6 m wide.
-// 0.07 m keeps the four thumbs visually distinct without crowding.
-const SLIDER_ROW_PITCH = 0.07;
+// not per-slider positions. Lower bound is set by the slider's grab
+// region: at thumbRadius (0.025) × GRAB_RADIUS_MULTIPLIER (2.75), each
+// thumb's hit sphere is ~0.069 m, so adjacent thumbs need ≥ 0.138 m of
+// pitch to keep their grab regions disjoint (otherwise a ray near the
+// midpoint could resolve to either slider). 0.15 leaves ~1 cm of
+// clearance between hit spheres and reads as comfortably spaced in
+// headset.
+const SLIDER_ROW_PITCH = 0.15;
 type CoeffName = 'a' | 'b' | 'c' | 'd';
 const COEFF_NAMES: readonly CoeffName[] = ['a', 'b', 'c', 'd'] as const;
 
