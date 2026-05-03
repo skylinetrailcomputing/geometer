@@ -132,6 +132,12 @@ export class Slider {
   releaseFromController(controller: THREE.Object3D): void {
     if (this.grabbedBy !== controller) return;
     this.grabbedBy = null;
+    // `hovered` is frozen at whatever it was at grab time — `updateHover`
+    // short-circuits while grabbed, so it can't go false during the drag.
+    // Clear it here so a release after the controller drifted off the thumb
+    // doesn't flash the hover-yellow color until the next `updateHover`
+    // frame corrects it.
+    this.hovered = false;
     this.refreshThumbEmissive();
     pulse(controller);
   }
