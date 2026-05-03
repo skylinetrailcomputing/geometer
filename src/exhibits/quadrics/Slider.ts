@@ -49,6 +49,12 @@ export class Slider {
   private readonly controllerWorld = new THREE.Vector3();
   private readonly localPoint = new THREE.Vector3();
 
+  // `rawValue` integrates hand motion every frame, untouched by the detent.
+  // `currentValue` is the emitted value — snapped to exactly 0 inside the
+  // detent — and is what `get value()` returns to the shader. Splitting the
+  // two lets slow drags accumulate underneath the detent instead of being
+  // re-pinned to 0 each frame (#24).
+  private rawValue: number;
   private currentValue: number;
   private grabbedBy: THREE.Object3D | null = null;
   private lastControllerLocalX = 0;
@@ -61,7 +67,9 @@ export class Slider {
       dragGain: DEFAULT_DRAG_GAIN,
       ...options,
     };
-    this.currentValue = clamp(options.initial, options.min, options.max);
+    this.rawValue = clamp(options.initial, options.min, options.max);
+    this.currentValue =
+      Math.abs(this.rawValue) < ZERO_DETENT ? 0 : this.rawValue;
 
     this.group = new THREE.Group();
     this.group.name = `slider:${options.label}`;
@@ -152,8 +160,11 @@ export class Slider {
 
   /**
    * Per-frame tick. Integrates controller motion (relative drag) into the
-   * current value with `dragGain` as the sensitivity multiplier — the user's
+   * raw value with `dragGain` as the sensitivity multiplier — the user's
    * hand doesn't have to traverse the full track to span the full range.
+   * The detent is applied only to `currentValue` (the emitted/shader value),
+   * so per-frame motion always accumulates in `rawValue` and slow drags
+   * escape the snap.
    */
   update(): void {
     if (!this.grabbedBy) return;
@@ -163,10 +174,13 @@ export class Slider {
 
     const range = this.opts.max - this.opts.min;
     const valueDelta = delta * this.opts.dragGain * (range / this.opts.trackLength);
-    let v = clamp(this.currentValue + valueDelta, this.opts.min, this.opts.max);
-    if (Math.abs(v) < ZERO_DETENT) v = 0;
-
-    this.currentValue = v;
+    this.rawValue = clamp(
+      this.rawValue + valueDelta,
+      this.opts.min,
+      this.opts.max,
+    );
+    this.currentValue =
+      Math.abs(this.rawValue) < ZERO_DETENT ? 0 : this.rawValue;
     this.syncThumbPosition();
   }
 
@@ -176,11 +190,16 @@ export class Slider {
     return this.localPoint.x;
   }
 
+  // Thumb tracks `rawValue`, not `currentValue`. Inside the detent the
+  // shader still sees the snapped 0 (correct surface form), but the thumb
+  // moves smoothly with the user's hand so a slow drag past the detent
+  // edge is visibly rewarded. Without this, the thumb appears stuck at 0
+  // until rawValue escapes ±0.05 — which is exactly the symptom #24
+  // exists to fix on the value side.
   private syncThumbPosition(): void {
     const halfLen = this.opts.trackLength / 2;
     const t =
-      (this.currentValue - this.opts.min) /
-      (this.opts.max - this.opts.min);
+      (this.rawValue - this.opts.min) / (this.opts.max - this.opts.min);
     this.thumb.position.x = -halfLen + t * this.opts.trackLength;
   }
 }
