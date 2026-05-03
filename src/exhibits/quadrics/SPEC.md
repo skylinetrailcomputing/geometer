@@ -202,10 +202,9 @@ Hand tracking is explicitly v0.2.
   *Requires headset verification at the v0.1 release smoke.*
 - [ ] Render frame rate ≥ 72 Hz on Quest 3S in the single-surface scene.
   *Requires headset measurement at the v0.1 release smoke.*
-- [ ] Documented in repo `README.md` with a screenshot or short GIF.
-  *README structure is in place (`## Demo` section); the screenshot
-  asset (`screenshots/quadrics.png`) lands as part of the v0.1 tag
-  workflow.*
+- [x] Documented in repo `README.md` with a screenshot or short GIF.
+  *`screenshots/quadrics.jpg` (Quest 3S capture) referenced from the
+  README's `## Demo` section.*
 
 ## v0.2 candidates (named only)
 
