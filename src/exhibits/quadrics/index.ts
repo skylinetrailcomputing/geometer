@@ -17,6 +17,9 @@ const COEFF_NAMES: readonly CoeffName[] = ['a', 'b', 'c', 'd'] as const;
 
 // Debug sweep on `a`: gated off once controller sliders took over (#5).
 // Re-enable for shader / boundary-case debugging without controllers.
+// Sweeps `uA` only — `uB`/`uC`/`uD` continue tracking their sliders, which
+// is fine for the original use case (verify single-axis morphing) but
+// produces mixed live/sweep state if you forget. Adjust if needed.
 const DEBUG_SWEEP = false;
 const SWEEP_PERIOD = 8;
 
@@ -205,11 +208,10 @@ const quadricsExhibit: Exhibit = {
 
   update({ delta }) {
     for (const s of sliders) s.update();
-    if (material && sliders.length === COEFF_NAMES.length) {
-      material.uniforms.uA.value = sliders[0].value;
-      material.uniforms.uB.value = sliders[1].value;
-      material.uniforms.uC.value = sliders[2].value;
-      material.uniforms.uD.value = sliders[3].value;
+    if (material) {
+      for (const s of sliders) {
+        material.uniforms[`u${s.label.toUpperCase()}`].value = s.value;
+      }
     }
     if (DEBUG_SWEEP && material) {
       elapsed += delta;
