@@ -1,4 +1,4 @@
 import { bootShell } from './shell/shell';
-import './exhibits/hello';
+import './exhibits/quadrics';
 
 bootShell();
