@@ -27,3 +27,6 @@ npm-debug.log*
 # Misc
 *.pem
 .cache/
+
+# Claude Code maintainer-only context (workspace @-imports etc.)
+CLAUDE.local.md
