@@ -123,6 +123,7 @@ drags through a degeneracy.
 | Surface center | `(0, 1.5, −3)`      | ~2 m in front of the standing user; close enough to walk up to, far enough that the bounding volume doesn't clip through the spawn point. |
 | Slider rack    | `(0, 1.0, −0.7)`    | Below-and-in-front; reachable with controllers without a step. |
 | Family label   | `(0, 3.5, −2.0)`    | Above and in front of the surface. The surface volume reaches `y ≈ 4.0` at small-coefficient states, so the label uses depth/parallax separation (1 m closer in `z` than the surface center) to stay readable when their screen-space rectangles overlap. Yaw-only billboarded (#29). |
+| Rack readout   | `(0, 1.4, −0.7)`    | Compact second classification readout above the slider rack so the family name sits in the user's gaze area while interacting (#33). Family name only — per-slider labels render values inline. Yaw-only billboarded. |
 | Floor          | `y = 0`             | Inherited from the shell convention; visual horizon and comfort anchor. |
 
 Units are meters. The user's head start position is the WebXR session
@@ -130,15 +131,30 @@ origin (`y ≈ 1.6` for a standing user).
 
 ## Label content
 
-Two lines, billboarded:
+Two classification labels with different jobs, plus one label per slider:
 
-- **Family name** (large): one of the `Family` strings from the taxonomy
-  (e.g., `Hyperboloid (1 sheet)`, `Cone`, `Empty set`, `Degenerate`).
-- **Coefficient values** (small): `a = +1.00, b = +1.00, c = +1.00, d = +1.00`,
-  updating in real time. Sign is always shown explicitly so the visual
-  jump from `+0.05` to `−0.05` is unambiguous to the learner.
+- **Surface-anchored family label** — two lines, billboarded. The
+  room-scale "hero" — anchors the classification to what's visually
+  being classified.
+  - **Family name** (large): one of the `Family` strings from the
+    taxonomy (e.g., `Hyperboloid (1 sheet)`, `Cone`, `Empty set`,
+    `Degenerate`).
+  - **Coefficient values** (small):
+    `a = +1.00, b = +1.00, c = +1.00, d = +1.00`, updating in real
+    time. Sign is always shown explicitly so the visual jump from
+    `+0.05` to `−0.05` is unambiguous to the learner.
 
-The label re-classifies every frame.
+- **Rack readout** — single line, billboarded, anchored above the
+  slider rack. Compact in-flight feedback during a drag — the user
+  shouldn't have to look up at the surface label to know what state
+  they're in. Family name only; coefficient values are already
+  rendered by the per-slider labels.
+
+- **Per-slider labels** — variable name (large) and signed value to
+  two decimals (small), parented to each slider's group. See
+  "Slider model" above.
+
+All labels re-classify / re-format every frame.
 
 ## Controller interaction
 
