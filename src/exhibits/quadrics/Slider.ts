@@ -7,10 +7,15 @@ export interface SliderOptions {
   initial: number;
   trackLength?: number;
   thumbRadius?: number;
+  // Multiplier on per-frame controller motion → value change. >1 means
+  // less hand travel per unit value (i.e. the slider feels more sensitive).
+  // 1 = thumb tracks controller 1:1 across the visible track length.
+  dragGain?: number;
 }
 
 const DEFAULT_TRACK_LENGTH = 0.3;
 const DEFAULT_THUMB_RADIUS = 0.025;
+const DEFAULT_DRAG_GAIN = 2.5;
 
 // Snap-to-zero detent half-width, per quadrics SPEC.md "Slider model".
 // Lets the user park exactly on a degeneracy boundary instead of approximating.
@@ -35,11 +40,13 @@ export class Slider {
 
   private currentValue: number;
   private grabbedBy: THREE.Object3D | null = null;
+  private lastControllerLocalX = 0;
 
   constructor(options: SliderOptions) {
     this.opts = {
       trackLength: DEFAULT_TRACK_LENGTH,
       thumbRadius: DEFAULT_THUMB_RADIUS,
+      dragGain: DEFAULT_DRAG_GAIN,
       ...options,
     };
     this.currentValue = clamp(options.initial, options.min, options.max);
@@ -96,6 +103,7 @@ export class Slider {
     if (!raySphereHit(rayOrigin, rayDir, this.thumbWorld, r)) return false;
 
     this.grabbedBy = controller;
+    this.lastControllerLocalX = this.controllerLocalX(controller);
     pulse(controller);
     return true;
   }
@@ -107,22 +115,29 @@ export class Slider {
   }
 
   /**
-   * Per-frame tick. If grabbed, project the controller's world position onto
-   * the slider's local X axis, clamp to range, apply zero-detent, sync thumb.
+   * Per-frame tick. Integrates controller motion (relative drag) into the
+   * current value with `dragGain` as the sensitivity multiplier — the user's
+   * hand doesn't have to traverse the full track to span the full range.
    */
   update(): void {
     if (!this.grabbedBy) return;
-    this.grabbedBy.getWorldPosition(this.controllerWorld);
-    this.group.worldToLocal(this.localPoint.copy(this.controllerWorld));
+    const x = this.controllerLocalX(this.grabbedBy);
+    const delta = x - this.lastControllerLocalX;
+    this.lastControllerLocalX = x;
 
-    const halfLen = this.opts.trackLength / 2;
-    const localX = clamp(this.localPoint.x, -halfLen, halfLen);
-    const t = (localX + halfLen) / this.opts.trackLength;
-    let v = this.opts.min + t * (this.opts.max - this.opts.min);
+    const range = this.opts.max - this.opts.min;
+    const valueDelta = delta * this.opts.dragGain * (range / this.opts.trackLength);
+    let v = clamp(this.currentValue + valueDelta, this.opts.min, this.opts.max);
     if (Math.abs(v) < ZERO_DETENT) v = 0;
 
     this.currentValue = v;
     this.syncThumbPosition();
+  }
+
+  private controllerLocalX(controller: THREE.Object3D): number {
+    controller.getWorldPosition(this.controllerWorld);
+    this.group.worldToLocal(this.localPoint.copy(this.controllerWorld));
+    return this.localPoint.x;
   }
 
   private syncThumbPosition(): void {
