@@ -1,16 +1,16 @@
 import * as THREE from 'three';
 import type { Exhibit, ExhibitContext } from '../../shell/Exhibit';
 import { registerExhibit } from '../../shell/registry';
+import { Slider } from './Slider';
 
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -3);
+const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 const BOUND = 2.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 
-// Debug sweep on the `a` coefficient: 1 → 0 → -1 → 0 → 1 over SWEEP_PERIOD
-// seconds, exercising the ellipsoid → cylinder → 1-sheet hyperboloid →
-// cylinder → ellipsoid family transitions. Removed when controller-driven
-// sliders take over the uniforms (#5).
-const DEBUG_SWEEP = true;
+// Debug sweep on `a`: gated off once controller sliders took over (#5).
+// Re-enable for shader / boundary-case debugging without controllers.
+const DEBUG_SWEEP = false;
 const SWEEP_PERIOD = 8;
 
 const VERTEX_SHADER = /* glsl */ `
@@ -137,13 +137,14 @@ const FRAGMENT_SHADER = /* glsl */ `
 `;
 
 let material: THREE.ShaderMaterial | undefined;
+let sliderA: Slider | undefined;
 let elapsed = 0;
 
 const quadricsExhibit: Exhibit = {
   id: 'quadrics',
   title: 'Quadric surfaces',
 
-  mount({ scene }: ExhibitContext) {
+  mount({ scene, renderer }: ExhibitContext) {
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(10, 10),
       new THREE.MeshStandardMaterial({ color: 0x222244 }),
@@ -178,15 +179,72 @@ const quadricsExhibit: Exhibit = {
     );
     surface.position.copy(SURFACE_CENTER);
     scene.add(surface);
+
+    sliderA = new Slider({
+      label: 'a',
+      min: -2,
+      max: 2,
+      initial: 1,
+    });
+    sliderA.group.position.copy(SLIDER_RACK_CENTER);
+    scene.add(sliderA.group);
+
+    setupControllers(scene, renderer, sliderA);
   },
 
   update({ delta }) {
-    if (!DEBUG_SWEEP || !material) return;
-    elapsed += delta;
-    const a = Math.cos((2 * Math.PI * elapsed) / SWEEP_PERIOD);
-    material.uniforms.uA.value = a;
+    sliderA?.update();
+    if (sliderA && material) {
+      material.uniforms.uA.value = sliderA.value;
+    }
+    if (DEBUG_SWEEP && material) {
+      elapsed += delta;
+      const a = Math.cos((2 * Math.PI * elapsed) / SWEEP_PERIOD);
+      material.uniforms.uA.value = a;
+    }
   },
 };
+
+function setupControllers(
+  scene: THREE.Scene,
+  renderer: THREE.WebGLRenderer,
+  slider: Slider,
+): void {
+  // Visible 1 m laser line along controller −Z, so the user can see where
+  // they're aiming before pressing the trigger.
+  const rayGeom = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 0, -1),
+  ]);
+  const rayMat = new THREE.LineBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.6,
+  });
+
+  for (const i of [0, 1] as const) {
+    const controller = renderer.xr.getController(i);
+    controller.add(new THREE.Line(rayGeom, rayMat));
+    scene.add(controller);
+
+    controller.addEventListener('connected', (event: { data: XRInputSource }) => {
+      const inputSource = event.data;
+      if (inputSource.gamepad) {
+        controller.userData.gamepad = inputSource.gamepad;
+      }
+    });
+    controller.addEventListener('disconnected', () => {
+      delete controller.userData.gamepad;
+    });
+
+    controller.addEventListener('selectstart', () => {
+      slider.tryGrab(controller);
+    });
+    controller.addEventListener('selectend', () => {
+      slider.releaseFromController(controller);
+    });
+  }
+}
 
 registerExhibit(quadricsExhibit);
 
