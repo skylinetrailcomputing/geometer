@@ -6,6 +6,13 @@ const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -3);
 const BOUND = 2.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 
+// Debug sweep on the `a` coefficient: 1 → 0 → -1 → 0 → 1 over SWEEP_PERIOD
+// seconds, exercising the ellipsoid → cylinder → 1-sheet hyperboloid →
+// cylinder → ellipsoid family transitions. Removed when controller-driven
+// sliders take over the uniforms (#5).
+const DEBUG_SWEEP = true;
+const SWEEP_PERIOD = 8;
+
 const VERTEX_SHADER = /* glsl */ `
   varying vec3 vWorldPos;
 
@@ -129,6 +136,9 @@ const FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
+let material: THREE.ShaderMaterial | undefined;
+let elapsed = 0;
+
 const quadricsExhibit: Exhibit = {
   id: 'quadrics',
   title: 'Quadric surfaces',
@@ -146,7 +156,7 @@ const quadricsExhibit: Exhibit = {
     directional.position.copy(LIGHT_DIR).multiplyScalar(5);
     scene.add(directional);
 
-    const material = new THREE.ShaderMaterial({
+    material = new THREE.ShaderMaterial({
       vertexShader: VERTEX_SHADER,
       fragmentShader: FRAGMENT_SHADER,
       side: THREE.DoubleSide,
@@ -170,8 +180,11 @@ const quadricsExhibit: Exhibit = {
     scene.add(surface);
   },
 
-  update() {
-    // Static surface in v0.1; #4 introduces uniform animation.
+  update({ delta }) {
+    if (!DEBUG_SWEEP || !material) return;
+    elapsed += delta;
+    const a = Math.cos((2 * Math.PI * elapsed) / SWEEP_PERIOD);
+    material.uniforms.uA.value = a;
   },
 };
 
