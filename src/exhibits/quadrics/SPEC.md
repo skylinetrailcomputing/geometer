@@ -110,7 +110,11 @@ drags through a degeneracy.
   at zero — no other snapping in v0.1.
 - **Per-slider visual:** horizontal track with a draggable thumb, labeled
   with its variable name (`a`, `b`, `c`, `d`) and current numeric value to
-  two decimal places.
+  two decimal places. The label is mounted just left of the track,
+  parented to the slider's group so it tracks position automatically;
+  variable name on the primary line (large), signed value on the
+  secondary line (small). Yaw-only billboarded, sharing the same
+  `Label` primitive as the family label.
 
 ## Scene geometry
 

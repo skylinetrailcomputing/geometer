@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Label } from './Label';
 
 export interface SliderOptions {
   label: string;
@@ -63,6 +64,7 @@ export class Slider {
   private grabbedBy: THREE.Object3D | null = null;
   private lastControllerLocalX = 0;
   private hovered = false;
+  private displayLabel: Label | undefined;
 
   constructor(options: SliderOptions) {
     this.opts = {
@@ -107,6 +109,51 @@ export class Slider {
 
   get label(): string {
     return this.opts.label;
+  }
+
+  /**
+   * Attach a billboarded text label to this slider, parented to its group so
+   * it tracks the slider's world position automatically. Primary line is the
+   * variable name (large); secondary is the current value with explicit sign
+   * to two decimals, refreshed by `tickLabel()`. Font sizes are tuned for
+   * the ~1.5 m controller-reach viewing distance per SPEC.md.
+   */
+  mountLabel(): void {
+    if (this.displayLabel) return;
+    this.displayLabel = new Label({
+      primaryFontSize: 0.04,
+      secondaryFontSize: 0.02,
+      lineGap: 0.01,
+    });
+    this.displayLabel.setPrimary(this.opts.label);
+    // Just left of the track. Track spans local x ∈ [−L/2, +L/2]; offset
+    // the label center 0.05 m beyond the left end so glyphs clear the
+    // track and the thumb at its leftmost position.
+    this.displayLabel.group.position.set(
+      -this.opts.trackLength / 2 - 0.05,
+      0,
+      0,
+    );
+    this.group.add(this.displayLabel.group);
+    this.refreshLabelValue();
+  }
+
+  /**
+   * Per-frame label tick: refresh the displayed value and re-billboard.
+   * Caller decides whether to tick (e.g. exhibit may skip when no camera
+   * is available yet). No-op if `mountLabel()` was never called.
+   */
+  tickLabel(camera: THREE.Camera): void {
+    if (!this.displayLabel) return;
+    this.refreshLabelValue();
+    this.displayLabel.faceCamera(camera);
+  }
+
+  private refreshLabelValue(): void {
+    if (!this.displayLabel) return;
+    const v = this.currentValue;
+    const sign = v < 0 ? '−' : '+';
+    this.displayLabel.setSecondary(`${sign}${Math.abs(v).toFixed(2)}`);
   }
 
   get value(): number {

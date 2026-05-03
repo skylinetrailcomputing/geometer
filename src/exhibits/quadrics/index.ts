@@ -227,6 +227,7 @@ const quadricsExhibit: Exhibit = {
         topY - i * SLIDER_ROW_PITCH,
         SLIDER_RACK_CENTER.z,
       );
+      slider.mountLabel();
       scene.add(slider.group);
       return slider;
     });
@@ -241,6 +242,7 @@ const quadricsExhibit: Exhibit = {
   update({ delta }) {
     for (const s of sliders) s.updateHover(controllers);
     for (const s of sliders) s.update();
+    if (camera) for (const s of sliders) s.tickLabel(camera);
     if (material) {
       for (const s of sliders) {
         material.uniforms[`u${s.label.toUpperCase()}`].value = s.value;
