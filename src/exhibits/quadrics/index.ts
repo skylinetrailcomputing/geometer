@@ -15,6 +15,20 @@ const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -3);
 // front. y = 3.5 is 1.0 m above the default ellipsoid's top (y = 2.5).
 const FAMILY_LABEL_POSITION = new THREE.Vector3(0, 3.5, -2.0);
 const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
+
+// Compact second classification readout, anchored above the rack so the
+// family name sits in the user's gaze area while interacting (#33). The
+// surface-anchored family label is for stepping back and reading the result
+// on the surface; this rack readout is for in-flight feedback during a drag.
+// y = 1.4 is ~0.175 m above the top slider 'a' (which lives at
+// SLIDER_RACK_CENTER.y + 1.5 * SLIDER_ROW_PITCH = 1.225) — clearance for
+// the per-slider label glyphs below and the rack-readout glyphs above.
+const RACK_LABEL_POSITION = new THREE.Vector3(0, 1.4, -0.7);
+
+// Roughly half the family-label default (0.16), matching the closer
+// viewing distance (~0.7 m vs. ~3 m for the surface label).
+const RACK_LABEL_PRIMARY_FONT_SIZE = 0.06;
+
 const BOUND = 2.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 
@@ -165,6 +179,7 @@ let material: THREE.ShaderMaterial | undefined;
 let sliders: Slider[] = [];
 let controllers: THREE.Object3D[] = [];
 let familyLabel: Label | undefined;
+let rackLabel: Label | undefined;
 let camera: THREE.Camera | undefined;
 let elapsed = 0;
 
@@ -237,6 +252,12 @@ const quadricsExhibit: Exhibit = {
     familyLabel = new Label();
     familyLabel.group.position.copy(FAMILY_LABEL_POSITION);
     scene.add(familyLabel.group);
+
+    // Rack readout — family name only. Per-slider labels already render
+    // coefficient values inline, so duplicating them here would be noise.
+    rackLabel = new Label({ primaryFontSize: RACK_LABEL_PRIMARY_FONT_SIZE });
+    rackLabel.group.position.copy(RACK_LABEL_POSITION);
+    scene.add(rackLabel.group);
   },
 
   update({ delta }) {
@@ -253,14 +274,18 @@ const quadricsExhibit: Exhibit = {
       const a = Math.cos((2 * Math.PI * elapsed) / SWEEP_PERIOD);
       material.uniforms.uA.value = a;
     }
+    const [a, b, c, d] = sliders.map((s) => s.value);
+    const { family } = classify(a, b, c, d);
     if (familyLabel) {
-      const [a, b, c, d] = sliders.map((s) => s.value);
-      const { family } = classify(a, b, c, d);
       familyLabel.setPrimary(family);
       familyLabel.setSecondary(
         sliders.map((s) => formatCoeff(s.label, s.value)).join(', '),
       );
       if (camera) familyLabel.faceCamera(camera);
+    }
+    if (rackLabel) {
+      rackLabel.setPrimary(family);
+      if (camera) rackLabel.faceCamera(camera);
     }
   },
 };
