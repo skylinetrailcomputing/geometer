@@ -6,27 +6,19 @@ import { Label } from './Label';
 import { Slider } from './Slider';
 
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -3);
-// Above-and-forward of the surface. The surface render volume reaches
-// y = SURFACE_CENTER.y + BOUND = 4.0 at small-coefficient states, so a
-// label at z = SURFACE_CENTER.z would be buried for any large-surface
-// state. Forward placement (z = -2.0) gives 1.0 m of depth separation
-// from the surface center, so when their screen-space rectangles
-// overlap stereo parallax + the depth buffer keep the label clearly in
-// front. y = 3.5 is 1.0 m above the default ellipsoid's top (y = 2.5).
-const FAMILY_LABEL_POSITION = new THREE.Vector3(0, 3.5, -2.0);
 const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 
-// Compact second classification readout, anchored above the rack so the
-// family name sits in the user's gaze area while interacting (#33). The
-// surface-anchored family label is for stepping back and reading the result
-// on the surface; this rack readout is for in-flight feedback during a drag.
-// y = 1.4 is ~0.175 m above the top slider 'a' (which lives at
-// SLIDER_RACK_CENTER.y + 1.5 * SLIDER_ROW_PITCH = 1.225) — clearance for
-// the per-slider label glyphs below and the rack-readout glyphs above.
+// Single classification readout, anchored above the rack so the family
+// name sits in the user's gaze area while interacting (#33). A second
+// surface-anchored "hero" label was tried alongside this one and removed
+// post-headset feedback as redundant — once the rack readout is present,
+// the user's attention stays at the rack during drags. y = 1.4 is ~0.175 m
+// above the top slider 'a' (at SLIDER_RACK_CENTER.y + 1.5 * SLIDER_ROW_PITCH
+// = 1.225); enough clearance for the per-slider label glyphs below.
 const RACK_LABEL_POSITION = new THREE.Vector3(0, 1.4, -0.7);
 
-// Roughly half the family-label default (0.16), matching the closer
-// viewing distance (~0.7 m vs. ~3 m for the surface label).
+// Smaller than Label's 0.16 default; matches the closer ~0.7 m viewing
+// distance from the user's spawn point.
 const RACK_LABEL_PRIMARY_FONT_SIZE = 0.06;
 
 const BOUND = 2.5;
@@ -201,18 +193,9 @@ const FRAGMENT_SHADER = /* glsl */ `
 let material: THREE.ShaderMaterial | undefined;
 let sliders: Slider[] = [];
 let controllers: THREE.Object3D[] = [];
-let familyLabel: Label | undefined;
 let rackLabel: Label | undefined;
 let camera: THREE.Camera | undefined;
 let elapsed = 0;
-
-// Format a coefficient value for the secondary label line: explicit sign,
-// two decimal places. Per SPEC.md "Label content" — the explicit sign keeps
-// the visual jump from +0.05 to −0.05 unambiguous through the zero detent.
-function formatCoeff(name: string, v: number): string {
-  const sign = v < 0 ? '−' : '+';
-  return `${name} = ${sign}${Math.abs(v).toFixed(2)}`;
-}
 
 const quadricsExhibit: Exhibit = {
   id: 'quadrics',
@@ -272,10 +255,6 @@ const quadricsExhibit: Exhibit = {
 
     controllers = setupControllers(scene, renderer, sliders);
 
-    familyLabel = new Label();
-    familyLabel.group.position.copy(FAMILY_LABEL_POSITION);
-    scene.add(familyLabel.group);
-
     // Rack readout — family name only. Per-slider labels already render
     // coefficient values inline, so duplicating them here would be noise.
     rackLabel = new Label({ primaryFontSize: RACK_LABEL_PRIMARY_FONT_SIZE });
@@ -297,16 +276,9 @@ const quadricsExhibit: Exhibit = {
       const a = Math.cos((2 * Math.PI * elapsed) / SWEEP_PERIOD);
       material.uniforms.uA.value = a;
     }
-    const [a, b, c, d] = sliders.map((s) => s.value);
-    const { family } = classify(a, b, c, d);
-    if (familyLabel) {
-      familyLabel.setPrimary(family);
-      familyLabel.setSecondary(
-        sliders.map((s) => formatCoeff(s.label, s.value)).join(', '),
-      );
-      if (camera) familyLabel.faceCamera(camera);
-    }
     if (rackLabel) {
+      const [a, b, c, d] = sliders.map((s) => s.value);
+      const { family } = classify(a, b, c, d);
       rackLabel.setPrimary(family);
       if (camera) rackLabel.faceCamera(camera);
     }
