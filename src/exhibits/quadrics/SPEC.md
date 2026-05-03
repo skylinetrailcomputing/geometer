@@ -1,0 +1,180 @@
+# `quadrics` exhibit — SPEC
+
+> Math + UX contract for the slider-driven quadric surfaces explorer.
+> v0.1 is chunked across issues #2–#8 and tracked under #9.
+
+## Goal
+
+An interactive WebXR exhibit where the learner drags four sliders to morph
+the surface defined by
+
+```
+ax² + by² + cz² = d
+```
+
+and watches a live family-classification label update as the surface
+crosses degeneracy boundaries. Built to anchor 3D spatial intuition for
+quadrics in a multivariable-calculus or linear-algebra setting.
+
+## Equation form
+
+The surface is the level set of `f(x, y, z) = ax² + by² + cz² − d`. All
+four parameters `(a, b, c, d)` are independent sliders. We deliberately do
+**not** normalize to `d = 1`: that would lose the `d = 0` boundary case
+(the cone), which is the most pedagogically useful transition in the
+exhibit — the bifurcation between 1-sheet and 2-sheet hyperboloids passes
+exactly through it.
+
+Out of scope for v0.1 (not in the equation form):
+
+- Cross terms `xy`, `yz`, `xz` (restricts to the axis-aligned subfamily).
+- Linear terms / center translation (surface always centered at the local
+  origin of the surface frame).
+
+## Sign-flip symmetry
+
+The set defined by `ax² + by² + cz² = d` equals the set defined by
+`(−a)x² + (−b)y² + (−c)z² = −d` — multiplying both sides of the equation
+by −1 leaves the solution set intact. So the *surface* is a function of
+the four-tuple `(a, b, c, d)` modulo the global flip
+`(a, b, c, d) ↔ (−a, −b, −c, −d)`. The taxonomy below lists every sign
+combination explicitly; both halves of each flip-pair appear with matching
+labels.
+
+## Classification taxonomy
+
+Let `n+`, `n−`, `n₀` be the counts of positive, negative, and zero entries
+among `(a, b, c)`. By axis-permutation we treat `(n+, n−, n₀)` as the
+classification key alongside `sgn(d)`. The label in the **Family** column
+is the exact text rendered by the UI.
+
+| `(n+, n−, n₀)` | `sgn(d)` | Family                          | Geometry                                    |
+|----------------|----------|---------------------------------|---------------------------------------------|
+| `(3,0,0)`      | `+`      | `Ellipsoid`                     | Bounded ellipsoidal surface                 |
+| `(3,0,0)`      | `0`      | `Degenerate`                    | Single point at origin                      |
+| `(3,0,0)`      | `−`      | `Empty set`                     | No real points                              |
+| `(0,3,0)`      | `+`      | `Empty set`                     | No real points                              |
+| `(0,3,0)`      | `0`      | `Degenerate`                    | Single point at origin                      |
+| `(0,3,0)`      | `−`      | `Ellipsoid`                     | Bounded ellipsoidal surface                 |
+| `(2,1,0)`      | `+`      | `Hyperboloid (1 sheet)`         | Connected ruled surface                     |
+| `(2,1,0)`      | `0`      | `Cone`                          | Double cone through origin                  |
+| `(2,1,0)`      | `−`      | `Hyperboloid (2 sheets)`        | Two disconnected sheets                     |
+| `(1,2,0)`      | `+`      | `Hyperboloid (2 sheets)`        | Two disconnected sheets                     |
+| `(1,2,0)`      | `0`      | `Cone`                          | Double cone through origin                  |
+| `(1,2,0)`      | `−`      | `Hyperboloid (1 sheet)`         | Connected ruled surface                     |
+| `(2,0,1)`      | `+`      | `Elliptic cylinder`             | Tube along the zero-coefficient axis        |
+| `(2,0,1)`      | `0`      | `Degenerate`                    | Single line (the zero-coefficient axis)     |
+| `(2,0,1)`      | `−`      | `Empty set`                     |                                             |
+| `(0,2,1)`      | `+`      | `Empty set`                     |                                             |
+| `(0,2,1)`      | `0`      | `Degenerate`                    | Single line (the zero-coefficient axis)     |
+| `(0,2,1)`      | `−`      | `Elliptic cylinder`             | Tube along the zero-coefficient axis        |
+| `(1,1,1)`      | `+`      | `Hyperbolic cylinder`           | Saddle tube along the zero-coefficient axis |
+| `(1,1,1)`      | `0`      | `Pair of intersecting planes`   | Two planes through the zero-coefficient axis |
+| `(1,1,1)`      | `−`      | `Hyperbolic cylinder`           | Saddle tube along the zero-coefficient axis |
+| `(1,0,2)`      | `+`      | `Pair of parallel planes`       | Two planes ⊥ to the nonzero-coefficient axis |
+| `(1,0,2)`      | `0`      | `Degenerate`                    | Single plane (⊥ to the nonzero-coefficient axis) |
+| `(1,0,2)`      | `−`      | `Empty set`                     |                                             |
+| `(0,1,2)`      | `+`      | `Empty set`                     |                                             |
+| `(0,1,2)`      | `0`      | `Degenerate`                    | Single plane (⊥ to the nonzero-coefficient axis) |
+| `(0,1,2)`      | `−`      | `Pair of parallel planes`       | Two planes ⊥ to the nonzero-coefficient axis |
+| `(0,0,3)`      | `0`      | `Degenerate`                    | All of ℝ³                                   |
+| `(0,0,3)`      | `+` or `−` | `Empty set`                   | No real points                              |
+
+The `Degenerate` label collapses several geometrically distinct cases
+(point, line, plane, all of ℝ³). The classifier records *which* degenerate
+case is active for the renderer's benefit, but the UI shows only
+`Degenerate` to keep the family vocabulary at v0.1 small and learnable.
+
+## Classifier numerical contract
+
+The classifier reads `(a, b, c, d)` from the slider uniforms and produces
+both the family label and the underlying geometry tag every frame. Each
+coefficient's sign is computed against an epsilon of `1e-6`: any value
+with `|v| < 1e-6` is treated as exactly zero. Combined with the slider's
+snap-to-zero detent (below), this keeps the classifier stable as the user
+drags through a degeneracy.
+
+## Slider model
+
+- **Count:** four (`a`, `b`, `c`, `d`).
+- **Range:** each slider in `[−2, 2]`. Magnitude beyond 2 doesn't add
+  classification information — only visual scale.
+- **Default starting values:** `(a, b, c, d) = (1, 1, 1, 1)` — the unit
+  sphere, an ellipsoid.
+- **Continuity:** continuous (no integer snapping). Slider value is a real
+  in `[−2, 2]`.
+- **Snap-to-zero detent:** when a slider's continuous position satisfies
+  `|v| < 0.05`, its reported value clamps to exactly `0`. This makes the
+  degeneracy boundary cases (cone, intersecting planes, single plane)
+  reachable precisely instead of by approximation. The detent applies only
+  at zero — no other snapping in v0.1.
+- **Per-slider visual:** horizontal track with a draggable thumb, labeled
+  with its variable name (`a`, `b`, `c`, `d`) and current numeric value to
+  two decimal places.
+
+## Scene geometry
+
+| Object         | Position (x, y, z)  | Notes                                 |
+|----------------|---------------------|---------------------------------------|
+| Surface center | `(0, 1.5, −1)`      | Same anchor as the hello-cube smoke scene; matches expected gaze direction. |
+| Slider rack    | `(0, 1.0, −0.7)`    | Below-and-in-front; reachable with controllers without a step. |
+| Family label   | `(0, 2.4, −1)`      | Above the surface, billboarded to face the user. |
+| Floor          | `y = 0`             | Inherited from the shell convention; visual horizon and comfort anchor. |
+
+Units are meters. The user's head start position is the WebXR session
+origin (`y ≈ 1.6` for a standing user).
+
+## Label content
+
+Two lines, billboarded:
+
+- **Family name** (large): one of the `Family` strings from the taxonomy
+  (e.g., `Hyperboloid (1 sheet)`, `Cone`, `Empty set`, `Degenerate`).
+- **Coefficient values** (small): `a = +1.00, b = +1.00, c = +1.00, d = +1.00`,
+  updating in real time. Sign is always shown explicitly so the visual
+  jump from `+0.05` to `−0.05` is unambiguous to the learner.
+
+The label re-classifies every frame.
+
+## Controller interaction
+
+- **Hands:** either left or right controller drives any slider. No
+  hand-specific roles in v0.1.
+- **Pointer model:** ray-pointer extending from each controller. Visible
+  laser line when the ray intersects an interactable.
+- **Grab:** trigger press while the ray intersects a slider thumb grabs
+  the thumb. Trigger release drops it. While grabbed, the thumb tracks
+  the controller's position projected onto the slider track and clamped
+  to the slider's range.
+- **Haptics:** light pulse (~10 ms, amplitude 0.5) on grab and on release.
+- **Other inputs are ignored:** grip button, joystick, A/B/X/Y, system menu
+  pass through to the runtime.
+
+Hand tracking is explicitly v0.2.
+
+## Definition of done — v0.1
+
+- [ ] Every render-meaningful family in the taxonomy reachable from the
+  default starting values by slider manipulation alone.
+- [ ] Family label updates within one frame of any slider change.
+- [ ] Cone case (`d = 0` with mixed-sign coefficients) reachable via the
+  zero-detent and renders without flicker.
+- [ ] No flickering, holes, or visual artifacts at boundary cases.
+- [ ] Render frame rate ≥ 72 Hz on Quest 3S in the single-surface scene.
+- [ ] Documented in repo `README.md` with a screenshot or short GIF.
+
+## v0.2 candidates (named only)
+
+Carried out of v0.1 deliberately. None of these are commitments; just a
+tracked list so the design choices in v0.1 don't accidentally foreclose
+them.
+
+- Cross-section / level-set slicing — interactive plane through the
+  surface, showing the conic cross-section as a 2D curve.
+- Off-axis quadrics — cross terms `xy`, `yz`, `xz`.
+- Translated centers — `(x − h)²` etc.
+- Hand tracking.
+- Equation rendering (LaTeX-style).
+- Multiple simultaneous surfaces for side-by-side comparison.
+- Save / load preset coefficient configurations.
+- Per-axis labels and gridlines.
