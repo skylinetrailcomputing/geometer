@@ -116,9 +116,9 @@ drags through a degeneracy.
 
 | Object         | Position (x, y, z)  | Notes                                 |
 |----------------|---------------------|---------------------------------------|
-| Surface center | `(0, 1.5, −1)`      | Same anchor as the hello-cube smoke scene; matches expected gaze direction. |
+| Surface center | `(0, 1.5, −3)`      | ~2 m in front of the standing user; close enough to walk up to, far enough that the bounding volume doesn't clip through the spawn point. |
 | Slider rack    | `(0, 1.0, −0.7)`    | Below-and-in-front; reachable with controllers without a step. |
-| Family label   | `(0, 2.4, −1)`      | Above the surface, billboarded to face the user. |
+| Family label   | `(0, 2.4, −3)`      | Above the surface, billboarded to face the user. |
 | Floor          | `y = 0`             | Inherited from the shell convention; visual horizon and comfort anchor. |
 
 Units are meters. The user's head start position is the WebXR session

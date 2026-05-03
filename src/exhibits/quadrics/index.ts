@@ -2,9 +2,16 @@ import * as THREE from 'three';
 import type { Exhibit, ExhibitContext } from '../../shell/Exhibit';
 import { registerExhibit } from '../../shell/registry';
 
-const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -1);
+const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -3);
 const BOUND = 2.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
+
+// Debug sweep on the `a` coefficient: 1 → 0 → -1 → 0 → 1 over SWEEP_PERIOD
+// seconds, exercising the ellipsoid → cylinder → 1-sheet hyperboloid →
+// cylinder → ellipsoid family transitions. Removed when controller-driven
+// sliders take over the uniforms (#5).
+const DEBUG_SWEEP = true;
+const SWEEP_PERIOD = 8;
 
 const VERTEX_SHADER = /* glsl */ `
   varying vec3 vWorldPos;
@@ -18,6 +25,12 @@ const VERTEX_SHADER = /* glsl */ `
 
 const FRAGMENT_SHADER = /* glsl */ `
   precision highp float;
+
+  // Three.js auto-populates projectionMatrix on every program, but only
+  // declares it in vertex-shader prefixes — fragment shaders have to
+  // declare it explicitly to use it. (viewMatrix and cameraPosition are
+  // declared automatically.)
+  uniform mat4 projectionMatrix;
 
   uniform vec3  uSurfaceCenter;
   uniform float uA;
@@ -112,8 +125,19 @@ const FRAGMENT_SHADER = /* glsl */ `
     float lambert = max(dot(n, normalize(uLightDir)), 0.0);
     vec3 color = uBaseColor * (0.2 + 0.8 * lambert);
     gl_FragColor = vec4(color, 1.0);
+
+    // Write the implicit-surface depth, not the bounding cube's. Quest's
+    // asynchronous spacewarp reprojects per-pixel from the depth buffer; with
+    // the cube's depth (meters off from the visible surface), reprojection
+    // smears the surface into a translucent / negative-space ghost.
+    vec3 hitWorld = pHit + uSurfaceCenter;
+    vec4 clip = projectionMatrix * viewMatrix * vec4(hitWorld, 1.0);
+    gl_FragDepth = (clip.z / clip.w) * 0.5 + 0.5;
   }
 `;
+
+let material: THREE.ShaderMaterial | undefined;
+let elapsed = 0;
 
 const quadricsExhibit: Exhibit = {
   id: 'quadrics',
@@ -132,7 +156,7 @@ const quadricsExhibit: Exhibit = {
     directional.position.copy(LIGHT_DIR).multiplyScalar(5);
     scene.add(directional);
 
-    const material = new THREE.ShaderMaterial({
+    material = new THREE.ShaderMaterial({
       vertexShader: VERTEX_SHADER,
       fragmentShader: FRAGMENT_SHADER,
       side: THREE.DoubleSide,
@@ -156,8 +180,11 @@ const quadricsExhibit: Exhibit = {
     scene.add(surface);
   },
 
-  update() {
-    // Static surface in v0.1; #4 introduces uniform animation.
+  update({ delta }) {
+    if (!DEBUG_SWEEP || !material) return;
+    elapsed += delta;
+    const a = Math.cos((2 * Math.PI * elapsed) / SWEEP_PERIOD);
+    material.uniforms.uA.value = a;
   },
 };
 
