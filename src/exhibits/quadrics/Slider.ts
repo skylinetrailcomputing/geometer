@@ -100,6 +100,9 @@ export class Slider {
     this.group.add(this.thumb);
 
     this.syncThumbPosition();
+    // Initial emissive via the centralized state machine, not by relying on
+    // MeshStandardMaterial's default `0x000000` happening to match idle.
+    this.refreshThumbEmissive();
   }
 
   get label(): string {
@@ -214,16 +217,21 @@ export class Slider {
     return this.localPoint.x;
   }
 
-  // Thumb tracks `rawValue`, not `currentValue`. Inside the detent the
-  // shader still sees the snapped 0 (correct surface form), but the thumb
-  // moves smoothly with the user's hand so a slow drag past the detent
-  // edge is visibly rewarded. Without this, the thumb appears stuck at 0
-  // until rawValue escapes ±0.05 — which is exactly the symptom #24
-  // exists to fix on the value side.
+  // Thumb tracks the *displayed* value (i.e. `currentValue`'s would-be
+  // snapped projection of `rawValue`), not raw. Inside the detent the thumb
+  // parks at zero so it stays aligned with what the future two-decimal
+  // numeric label will read (per SPEC.md "Slider model"). The slow-drag-
+  // escape behavior of #24 is preserved by `rawValue` accumulating in
+  // `update()` underneath — once raw clears ±ZERO_DETENT, the thumb tracks
+  // it again. Bonus: the visible "park at zero on approach" is part of the
+  // detent's affordance — the user feels the boundary before reading the
+  // label.
   private syncThumbPosition(): void {
     const halfLen = this.opts.trackLength / 2;
+    const displayValue =
+      Math.abs(this.rawValue) < ZERO_DETENT ? 0 : this.rawValue;
     const t =
-      (this.rawValue - this.opts.min) / (this.opts.max - this.opts.min);
+      (displayValue - this.opts.min) / (this.opts.max - this.opts.min);
     this.thumb.position.x = -halfLen + t * this.opts.trackLength;
   }
 }
