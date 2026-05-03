@@ -34,6 +34,10 @@ const HAPTIC_DURATION_MS = 10;
 
 const THUMB_BASE_COLOR = 0xeeaa33;
 const THUMB_HOVER_EMISSIVE = 0x884422;
+// Same warm hue as hover, brighter — reads as "engaged" rather than a
+// different affordance. Cool/contrasting hues risked looking like a
+// separate UI element.
+const THUMB_GRAB_EMISSIVE = 0xffaa44;
 
 interface ControllerWithGamepad extends THREE.Object3D {
   userData: { gamepad?: Gamepad };
@@ -49,6 +53,12 @@ export class Slider {
   private readonly controllerWorld = new THREE.Vector3();
   private readonly localPoint = new THREE.Vector3();
 
+  // `rawValue` integrates hand motion every frame, untouched by the detent.
+  // `currentValue` is the emitted value — snapped to exactly 0 inside the
+  // detent — and is what `get value()` returns to the shader. Splitting the
+  // two lets slow drags accumulate underneath the detent instead of being
+  // re-pinned to 0 each frame (#24).
+  private rawValue: number;
   private currentValue: number;
   private grabbedBy: THREE.Object3D | null = null;
   private lastControllerLocalX = 0;
@@ -61,7 +71,9 @@ export class Slider {
       dragGain: DEFAULT_DRAG_GAIN,
       ...options,
     };
-    this.currentValue = clamp(options.initial, options.min, options.max);
+    this.rawValue = clamp(options.initial, options.min, options.max);
+    this.currentValue =
+      Math.abs(this.rawValue) < ZERO_DETENT ? 0 : this.rawValue;
 
     this.group = new THREE.Group();
     this.group.name = `slider:${options.label}`;
@@ -88,6 +100,9 @@ export class Slider {
     this.group.add(this.thumb);
 
     this.syncThumbPosition();
+    // Initial emissive via the centralized state machine, not by relying on
+    // MeshStandardMaterial's default `0x000000` happening to match idle.
+    this.refreshThumbEmissive();
   }
 
   get label(): string {
@@ -112,6 +127,7 @@ export class Slider {
 
     this.grabbedBy = controller;
     this.lastControllerLocalX = this.controllerLocalX(controller);
+    this.refreshThumbEmissive();
     pulse(controller);
     return true;
   }
@@ -119,14 +135,21 @@ export class Slider {
   releaseFromController(controller: THREE.Object3D): void {
     if (this.grabbedBy !== controller) return;
     this.grabbedBy = null;
+    // `hovered` is frozen at whatever it was at grab time — `updateHover`
+    // short-circuits while grabbed, so it can't go false during the drag.
+    // Clear it here so a release after the controller drifted off the thumb
+    // doesn't flash the hover-yellow color until the next `updateHover`
+    // frame corrects it.
+    this.hovered = false;
+    this.refreshThumbEmissive();
     pulse(controller);
   }
 
   /**
    * Per-frame hover update. Lights the thumb's emissive when any controller's
    * ray is within the grab region — a "you can grab now" affordance that also
-   * exposes the wider hit radius to the user. No-op while grabbed (the user
-   * already has it).
+   * exposes the wider hit radius to the user. No-op on the hover bit while
+   * grabbed (the grab visual takes precedence and is set elsewhere).
    */
   updateHover(controllers: readonly THREE.Object3D[]): void {
     const hovered =
@@ -134,8 +157,20 @@ export class Slider {
       controllers.some((c) => this.rayHitsThumb(c));
     if (hovered === this.hovered) return;
     this.hovered = hovered;
+    this.refreshThumbEmissive();
+  }
+
+  // Thumb emissive is a deterministic function of {grabbed, hovered, idle}.
+  // Called from each transition point — `tryGrab`, `releaseFromController`,
+  // and `updateHover` — so the visual always matches state.
+  private refreshThumbEmissive(): void {
     const mat = this.thumb.material as THREE.MeshStandardMaterial;
-    mat.emissive.setHex(hovered ? THUMB_HOVER_EMISSIVE : 0x000000);
+    const hex = this.grabbedBy
+      ? THUMB_GRAB_EMISSIVE
+      : this.hovered
+        ? THUMB_HOVER_EMISSIVE
+        : 0x000000;
+    mat.emissive.setHex(hex);
   }
 
   private rayHitsThumb(controller: THREE.Object3D): boolean {
@@ -152,8 +187,11 @@ export class Slider {
 
   /**
    * Per-frame tick. Integrates controller motion (relative drag) into the
-   * current value with `dragGain` as the sensitivity multiplier — the user's
+   * raw value with `dragGain` as the sensitivity multiplier — the user's
    * hand doesn't have to traverse the full track to span the full range.
+   * The detent is applied only to `currentValue` (the emitted/shader value),
+   * so per-frame motion always accumulates in `rawValue` and slow drags
+   * escape the snap.
    */
   update(): void {
     if (!this.grabbedBy) return;
@@ -163,10 +201,13 @@ export class Slider {
 
     const range = this.opts.max - this.opts.min;
     const valueDelta = delta * this.opts.dragGain * (range / this.opts.trackLength);
-    let v = clamp(this.currentValue + valueDelta, this.opts.min, this.opts.max);
-    if (Math.abs(v) < ZERO_DETENT) v = 0;
-
-    this.currentValue = v;
+    this.rawValue = clamp(
+      this.rawValue + valueDelta,
+      this.opts.min,
+      this.opts.max,
+    );
+    this.currentValue =
+      Math.abs(this.rawValue) < ZERO_DETENT ? 0 : this.rawValue;
     this.syncThumbPosition();
   }
 
@@ -176,11 +217,21 @@ export class Slider {
     return this.localPoint.x;
   }
 
+  // Thumb tracks the *displayed* value (i.e. `currentValue`'s would-be
+  // snapped projection of `rawValue`), not raw. Inside the detent the thumb
+  // parks at zero so it stays aligned with what the future two-decimal
+  // numeric label will read (per SPEC.md "Slider model"). The slow-drag-
+  // escape behavior of #24 is preserved by `rawValue` accumulating in
+  // `update()` underneath — once raw clears ±ZERO_DETENT, the thumb tracks
+  // it again. Bonus: the visible "park at zero on approach" is part of the
+  // detent's affordance — the user feels the boundary before reading the
+  // label.
   private syncThumbPosition(): void {
     const halfLen = this.opts.trackLength / 2;
+    const displayValue =
+      Math.abs(this.rawValue) < ZERO_DETENT ? 0 : this.rawValue;
     const t =
-      (this.currentValue - this.opts.min) /
-      (this.opts.max - this.opts.min);
+      (displayValue - this.opts.min) / (this.opts.max - this.opts.min);
     this.thumb.position.x = -halfLen + t * this.opts.trackLength;
   }
 }
