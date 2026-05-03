@@ -19,7 +19,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "three": "^0.184.0"
+    "three": "^0.184.0",
+    "troika-three-text": "^0.52.4"
   },
   "devDependencies": {
     "@types/three": "^0.184.0",
