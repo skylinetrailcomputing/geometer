@@ -34,6 +34,10 @@ const HAPTIC_DURATION_MS = 10;
 
 const THUMB_BASE_COLOR = 0xeeaa33;
 const THUMB_HOVER_EMISSIVE = 0x884422;
+// Same warm hue as hover, brighter — reads as "engaged" rather than a
+// different affordance. Cool/contrasting hues risked looking like a
+// separate UI element.
+const THUMB_GRAB_EMISSIVE = 0xffaa44;
 
 interface ControllerWithGamepad extends THREE.Object3D {
   userData: { gamepad?: Gamepad };
@@ -120,6 +124,7 @@ export class Slider {
 
     this.grabbedBy = controller;
     this.lastControllerLocalX = this.controllerLocalX(controller);
+    this.refreshThumbEmissive();
     pulse(controller);
     return true;
   }
@@ -127,14 +132,15 @@ export class Slider {
   releaseFromController(controller: THREE.Object3D): void {
     if (this.grabbedBy !== controller) return;
     this.grabbedBy = null;
+    this.refreshThumbEmissive();
     pulse(controller);
   }
 
   /**
    * Per-frame hover update. Lights the thumb's emissive when any controller's
    * ray is within the grab region — a "you can grab now" affordance that also
-   * exposes the wider hit radius to the user. No-op while grabbed (the user
-   * already has it).
+   * exposes the wider hit radius to the user. No-op on the hover bit while
+   * grabbed (the grab visual takes precedence and is set elsewhere).
    */
   updateHover(controllers: readonly THREE.Object3D[]): void {
     const hovered =
@@ -142,8 +148,20 @@ export class Slider {
       controllers.some((c) => this.rayHitsThumb(c));
     if (hovered === this.hovered) return;
     this.hovered = hovered;
+    this.refreshThumbEmissive();
+  }
+
+  // Thumb emissive is a deterministic function of {grabbed, hovered, idle}.
+  // Called from each transition point — `tryGrab`, `releaseFromController`,
+  // and `updateHover` — so the visual always matches state.
+  private refreshThumbEmissive(): void {
     const mat = this.thumb.material as THREE.MeshStandardMaterial;
-    mat.emissive.setHex(hovered ? THUMB_HOVER_EMISSIVE : 0x000000);
+    const hex = this.grabbedBy
+      ? THUMB_GRAB_EMISSIVE
+      : this.hovered
+        ? THUMB_HOVER_EMISSIVE
+        : 0x000000;
+    mat.emissive.setHex(hex);
   }
 
   private rayHitsThumb(controller: THREE.Object3D): boolean {
