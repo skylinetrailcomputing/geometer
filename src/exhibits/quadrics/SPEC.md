@@ -139,7 +139,12 @@ The label re-classifies every frame.
 ## Controller interaction
 
 - **Hands:** either left or right controller drives any slider. No
-  hand-specific roles in v0.1.
+  hand-specific roles in v0.1. Both hands may simultaneously grab and
+  drag *different* sliders — pedagogically useful for exploring joint
+  coefficient effects (e.g., dragging `a` and `c` together to slide
+  between hyperboloids of one and two sheets through the cone). Two
+  hands cannot grab the same slider at once; whichever pulls the trigger
+  first wins.
 - **Pointer model:** ray-pointer extending from each controller. Visible
   laser line when the ray intersects an interactable.
 - **Grab:** trigger press while the ray intersects a slider thumb grabs

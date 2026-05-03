@@ -78,6 +78,10 @@ export class Slider {
     this.syncThumbPosition();
   }
 
+  get label(): string {
+    return this.opts.label;
+  }
+
   get value(): number {
     return this.currentValue;
   }

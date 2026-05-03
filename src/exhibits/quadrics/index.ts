@@ -8,8 +8,18 @@ const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 const BOUND = 2.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 
+// Vertical stacking pitch for the rack. SPEC pins the rack center but
+// not per-slider positions; horizontal arrangement would be ~1.6 m wide.
+// 0.07 m keeps the four thumbs visually distinct without crowding.
+const SLIDER_ROW_PITCH = 0.07;
+type CoeffName = 'a' | 'b' | 'c' | 'd';
+const COEFF_NAMES: readonly CoeffName[] = ['a', 'b', 'c', 'd'] as const;
+
 // Debug sweep on `a`: gated off once controller sliders took over (#5).
 // Re-enable for shader / boundary-case debugging without controllers.
+// Sweeps `uA` only — `uB`/`uC`/`uD` continue tracking their sliders, which
+// is fine for the original use case (verify single-axis morphing) but
+// produces mixed live/sweep state if you forget. Adjust if needed.
 const DEBUG_SWEEP = false;
 const SWEEP_PERIOD = 8;
 
@@ -137,7 +147,7 @@ const FRAGMENT_SHADER = /* glsl */ `
 `;
 
 let material: THREE.ShaderMaterial | undefined;
-let sliderA: Slider | undefined;
+let sliders: Slider[] = [];
 let elapsed = 0;
 
 const quadricsExhibit: Exhibit = {
@@ -180,22 +190,28 @@ const quadricsExhibit: Exhibit = {
     surface.position.copy(SURFACE_CENTER);
     scene.add(surface);
 
-    sliderA = new Slider({
-      label: 'a',
-      min: -2,
-      max: 2,
-      initial: 1,
+    // Top → bottom: a, b, c, d. Span centered on SLIDER_RACK_CENTER.
+    const topY = SLIDER_RACK_CENTER.y + ((COEFF_NAMES.length - 1) / 2) * SLIDER_ROW_PITCH;
+    sliders = COEFF_NAMES.map((label, i) => {
+      const slider = new Slider({ label, min: -2, max: 2, initial: 1 });
+      slider.group.position.set(
+        SLIDER_RACK_CENTER.x,
+        topY - i * SLIDER_ROW_PITCH,
+        SLIDER_RACK_CENTER.z,
+      );
+      scene.add(slider.group);
+      return slider;
     });
-    sliderA.group.position.copy(SLIDER_RACK_CENTER);
-    scene.add(sliderA.group);
 
-    setupControllers(scene, renderer, sliderA);
+    setupControllers(scene, renderer, sliders);
   },
 
   update({ delta }) {
-    sliderA?.update();
-    if (sliderA && material) {
-      material.uniforms.uA.value = sliderA.value;
+    for (const s of sliders) s.update();
+    if (material) {
+      for (const s of sliders) {
+        material.uniforms[`u${s.label.toUpperCase()}`].value = s.value;
+      }
     }
     if (DEBUG_SWEEP && material) {
       elapsed += delta;
@@ -208,7 +224,7 @@ const quadricsExhibit: Exhibit = {
 function setupControllers(
   scene: THREE.Scene,
   renderer: THREE.WebGLRenderer,
-  slider: Slider,
+  sliders: readonly Slider[],
 ): void {
   // Visible 1 m laser line along controller −Z, so the user can see where
   // they're aiming before pressing the trigger.
@@ -238,10 +254,12 @@ function setupControllers(
     });
 
     controller.addEventListener('selectstart', () => {
-      slider.tryGrab(controller);
+      for (const s of sliders) {
+        if (s.tryGrab(controller)) break;
+      }
     });
     controller.addEventListener('selectend', () => {
-      slider.releaseFromController(controller);
+      for (const s of sliders) s.releaseFromController(controller);
     });
   }
 }
