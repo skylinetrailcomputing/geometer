@@ -15,7 +15,7 @@ export interface SliderOptions {
 
 const DEFAULT_TRACK_LENGTH = 0.3;
 const DEFAULT_THUMB_RADIUS = 0.025;
-const DEFAULT_DRAG_GAIN = 2.5;
+const DEFAULT_DRAG_GAIN = 1.75;
 
 // Snap-to-zero detent half-width, per quadrics SPEC.md "Slider model".
 // Lets the user park exactly on a degeneracy boundary instead of approximating.
