@@ -19,6 +19,13 @@ export function bootShell(): void {
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.xr.enabled = true;
+  // Quest fixed foveated rendering: lowers peripheral pixel rate to free GPU
+  // budget for the center of view. Stored now and applied by Three.js when
+  // the XR projection layer is created at session start. Range 0..1; higher
+  // = more aggressive periphery downsampling. Starting mild — wide detailed
+  // fraction, gentle falloff — so the periphery doesn't read as visibly
+  // blurry; ramp up if profiling says we still need more headroom (#38).
+  renderer.xr.setFoveation(0.3);
   document.body.appendChild(renderer.domElement);
   document.body.appendChild(VRButton.createButton(renderer));
 

@@ -22,6 +22,14 @@ const DEFAULT_DRAG_GAIN = 1.75;
 // Lets the user park exactly on a degeneracy boundary instead of approximating.
 const ZERO_DETENT = 0.05;
 
+// Per-slider value-label refresh cap during a drag. The displayed value is
+// re-formatted at most once per this interval, keeping the troika SDF
+// `.sync()` rate bounded while head-pose billboarding still runs every frame.
+// Outside an active drag the label always refreshes (so the post-release
+// value is exact). 33 ms ≈ 30 Hz — humans can't read faster than that
+// anyway, and ~3× fewer SDF re-syncs is the whole point (issue #38).
+const LABEL_SYNC_INTERVAL_MS = 33;
+
 // Ray–thumb hit-test radius is this multiple of the thumb's visual radius.
 // Wider than the visual makes re-grab forgiving when the hand drifts off-aim
 // during release — especially after a zero-snap, where the thumb jumps to
@@ -65,6 +73,7 @@ export class Slider {
   private lastControllerLocalX = 0;
   private hovered = false;
   private displayLabel: Label | undefined;
+  private lastLabelSyncMs = 0;
 
   constructor(options: SliderOptions) {
     this.opts = {
@@ -142,10 +151,22 @@ export class Slider {
    * Per-frame label tick: refresh the displayed value and re-billboard.
    * Caller decides whether to tick (e.g. exhibit may skip when no camera
    * is available yet). No-op if `mountLabel()` was never called.
+   *
+   * The value-string refresh is throttled while a drag is active (see
+   * `LABEL_SYNC_INTERVAL_MS`) so troika SDF `.sync()` work is bounded.
+   * Billboarding (`faceCamera`) runs every frame regardless — head pose
+   * tracks at full rate.
    */
   tickLabel(camera: THREE.Camera): void {
     if (!this.displayLabel) return;
-    this.refreshLabelValue();
+    const now = performance.now();
+    const dueForSync =
+      this.grabbedBy === null ||
+      now - this.lastLabelSyncMs >= LABEL_SYNC_INTERVAL_MS;
+    if (dueForSync) {
+      this.refreshLabelValue();
+      this.lastLabelSyncMs = now;
+    }
     this.displayLabel.faceCamera(camera);
   }
 
