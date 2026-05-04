@@ -145,6 +145,26 @@ uniformly-lit single-color quadric). Line spacing 0.5 m, near-black
 "carved" line color, anti-aliased via `fwidth`. Decorative depth cue
 only — labels / measurement come in v0.2.
 
+## Frame-pacing knobs (#38)
+
+Two surgical knobs land in v0.1.1 to tighten the labels-vs-surface
+asymmetry first reported post-#8 (smooth surface, slightly-jank UI):
+
+- **Quest fixed foveated rendering** at maximum
+  (`renderer.xr.setFoveation(1.0)` in the shell). Frees GPU budget on
+  the periphery; applies to every exhibit, not just this one. Static
+  / center-of-view foveation (Quest 3S has no eye tracking).
+- **Throttled per-slider value-label refresh** during an active drag
+  (≤30 Hz, see `LABEL_SYNC_INTERVAL_MS` in `Slider.ts`). Bounds the
+  rate of troika SDF `.sync()` calls — head-pose billboarding still
+  runs every frame, so motion smoothness is untouched. Outside an
+  active drag the label refreshes every tick so the post-release
+  value is exact.
+
+Both are reversible knobs. Profile-guided follow-ups (ray-march
+`STEPS`, framebuffer scale factor, etc.) deferred to a follow-on PR
+if these don't fully close the gap.
+
 ## Label content
 
 One classification readout plus one label per slider:
