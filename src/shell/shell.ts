@@ -21,10 +21,11 @@ export function bootShell(): void {
   renderer.xr.enabled = true;
   // Quest fixed foveated rendering: lowers peripheral pixel rate to free GPU
   // budget for the center of view. Stored now and applied by Three.js when
-  // the XR projection layer is created at session start. Trade-off is some
-  // peripheral softness; on Quest 3S the win on frame deadlines is the
-  // dominant signal (issue #38). Range 0..1; 1 = maximum foveation.
-  renderer.xr.setFoveation(1.0);
+  // the XR projection layer is created at session start. Range 0..1; higher
+  // = more aggressive periphery downsampling. Starting mild — wide detailed
+  // fraction, gentle falloff — so the periphery doesn't read as visibly
+  // blurry; ramp up if profiling says we still need more headroom (#38).
+  renderer.xr.setFoveation(0.3);
   document.body.appendChild(renderer.domElement);
   document.body.appendChild(VRButton.createButton(renderer));
 

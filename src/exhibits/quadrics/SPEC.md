@@ -150,10 +150,13 @@ only — labels / measurement come in v0.2.
 Two surgical knobs land in v0.1.1 to tighten the labels-vs-surface
 asymmetry first reported post-#8 (smooth surface, slightly-jank UI):
 
-- **Quest fixed foveated rendering** at maximum
-  (`renderer.xr.setFoveation(1.0)` in the shell). Frees GPU budget on
-  the periphery; applies to every exhibit, not just this one. Static
-  / center-of-view foveation (Quest 3S has no eye tracking).
+- **Quest fixed foveated rendering** at a mild setting
+  (`renderer.xr.setFoveation(0.3)` in the shell — wide detailed
+  fraction, gentle falloff). Frees GPU budget on the periphery
+  without making it read as visibly blurry; applies to every exhibit,
+  not just this one. Static / center-of-view foveation (Quest 3S has
+  no eye tracking). Ramp the level up if profiling says more headroom
+  is needed.
 - **Throttled per-slider value-label refresh** during an active drag
   (≤30 Hz, see `LABEL_SYNC_INTERVAL_MS` in `Slider.ts`). Bounds the
   rate of troika SDF `.sync()` calls — head-pose billboarding still
