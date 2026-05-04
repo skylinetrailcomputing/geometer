@@ -17,3 +17,12 @@ repos:
         args: ['--maxkb=500']
       - id: check-yaml
       - id: check-json
+
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint
+        entry: npm run lint --silent
+        language: system
+        types: [ts]
+        pass_filenames: false
