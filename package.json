@@ -16,7 +16,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint ."
   },
   "dependencies": {
     "three": "^0.184.0",
@@ -24,7 +25,9 @@
   },
   "devDependencies": {
     "@types/three": "^0.184.0",
+    "eslint": "^10.3.0",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.2",
     "vite": "^8.0.10"
   }
 }
