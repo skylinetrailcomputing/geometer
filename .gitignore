@@ -30,3 +30,7 @@ npm-debug.log*
 
 # Claude Code maintainer-only context (workspace @-imports etc.)
 CLAUDE.local.md
+
+# Raw / pre-trim screen captures kept locally for re-edit; only the
+# transcoded README assets (e.g. screenshots/quadrics.mp4) are tracked.
+screenshots/*-raw.*
