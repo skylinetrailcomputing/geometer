@@ -313,9 +313,9 @@ function buildArrowGeometry(
   // recognizably pointy (h/r = 0.8) after a brief headset pass at 1.0r
   // showed the cones reading too disc-like at full thumbRadius.
   const shaftLength = 1.75 * r;
-  const shaftRadius = 0.25 * r;
+  const shaftRadius = 0.35 * r;
   const coneHeight = 0.6 * r;
-  const coneRadius = 0.75 * r;
+  const coneRadius = 0.25 * r;
   // Cone center sits at half-shaft + half-cone along Y so its base flushes
   // against the shaft's end.
   const coneCenter = shaftLength / 2 + coneHeight / 2;
