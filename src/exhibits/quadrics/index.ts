@@ -135,6 +135,26 @@ const SLIDER_CONFIG: readonly {
   { name: 'd', color: SLIDER_YELLOW,       shape: 'sphere' },
 ];
 
+// Linear-terms section (#88, scoped by #85). Each slider drives the linear
+// coefficient on its same-axis math-frame variable: `u` shifts the surface
+// along math-X, `v` along math-Y, `w` along math-Z. Reusing the
+// vermillion / bluish-green / sky-blue palette + axis-arrow shapes from
+// the coefficient rack keeps the "color = math axis" identification
+// consistent across sections — a vermillion thumb means math-X regardless
+// of which section is active. The label tells the user which math role
+// (squared coefficient vs. linear coefficient) the axis is parameterized
+// by; the section tab tells them which lens they're in.
+type LinearName = 'u' | 'v' | 'w';
+const LINEAR_SLIDER_CONFIG: readonly {
+  readonly name: LinearName;
+  readonly color: number;
+  readonly shape: ThumbShape;
+}[] = [
+  { name: 'u', color: SLIDER_VERMILLION,   shape: 'arrow-x' },
+  { name: 'v', color: SLIDER_BLUISH_GREEN, shape: 'arrow-y' },
+  { name: 'w', color: SLIDER_SKY_BLUE,     shape: 'arrow-z' },
+];
+
 // Math-frame axis indicator colors, matched to the slider that drives
 // each axis (#58, Q2). Slider `d` is the constant term and has no axis,
 // hence only three entries.
@@ -442,11 +462,16 @@ const FRAGMENT_SHADER = /* glsl */ `
 `;
 
 let material: THREE.ShaderMaterial | undefined;
-// Sections own their sliders + presets (#57). `sliders` aliases the
-// Coefficients section's sliders specifically — they always drive the
-// shader uniforms regardless of which section is currently active, so a
-// stable reference is convenient for the slider→uniform routing block.
+// Sections own their sliders + presets (#57). `sliders` and `linearSliders`
+// alias each section's slider array — they always drive the shader uniforms
+// regardless of which section is currently active, so stable references are
+// convenient for the slider→uniform routing block in update(). The active
+// section gates *grab dispatch* (so hidden sliders aren't accidentally
+// grabbable), not the slider-value-to-uniform read — that runs unconditionally
+// for every section so e.g. a value mid-tween from another section keeps
+// driving the surface even after a tab switch.
 let sliders: readonly Slider[] = [];
+let linearSliders: readonly Slider[] = [];
 let sections: Section[] = [];
 let tabs: SectionTab[] = [];
 let activeSectionIndex = 0;
@@ -545,18 +570,59 @@ const quadricsExhibit: Exhibit = {
       return preset;
     });
 
-    // One section today (Coefficients). Future sections — level-set
-    // slicing, first-degree linear terms — append here and add a
-    // matching SectionTab; the dispatch loop below reads from
-    // `sections[activeSectionIndex]` so no further wiring is needed.
+    // Linear-terms section sliders (#88). Same spatial position as the
+    // coefficient rack — Section.setActive(false) hides whichever rack is
+    // not currently selected, so they never co-render. Three rows for
+    // u/v/w, centered vertically on SLIDER_RACK_CENTER like the four-row
+    // coefficient rack. Default value 0 (so the linear-terms section
+    // starts as "pure quadric" until the user drags); range ±2 mirrors
+    // the coefficient-slider domain.
+    const linearTopY =
+      SLIDER_RACK_CENTER.y +
+      ((LINEAR_SLIDER_CONFIG.length - 1) / 2) * SLIDER_ROW_PITCH;
+    const linearTermSliders = LINEAR_SLIDER_CONFIG.map((cfg, i) => {
+      const slider = new Slider({
+        label: cfg.name,
+        min: -2,
+        max: 2,
+        initial: 0,
+        baseColor: cfg.color,
+        thumbShape: cfg.shape,
+      });
+      slider.group.position.set(
+        SLIDER_RACK_CENTER.x,
+        linearTopY - i * SLIDER_ROW_PITCH,
+        SLIDER_RACK_CENTER.z,
+      );
+      scene.add(slider.group);
+      return slider;
+    });
+    linearSliders = linearTermSliders;
+
+    // Two sections (#88). The dispatch loop below reads from
+    // `sections[activeSectionIndex]` for grab dispatch and per-section
+    // billboarding; the slider→uniform read in update() runs across all
+    // sections every frame so non-active sliders still drive the shader
+    // (cheap, and keeps any tween-in-flight from stalling on a tab switch).
     sections = [
       new Section({
         name: 'Coefficients',
         sliders: coefficientSliders,
         presets: coefficientPresets,
       }),
+      new Section({
+        name: 'Linear terms',
+        sliders: linearTermSliders,
+        presets: [],
+      }),
     ];
     activeSectionIndex = 0;
+    // Section.active defaults to true, so non-active sections need an
+    // explicit hide pass at startup — otherwise both racks would render
+    // simultaneously and both would be grabbable.
+    for (let i = 0; i < sections.length; i++) {
+      sections[i].setActive(i === activeSectionIndex);
+    }
 
     // Tab row centered on x = 0 above the family classifier. With one
     // section the row is a single button; arithmetic generalizes to N
@@ -631,12 +697,24 @@ const quadricsExhibit: Exhibit = {
     //   slider b → math-Y² → world-Z² → uC
     //   slider c → math-Z² → world-Y² → uB
     //   slider d → uD (constant term)
+    // Linear-term routing (#88) follows the same math→world swap, but on
+    // the first-degree variable rather than its square:
+    //   slider u → math-X → world-X → uU
+    //   slider v → math-Y → world-Z → uW
+    //   slider w → math-Z → world-Y → uV
+    // A non-zero (u, v, w) translates the surface's center along the
+    // matching world axis; classify() is invariant under this shift —
+    // the family is unchanged, only the location moves.
     const [a, b, c, d] = sliders.map((s) => s.value);
+    const [u, v, w] = linearSliders.map((s) => s.value);
     if (material) {
       material.uniforms.uA.value = a;
       material.uniforms.uC.value = b;
       material.uniforms.uB.value = c;
       material.uniforms.uD.value = d;
+      material.uniforms.uU.value = u;
+      material.uniforms.uW.value = v;
+      material.uniforms.uV.value = w;
     }
     if (DEBUG_SWEEP && material) {
       elapsed += delta;
