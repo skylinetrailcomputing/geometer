@@ -6,19 +6,23 @@
 
 A free, open-source WebXR sandbox of geometry exhibits aimed at undergraduate students of calculus, linear algebra, and differential equations. The thesis: VR earns its keep on math where the bottleneck for the learner is *3D spatial intuition* — quadric surfaces, vector fields, eigenvectors and eigenspaces, ODE phase portraits in 3D.
 
-**Status:** v0.1 — `quadrics` exhibit shipped. Slider-driven
-`ax² + by² + cz² = d` explorer with live family classification,
-per-slider value labels, and world-axis gridlines on the surface for
-3D depth cues.
+**Status:** v0.3 — `quadrics` exhibit shipped. Slider-driven
+`ax² + by² + cz² = d` explorer with live family classification, live
+equation readout, canonical-pose preset buttons with animated
+family-transition tweens, parametric / world-axis gridlines on the
+surface for depth cues, and a section-selector rack ready for
+sibling sections (level-set slicing, linear terms) in future versions.
 
 ## Demo
 
-<video src="https://github.com/user-attachments/assets/3689d8f2-9005-499c-b4af-eb5c29092146" autoplay loop muted playsinline width="720" aria-label="Quest 3S view of the quadrics exhibit: the surface morphs through ellipsoid, cone, and hyperboloid as the a/b/c/d sliders are dragged, with the family classification label updating in real time">
+<video src="https://github.com/user-attachments/assets/bdaa5f33-0cef-4eda-ab95-ed6e83a50165" autoplay loop muted playsinline width="720" aria-label="Quest 3S view of the quadrics exhibit: dragging sliders and tapping canonical-pose preset buttons morph the surface through ellipsoid, cone, and hyperboloid families, with the live family classification label updating across each transition">
   Your browser does not support inline video.
 </video>
 
-Drag the `a`, `b`, `c`, `d` sliders to morph the surface; the family
-label classifies the result in real time as you cross degeneracy
+Drag the `a`, `b`, `c`, `d` sliders to morph the surface, or tap a
+canonical-pose preset button (Sphere, Cone, H 1-sheet, …) for an
+animated transition between named family members. The family label
+classifies the result in real time as parameters cross degeneracy
 boundaries (Ellipsoid → Hyperboloid → Cone → ...).
 
 ## Try it
