@@ -14,11 +14,7 @@ repos:
       - id: end-of-file-fixer
       - id: check-merge-conflict
       - id: check-added-large-files
-        # 2 MB ceiling: catches accidental binaries (build artifacts,
-        # full-resolution screen captures) while letting deliberate
-        # README demo assets like `screenshots/quadrics.mp4` through.
-        # Raised from 500 KB when the v0.1.1 demo video landed (#41).
-        args: ['--maxkb=2000']
+        args: ['--maxkb=500']
       - id: check-yaml
       - id: check-json
 

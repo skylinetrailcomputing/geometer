@@ -31,6 +31,9 @@ npm-debug.log*
 # Claude Code maintainer-only context (workspace @-imports etc.)
 CLAUDE.local.md
 
-# Raw / pre-trim screen captures kept locally for re-edit; only the
-# transcoded README assets (e.g. screenshots/quadrics.mp4) are tracked.
+# Local-only screen captures: raw pre-trim sources AND the trimmed
+# MP4s used in the README. README demo videos are uploaded to GitHub
+# user-attachments (CDN) and referenced by URL, not committed — see
+# the `<video>` tag in README.md for the canonical link.
 screenshots/*-raw.*
+screenshots/*.mp4

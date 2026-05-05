@@ -13,8 +13,8 @@ per-slider value labels, and world-axis gridlines on the surface for
 
 ## Demo
 
-<video src="screenshots/quadrics.mp4" autoplay loop muted playsinline width="720" aria-label="Quest 3S view of the quadrics exhibit: the surface morphs through ellipsoid, cone, and hyperboloid as the a/b/c/d sliders are dragged, with the family classification label updating in real time">
-  Your browser does not support inline video. <a href="screenshots/quadrics.mp4">Download the demo</a> instead.
+<video src="https://github.com/user-attachments/assets/3689d8f2-9005-499c-b4af-eb5c29092146" autoplay loop muted playsinline width="720" aria-label="Quest 3S view of the quadrics exhibit: the surface morphs through ellipsoid, cone, and hyperboloid as the a/b/c/d sliders are dragged, with the family classification label updating in real time">
+  Your browser does not support inline video.
 </video>
 
 Drag the `a`, `b`, `c`, `d` sliders to morph the surface; the family
