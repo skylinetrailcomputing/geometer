@@ -5,6 +5,8 @@ import { classify } from './classify';
 import { EquationReadout } from './EquationReadout';
 import { Label } from './Label';
 import { Preset, type PresetValues } from './Preset';
+import { Section } from './Section';
+import { SectionTab } from './SectionTab';
 import { Slider, type ThumbShape } from './Slider';
 import { WorldAxes, type AxisName } from './WorldAxes';
 
@@ -44,6 +46,19 @@ const RACK_LABEL_PRIMARY_FONT_SIZE = 0.06;
 // up by AXIS_LENGTH = 0.15) symmetric around the rack's vertical center
 // at y = 1.0. z matches the slider plane.
 const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.3, 0.925, -0.7);
+
+// Section-selector tab row (#57): horizontal strip above the family
+// classifier (y = 1.5) and the equation readout (y = 1.4). One tab per
+// section; tapping a tab swaps which sliders + presets are visible and
+// grabbable in the rack. Ships with one section ("Coefficients") today;
+// the architecture is what unblocks #56-tier work (level-set slicing,
+// first-degree linear terms, …) landing alongside the existing rack.
+//
+// Pitch chosen large enough to fit the longest current section name
+// ("Coefficients" at LABEL_FONT_SIZE 0.035) without collisions; revisit
+// when a second tab actually lands and we can headset-trial the row.
+const SECTION_TAB_ROW_Y = 1.65;
+const SECTION_TAB_PITCH = 0.25;
 
 // Canonical-pose preset rack (#46): vertical column of buttons to the LEFT
 // of the slider rack. x = -0.45 clears the per-slider name labels, which
@@ -415,8 +430,14 @@ const FRAGMENT_SHADER = /* glsl */ `
 `;
 
 let material: THREE.ShaderMaterial | undefined;
-let sliders: Slider[] = [];
-let presets: Preset[] = [];
+// Sections own their sliders + presets (#57). `sliders` aliases the
+// Coefficients section's sliders specifically — they always drive the
+// shader uniforms regardless of which section is currently active, so a
+// stable reference is convenient for the slider→uniform routing block.
+let sliders: readonly Slider[] = [];
+let sections: Section[] = [];
+let tabs: SectionTab[] = [];
+let activeSectionIndex = 0;
 let controllers: THREE.Object3D[] = [];
 let rackLabel: Label | undefined;
 let equationReadout: EquationReadout | undefined;
@@ -472,7 +493,7 @@ const quadricsExhibit: Exhibit = {
     // values, so per-slider numeric labels are gone in this version.
     const topY =
       SLIDER_RACK_CENTER.y + ((SLIDER_CONFIG.length - 1) / 2) * SLIDER_ROW_PITCH;
-    sliders = SLIDER_CONFIG.map((cfg, i) => {
+    const coefficientSliders = SLIDER_CONFIG.map((cfg, i) => {
       const slider = new Slider({
         label: cfg.name,
         min: -2,
@@ -489,11 +510,12 @@ const quadricsExhibit: Exhibit = {
       scene.add(slider.group);
       return slider;
     });
+    sliders = coefficientSliders;
 
     // Centered on SLIDER_RACK_CENTER.y so the rack reads as one unit.
     const presetTopY =
       SLIDER_RACK_CENTER.y + ((PRESETS.length - 1) / 2) * PRESET_BUTTON_PITCH;
-    presets = PRESETS.map((p, i) => {
+    const coefficientPresets = PRESETS.map((p, i) => {
       const preset = new Preset(p);
       preset.group.position.set(
         PRESET_RACK_X,
@@ -504,7 +526,37 @@ const quadricsExhibit: Exhibit = {
       return preset;
     });
 
-    controllers = setupControllers(scene, renderer, sliders, presets);
+    // One section today (Coefficients). Future sections — level-set
+    // slicing, first-degree linear terms — append here and add a
+    // matching SectionTab; the dispatch loop below reads from
+    // `sections[activeSectionIndex]` so no further wiring is needed.
+    sections = [
+      new Section({
+        name: 'Coefficients',
+        sliders: coefficientSliders,
+        presets: coefficientPresets,
+      }),
+    ];
+    activeSectionIndex = 0;
+
+    // Tab row centered on x = 0 above the family classifier. With one
+    // section the row is a single button; arithmetic generalizes to N
+    // tabs spread on the SECTION_TAB_PITCH.
+    const tabSpan = (sections.length - 1) * SECTION_TAB_PITCH;
+    const tabStartX = -tabSpan / 2;
+    tabs = sections.map((section, i) => {
+      const tab = new SectionTab({ name: section.name });
+      tab.group.position.set(
+        tabStartX + i * SECTION_TAB_PITCH,
+        SECTION_TAB_ROW_Y,
+        SLIDER_RACK_CENTER.z,
+      );
+      scene.add(tab.group);
+      return tab;
+    });
+    tabs[activeSectionIndex].setActive(true);
+
+    controllers = setupControllers(scene, renderer);
 
     // Family classifier readout sits at the top of the stack above the
     // rack. The live equation readout (#58) carries the four coefficient
@@ -526,11 +578,25 @@ const quadricsExhibit: Exhibit = {
   },
 
   update({ delta }) {
-    for (const s of sliders) s.updateHover(controllers);
-    for (const s of sliders) s.update();
-    for (const p of presets) p.updateHover(controllers);
-    for (const p of presets) p.update();
-    if (camera) for (const p of presets) p.faceCamera(camera);
+    // Tabs always tick / face camera — they're cross-cutting like the
+    // family classifier, not section-scoped.
+    for (const t of tabs) t.updateHover(controllers);
+    for (const t of tabs) t.update();
+    if (camera) for (const t of tabs) t.faceCamera(camera);
+
+    // Per-frame slider/preset ticks happen across all sections so press
+    // flashes and similar transient state still expire cleanly when a
+    // section is hidden mid-effect; hover dispatch and faceCamera fire
+    // only on the active section so invisible controls don't chase the
+    // ray or thrash their billboards.
+    for (const section of sections) {
+      for (const s of section.sliders) s.update();
+      for (const p of section.presets) p.update();
+    }
+    const activeSection = sections[activeSectionIndex];
+    for (const s of activeSection.sliders) s.updateHover(controllers);
+    for (const p of activeSection.presets) p.updateHover(controllers);
+    if (camera) for (const p of activeSection.presets) p.faceCamera(camera);
     // Slider → uniform routing in the math-textbook frame paired with the
     // axis indicator (#43): X right, Y forward, Z up. The shader still
     // evaluates the implicit equation in the Three.js world frame, so:
@@ -566,8 +632,6 @@ const quadricsExhibit: Exhibit = {
 function setupControllers(
   scene: THREE.Scene,
   renderer: THREE.WebGLRenderer,
-  sliders: readonly Slider[],
-  presets: readonly Preset[],
 ): THREE.Object3D[] {
   // Visible 1 m laser line along controller −Z, so the user can see where
   // they're aiming before pressing the trigger.
@@ -599,25 +663,54 @@ function setupControllers(
     });
 
     controller.addEventListener('selectstart', () => {
-      for (const s of sliders) {
+      // Dispatch in z-order from rack-local outward: active section's
+      // sliders first (the warm drag affordance), then its presets, then
+      // the section tabs. The active section's controls and the tab row
+      // are spatially disjoint, but the explicit ordering keeps the
+      // first-hit-wins contract well-defined regardless of layout.
+      const activeSection = sections[activeSectionIndex];
+      for (const s of activeSection.sliders) {
         if (s.tryGrab(controller)) return;
       }
-      for (const p of presets) {
+      for (const p of activeSection.presets) {
         if (p.tryActivate(controller)) {
-          // Snap the rack to the preset. Ordering matches SLIDER_CONFIG
-          // ('a','b','c','d') so values[i] lands on sliders[i] cleanly.
-          for (let i = 0; i < sliders.length; i++) {
-            sliders[i].setValue(p.values[i]);
+          // Preset values are section-local (ordering matches the
+          // section's own sliders), so this stays correct as future
+          // sections introduce their own preset palettes.
+          for (let i = 0; i < activeSection.sliders.length; i++) {
+            activeSection.sliders[i].setValue(p.values[i]);
           }
+          return;
+        }
+      }
+      for (let i = 0; i < tabs.length; i++) {
+        if (tabs[i].tryActivate(controller)) {
+          switchToSection(i);
           return;
         }
       }
     });
     controller.addEventListener('selectend', () => {
-      for (const s of sliders) s.releaseFromController(controller);
+      // Release sliders across all sections — releasing a slider that
+      // isn't grabbed is a no-op, and an active grab can only ever live
+      // in the section that was active at grab time, so a switch
+      // mid-drag (which the dispatch above prevents anyway) wouldn't
+      // strand a held slider.
+      for (const section of sections) {
+        for (const s of section.sliders) s.releaseFromController(controller);
+      }
     });
   }
   return out;
+}
+
+function switchToSection(index: number): void {
+  if (index === activeSectionIndex) return;
+  sections[activeSectionIndex].setActive(false);
+  tabs[activeSectionIndex].setActive(false);
+  activeSectionIndex = index;
+  sections[activeSectionIndex].setActive(true);
+  tabs[activeSectionIndex].setActive(true);
 }
 
 registerExhibit(quadricsExhibit);
