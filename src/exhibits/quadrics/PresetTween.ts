@@ -23,7 +23,11 @@ import type { Slider } from './Slider';
 // Empty phases are collapsed: a transition that only changes d (e.g., cone →
 // 1-sheet) skips its empty phase rather than leaving 150 ms of dead frames.
 
-const DURATION_MS = 300;
+// 0.9 s after a headset trial of the original 0.3 s — three-times slower
+// reads as deliberate enough to actually watch the family-classifier
+// readout flip across the morph, where 0.3 s was over before the eye could
+// track. Tunable; the issue defers final calibration to in-headset feel.
+const DURATION_MS = 900;
 
 // Cubic ease-in-out — picked because it reads as "deliberate" rather than
 // "snappy" at this duration. Tunable in headset; the issue defers easing
