@@ -43,17 +43,30 @@ project — issues, PRs, and ideas are welcome.
 
 ## Previewing changes in a headset
 
-Every PR against `main` gets an automatic Cloudflare Workers
-preview deploy. The Cloudflare GitHub bot posts the unique preview
-URL as a comment on the PR once the build finishes (~1 minute
-after a push). Open that URL in the Quest browser to smoke-test
-before requesting review or merging.
+Every PR against `main` from a branch in this repo gets an
+automatic preview deploy on Cloudflare Workers, driven by the
+`pr-preview` GitHub Actions workflow. Once the build finishes
+(~1 minute after a push), the workflow posts a comment on the PR
+with a URL of the shape
+
+```
+https://geometer-pr-<PR-number>.<account>.workers.dev
+```
+
+Open that URL in the Quest browser to smoke-test before requesting
+review or merging. The preview Worker is automatically deleted
+when the PR closes (merged or not).
 
 Production continues to live at
 <https://skylinetrailcomputing.github.io/geometer/> (GitHub Pages,
-deployed on push to `main`); Cloudflare Workers serves the PR
+deployed on push to `main`); Cloudflare Workers serves PR
 previews only. See [`DEV_QUEST_SETUP.md`](DEV_QUEST_SETUP.md) for
 the headset's network setup.
+
+**Fork PRs:** GitHub blocks secrets for workflows triggered from
+forks, so PRs opened from a fork won't get an auto-preview. The
+maintainer can deploy a preview manually if a fork PR needs
+headset eyes; flag it in the PR description.
 
 ## Adding a new exhibit
 

@@ -1,0 +1,72 @@
+# Per-PR preview deploys to Cloudflare Workers.
+#
+# Required repo configuration (one-time, maintainer-only):
+#   secrets.CLOUDFLARE_API_TOKEN       — token with "Edit Cloudflare Workers" scope
+#   secrets.CLOUDFLARE_ACCOUNT_ID      — Cloudflare account ID (32-char hex)
+#   vars.CLOUDFLARE_WORKERS_SUBDOMAIN  — the account's workers.dev subdomain
+#
+# Fork PRs do not get auto-previews — GitHub blocks secrets for fork-PR
+# workflows. The deploy step will fail loudly on a fork PR; that is the
+# intended behavior.
+
+name: pr-preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Deploy preview Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            deploy
+            --name geometer-pr-${{ github.event.pull_request.number }}
+            --compatibility-date 2026-01-01
+            --assets ./dist
+
+      - name: Find existing preview comment
+        uses: peter-evans/find-comment@v3
+        id: find-comment
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: 'Preview deploy ready'
+
+      - name: Post or update preview URL comment
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          edit-mode: replace
+          body: |
+            **Preview deploy ready** — commit `${{ github.event.pull_request.head.sha }}`
+
+            https://geometer-pr-${{ github.event.pull_request.number }}.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev
+
+            Open this URL in the Quest browser to smoke-test in headset.
