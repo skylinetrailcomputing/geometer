@@ -41,7 +41,7 @@ WebXR emulator extensions (Meta's [Immersive Web Emulator](https://chromewebstor
 - Meta's emulator polyfills the WebXR API but Three.js's session setup hits an `XRWebGLBinding` type mismatch on Enter VR.
 - Mozilla's emulator was removed from the Chrome Web Store in late 2025; it remains on Firefox Add-ons, but Firefox's own WebXR support has separate quirks.
 
-Compatibility work is tracked in [#72](https://github.com/skylinetrailcomputing/geometer/issues/72). For now, a real Quest (3 / 3S / 2 / Pro) is the reliable path.
+Compatibility work is tracked in [#80](https://github.com/skylinetrailcomputing/geometer/issues/80). The Meta emulator's `XRWebGLBinding` mismatch is fixed upstream in Three.js [r185](https://github.com/mrdoob/three.js/issues/33414) (closed-completed, unreleased as of this writing — expected mid-2026 based on Three.js's recent ~2-month cadence); once it ships to npm we'll bump our pin and re-verify. For now, a real Quest (3 / 3S / 2 / Pro) is the reliable path.
 
 ## Run locally
 
