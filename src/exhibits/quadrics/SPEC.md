@@ -108,22 +108,32 @@ drags through a degeneracy.
   degeneracy boundary cases (cone, intersecting planes, single plane)
   reachable precisely instead of by approximation. The detent applies only
   at zero — no other snapping in v0.1.
-- **Per-slider visual:** horizontal track with a draggable thumb, labeled
-  with its variable name (`a`, `b`, `c`, `d`) and current numeric value to
-  two decimal places. The label is mounted just left of the track,
-  parented to the slider's group so it tracks position automatically;
-  variable name on the primary line (large), signed value on the
-  secondary line (small). Yaw-only billboarded, sharing the same
-  `Label` primitive as the family label.
+- **Per-slider visual:** horizontal track with a draggable thumb. Each
+  slider in the rack is identified by **color** (Wong / Okabe-Ito
+  colorblind-safe palette: vermillion / bluish-green / sky-blue / yellow
+  for `a` / `b` / `c` / `d` respectively) and by **thumb shape** as a
+  redundancy cue (sphere / cube / octahedron / cylinder, in the same
+  order). The slider→coefficient mapping is therefore readable even with
+  colors stripped — important on hardware that defeats hue or for
+  viewers with color-vision deficits.
+- **No per-slider numeric labels.** The equation readout above the rack
+  carries the live coefficient values (see "Label content" below) — the
+  variable-name + value labels that sat left of each track in v0.1 were
+  removed in #58 since they duplicated information now centralized in
+  the equation. Hover/grab affordance is conveyed by the thumb's
+  emissive (pre-light on hover, stronger glow on grab) — derived as a
+  scalar of the slider's own base color, so each slider's affordance
+  reads in its own hue.
 
 ## Scene geometry
 
-| Object         | Position (x, y, z)  | Notes                                 |
-|----------------|---------------------|---------------------------------------|
-| Surface center | `(0, 1.5, −3)`      | ~2 m in front of the standing user; close enough to walk up to, far enough that the bounding volume doesn't clip through the spawn point. |
-| Slider rack    | `(0, 1.0, −0.7)`    | Below-and-in-front; reachable with controllers without a step. |
-| Rack readout   | `(0, 1.4, −0.7)`    | Single classification readout above the slider rack — the family name sits in the user's gaze area while interacting (#33). Family name only; per-slider labels render values inline. Yaw-only billboarded (#29). A second surface-anchored "hero" label was tried alongside this one in v0.1 development and removed as redundant per first-headset feedback. |
-| Floor          | `y = 0`             | Inherited from the shell convention; visual horizon and comfort anchor. |
+| Object             | Position (x, y, z)  | Notes                             |
+|--------------------|---------------------|-----------------------------------|
+| Surface center     | `(0, 1.5, −3)`      | ~2 m in front of the standing user; close enough to walk up to, far enough that the bounding volume doesn't clip through the spawn point. |
+| Family classifier  | `(0, 1.5, −0.7)`    | Top of the rack stack. Single classification readout — the family name sits in the user's gaze area while interacting (#33). Yaw-only billboarded (#29). A second surface-anchored "hero" label was tried alongside this one in v0.1 development and removed as redundant per first-headset feedback. Pushed up from `y = 1.4` in #58 to make room for the equation readout below it. |
+| Equation readout   | `(0, 1.4, −0.7)`    | Live `±N.NN x² + ±N.NN y² + ±N.NN z² = ±N.NN` between the family classifier and the top slider (#58). Four numeric coefficients colored to match their sliders (a / b / c / d → vermillion / bluish-green / sky-blue / yellow); algebraic glue (variables, operators, equals sign) is neutral white. Yaw-only billboarded as one unit. |
+| Slider rack        | `(0, 1.0, −0.7)`    | Below-and-in-front; reachable with controllers without a step. |
+| Floor              | `y = 0`             | Inherited from the shell convention; visual horizon and comfort anchor. |
 
 Units are meters. The user's head start position is the WebXR session
 origin (`y ≈ 1.6` for a standing user).
@@ -177,12 +187,13 @@ asymmetry first reported post-#8 (smooth surface, slightly-jank UI):
   not just this one. Static / center-of-view foveation (Quest 3S has
   no eye tracking). Ramp the level up if profiling says more headroom
   is needed.
-- **Throttled per-slider value-label refresh** during an active drag
-  (≤30 Hz, see `LABEL_SYNC_INTERVAL_MS` in `Slider.ts`). Bounds the
-  rate of troika SDF `.sync()` calls — head-pose billboarding still
-  runs every frame, so motion smoothness is untouched. Outside an
-  active drag the label refreshes every tick so the post-release
-  value is exact.
+- **Throttled equation-readout refresh** to ≈30 Hz
+  (`SYNC_INTERVAL_MS` in `EquationReadout.ts`). Bounds the rate of
+  troika SDF `.sync()` calls on the four numeric coefficients — head-
+  pose billboarding still runs every frame, so motion smoothness is
+  untouched. The cap originally applied to the per-slider value
+  labels in v0.1; #58 retired those labels in favor of the equation
+  readout and ported the cap to the new readout for the same reason.
 
 Both are reversible knobs. Profile-guided follow-ups (ray-march
 `STEPS`, framebuffer scale factor, etc.) deferred to a follow-on PR
@@ -190,19 +201,29 @@ if these don't fully close the gap.
 
 ## Label content
 
-One classification readout plus one label per slider:
+Two text readouts above the slider rack — family classifier on top,
+live equation below:
 
-- **Rack readout** — single line, billboarded, anchored above the
-  slider rack. The family name sits in the user's gaze area during
-  interaction. Renders one of the `Family` strings from the taxonomy
-  (e.g., `Hyperboloid (1 sheet)`, `Cone`, `Empty set`, `Degenerate`).
+- **Family classifier** — single line, billboarded, anchored at the top
+  of the stack above the rack. The family name sits in the user's gaze
+  area during interaction. Renders one of the `Family` strings from the
+  taxonomy (e.g., `Hyperboloid (1 sheet)`, `Cone`, `Empty set`,
+  `Degenerate`). Re-classified every frame.
 
-- **Per-slider labels** — variable name (large) and signed value to
-  two decimals (small), parented to each slider's group. Sign is
-  always shown explicitly so the visual jump from `+0.05` to `−0.05`
-  is unambiguous to the learner. See "Slider model" above.
-
-All labels re-classify / re-format every frame.
+- **Equation readout** — `±N.NN x² + ±N.NN y² + ±N.NN z² = ±N.NN` (#58).
+  Built from seven independent troika `Text` instances (4 numeric slots
+  + 3 separators) since troika doesn't support inline rich text. The
+  four numerics carry per-slider color; the algebraic glue is neutral
+  white. Sign is always shown explicitly so transitions across zero are
+  unambiguous. Numeric `.sync()` calls are throttled to ≈30 Hz
+  (`SYNC_INTERVAL_MS` in `EquationReadout.ts`) — same rationale as the
+  per-slider label cap from #38, now retired alongside this change.
+  Yaw-only billboarded as a single unit so the equation reads from one
+  consistent direction regardless of where the viewer stands. Replaces
+  v0.1's per-slider variable-name + value labels (those left-of-track
+  `a +1.00` mounts are gone — the equation centralizes the same info
+  with the added pedagogy that the user sees the symbolic form they're
+  manipulating, not just the numeric coefficients in isolation).
 
 ## Controller interaction
 

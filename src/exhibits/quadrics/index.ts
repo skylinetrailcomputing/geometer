@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import type { Exhibit, ExhibitContext } from '../../shell/Exhibit';
 import { registerExhibit } from '../../shell/registry';
 import { classify } from './classify';
+import { EquationReadout } from './EquationReadout';
 import { Label } from './Label';
 import { Preset, type PresetValues } from './Preset';
-import { Slider } from './Slider';
-import { WorldAxes } from './WorldAxes';
+import { Slider, type ThumbShape } from './Slider';
+import { WorldAxes, type AxisName } from './WorldAxes';
 
 // Pushed back from z=-3 to z=-4 as the v0.1.x comfort buffer (#44) — gives
 // extreme-parameter expansions ~1 m of headroom before they invade the
@@ -21,14 +22,16 @@ import { WorldAxes } from './WorldAxes';
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
 const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 
-// Single classification readout, anchored above the rack so the family
-// name sits in the user's gaze area while interacting (#33). A second
-// surface-anchored "hero" label was tried alongside this one and removed
-// post-headset feedback as redundant — once the rack readout is present,
-// the user's attention stays at the rack during drags. y = 1.4 is ~0.175 m
-// above the top slider 'a' (at SLIDER_RACK_CENTER.y + 1.5 * SLIDER_ROW_PITCH
-// = 1.225); enough clearance for the per-slider label glyphs below.
-const RACK_LABEL_POSITION = new THREE.Vector3(0, 1.4, -0.7);
+// Vertical stacking above the slider rack (top → bottom):
+//   y = 1.5  — family classifier readout
+//   y = 1.4  — live equation readout (#58)
+//   y = 1.225 — top slider 'a' (= SLIDER_RACK_CENTER.y + 1.5 * SLIDER_ROW_PITCH)
+// Family classifier was at y = 1.4 in v0.1; pushed up to y = 1.5 to make
+// room for the equation. The equation occupies the slot the per-slider
+// labels used to fill (those left-of-track 'a +1.00' labels are gone in
+// #58 — the equation makes them redundant).
+const RACK_LABEL_POSITION = new THREE.Vector3(0, 1.5, -0.7);
+const EQUATION_READOUT_POSITION = new THREE.Vector3(0, 1.4, -0.7);
 
 // Smaller than Label's 0.16 default; matches the closer ~0.7 m viewing
 // distance from the user's spawn point.
@@ -78,8 +81,49 @@ const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 // clearance between hit spheres and reads as comfortably spaced in
 // headset.
 const SLIDER_ROW_PITCH = 0.15;
+
+// Wong / Okabe-Ito colorblind-safe palette (#58, Q3). Distinguishable
+// across deuteranopia / protanopia / tritanopia. The fourth slot —
+// yellow on slider `d` — marks the constant term as conceptually
+// distinct from the axis coefficients (Q1).
+const SLIDER_VERMILLION = 0xd55e00;
+const SLIDER_BLUISH_GREEN = 0x009e73;
+const SLIDER_SKY_BLUE = 0x56b4e9;
+const SLIDER_YELLOW = 0xf0e442;
+
+// Per-slider config: name + base color + thumb shape. Color is the
+// at-a-glance identification; shape is the redundancy cue (#58, Q4) so
+// the slider→coefficient mapping survives a colorblind viewer or any
+// rendering that strips the colors. Shape choice is deliberately
+// arbitrary among visually distinct primitives — pick whatever reads
+// best in headset.
 type CoeffName = 'a' | 'b' | 'c' | 'd';
-const COEFF_NAMES: readonly CoeffName[] = ['a', 'b', 'c', 'd'] as const;
+const SLIDER_CONFIG: readonly {
+  readonly name: CoeffName;
+  readonly color: number;
+  readonly shape: ThumbShape;
+}[] = [
+  { name: 'a', color: SLIDER_VERMILLION,   shape: 'sphere' },
+  { name: 'b', color: SLIDER_BLUISH_GREEN, shape: 'cube' },
+  { name: 'c', color: SLIDER_SKY_BLUE,     shape: 'octahedron' },
+  { name: 'd', color: SLIDER_YELLOW,       shape: 'cylinder' },
+];
+
+// Math-frame axis indicator colors, matched to the slider that drives
+// each axis (#58, Q2). Slider `d` is the constant term and has no axis,
+// hence only three entries.
+const AXIS_COLORS: Record<AxisName, number> = {
+  X: SLIDER_VERMILLION,    // slider 'a' (math-X)
+  Y: SLIDER_BLUISH_GREEN,  // slider 'b' (math-Y)
+  Z: SLIDER_SKY_BLUE,      // slider 'c' (math-Z)
+};
+
+const EQUATION_COEFFICIENT_COLORS: readonly [number, number, number, number] = [
+  SLIDER_VERMILLION,
+  SLIDER_BLUISH_GREEN,
+  SLIDER_SKY_BLUE,
+  SLIDER_YELLOW,
+];
 
 // Debug sweep on `a`: gated off once controller sliders took over (#5).
 // Re-enable for shader / boundary-case debugging without controllers.
@@ -371,6 +415,7 @@ let sliders: Slider[] = [];
 let presets: Preset[] = [];
 let controllers: THREE.Object3D[] = [];
 let rackLabel: Label | undefined;
+let equationReadout: EquationReadout | undefined;
 let worldAxes: WorldAxes | undefined;
 let camera: THREE.Camera | undefined;
 let elapsed = 0;
@@ -418,15 +463,25 @@ const quadricsExhibit: Exhibit = {
     scene.add(surface);
 
     // Top → bottom: a, b, c, d. Span centered on SLIDER_RACK_CENTER.
-    const topY = SLIDER_RACK_CENTER.y + ((COEFF_NAMES.length - 1) / 2) * SLIDER_ROW_PITCH;
-    sliders = COEFF_NAMES.map((label, i) => {
-      const slider = new Slider({ label, min: -2, max: 2, initial: 1 });
+    // Per-slider color + shape pull from SLIDER_CONFIG (#58); the
+    // equation readout above the rack now carries the live coefficient
+    // values, so per-slider numeric labels are gone in this version.
+    const topY =
+      SLIDER_RACK_CENTER.y + ((SLIDER_CONFIG.length - 1) / 2) * SLIDER_ROW_PITCH;
+    sliders = SLIDER_CONFIG.map((cfg, i) => {
+      const slider = new Slider({
+        label: cfg.name,
+        min: -2,
+        max: 2,
+        initial: 1,
+        baseColor: cfg.color,
+        thumbShape: cfg.shape,
+      });
       slider.group.position.set(
         SLIDER_RACK_CENTER.x,
         topY - i * SLIDER_ROW_PITCH,
         SLIDER_RACK_CENTER.z,
       );
-      slider.mountLabel();
       scene.add(slider.group);
       return slider;
     });
@@ -447,13 +502,21 @@ const quadricsExhibit: Exhibit = {
 
     controllers = setupControllers(scene, renderer, sliders, presets);
 
-    // Rack readout — family name only. Per-slider labels already render
-    // coefficient values inline, so duplicating them here would be noise.
+    // Family classifier readout sits at the top of the stack above the
+    // rack. The live equation readout (#58) carries the four coefficient
+    // numerics directly below it, replacing the per-slider labels that
+    // used to live left of each track.
     rackLabel = new Label({ primaryFontSize: RACK_LABEL_PRIMARY_FONT_SIZE });
     rackLabel.group.position.copy(RACK_LABEL_POSITION);
     scene.add(rackLabel.group);
 
-    worldAxes = new WorldAxes();
+    equationReadout = new EquationReadout({
+      coefficientColors: EQUATION_COEFFICIENT_COLORS,
+    });
+    equationReadout.group.position.copy(EQUATION_READOUT_POSITION);
+    scene.add(equationReadout.group);
+
+    worldAxes = new WorldAxes({ axisColors: AXIS_COLORS });
     worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
     scene.add(worldAxes.group);
   },
@@ -461,7 +524,6 @@ const quadricsExhibit: Exhibit = {
   update({ delta }) {
     for (const s of sliders) s.updateHover(controllers);
     for (const s of sliders) s.update();
-    if (camera) for (const s of sliders) s.tickLabel(camera);
     for (const p of presets) p.updateHover(controllers);
     for (const p of presets) p.update();
     if (camera) for (const p of presets) p.faceCamera(camera);
@@ -472,8 +534,8 @@ const quadricsExhibit: Exhibit = {
     //   slider b → math-Y² → world-Z² → uC
     //   slider c → math-Z² → world-Y² → uB
     //   slider d → uD (constant term)
+    const [a, b, c, d] = sliders.map((s) => s.value);
     if (material) {
-      const [a, b, c, d] = sliders.map((s) => s.value);
       material.uniforms.uA.value = a;
       material.uniforms.uC.value = b;
       material.uniforms.uB.value = c;
@@ -481,14 +543,17 @@ const quadricsExhibit: Exhibit = {
     }
     if (DEBUG_SWEEP && material) {
       elapsed += delta;
-      const a = Math.cos((2 * Math.PI * elapsed) / SWEEP_PERIOD);
-      material.uniforms.uA.value = a;
+      const sweep = Math.cos((2 * Math.PI * elapsed) / SWEEP_PERIOD);
+      material.uniforms.uA.value = sweep;
     }
     if (rackLabel) {
-      const [a, b, c, d] = sliders.map((s) => s.value);
       const { family } = classify(a, b, c, d);
       rackLabel.setPrimary(family);
       if (camera) rackLabel.faceCamera(camera);
+    }
+    if (equationReadout) {
+      equationReadout.setValues(a, b, c, d);
+      if (camera) equationReadout.faceCamera(camera);
     }
     if (worldAxes && camera) worldAxes.faceCamera(camera);
   },
@@ -535,7 +600,7 @@ function setupControllers(
       }
       for (const p of presets) {
         if (p.tryActivate(controller)) {
-          // Snap the rack to the preset. Ordering matches COEFF_NAMES
+          // Snap the rack to the preset. Ordering matches SLIDER_CONFIG
           // ('a','b','c','d') so values[i] lands on sliders[i] cleanly.
           for (let i = 0; i < sliders.length; i++) {
             sliders[i].setValue(p.values[i]);
