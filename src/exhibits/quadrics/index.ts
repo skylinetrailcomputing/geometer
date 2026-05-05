@@ -85,7 +85,13 @@ const PRESETS: readonly { readonly name: string; readonly values: PresetValues }
 const PRESET_RACK_X = -0.45;
 const PRESET_BUTTON_PITCH = 0.1;
 
-const BOUND = 2.5;
+// Half-extent of the raymarcher's AABB around uSurfaceCenter. Bumped from
+// 2.5 to 3.5 (#87) to give linear-term sliders u/v/w (#85, ±2 each) room to
+// translate the implicit surface without pushing its visible region outside
+// the cube. The cost is per-step thickness in the raymarch (cube grows ~1.4×
+// per axis), which the STEPS = 96 loop absorbs without visibly slowing on
+// Quest 3S — re-evaluate if 72 Hz starts dropping in headset.
+const BOUND = 3.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 
 // Vertical stacking pitch for the rack. SPEC pins the rack center but
@@ -177,6 +183,9 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float uB;
   uniform float uC;
   uniform float uD;
+  uniform float uU;
+  uniform float uV;
+  uniform float uW;
   uniform float uBound;
   uniform vec3  uLightDir;
   uniform vec3  uBaseColor;
@@ -205,7 +214,9 @@ const FRAGMENT_SHADER = /* glsl */ `
   varying vec3 vWorldPos;
 
   float fImplicit(vec3 p) {
-    return uA * p.x * p.x + uB * p.y * p.y + uC * p.z * p.z - uD;
+    return uA * p.x * p.x + uB * p.y * p.y + uC * p.z * p.z
+         + uU * p.x + uV * p.y + uW * p.z
+         - uD;
   }
 
   vec3 gradF(vec3 p) {
@@ -479,6 +490,9 @@ const quadricsExhibit: Exhibit = {
         uB: { value: 1.0 },
         uC: { value: 1.0 },
         uD: { value: 1.0 },
+        uU: { value: 0.0 },
+        uV: { value: 0.0 },
+        uW: { value: 0.0 },
         uBound: { value: BOUND },
         uLightDir: { value: LIGHT_DIR.clone() },
         uBaseColor: { value: new THREE.Color(0.4, 0.7, 0.95) },
