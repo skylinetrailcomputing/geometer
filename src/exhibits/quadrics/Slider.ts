@@ -186,6 +186,24 @@ export class Slider {
   }
 
   /**
+   * Programmatically set the value (e.g. from a preset, #46). Snaps the raw
+   * accumulator and applies the zero detent identically to a drag tick, then
+   * updates the visible thumb + numeric label. Safe mid-drag: rebases
+   * `lastControllerLocalX` so the next `update()` computes deltas from the
+   * new state, not the pre-jump one.
+   */
+  setValue(v: number): void {
+    this.rawValue = clamp(v, this.opts.min, this.opts.max);
+    this.currentValue =
+      Math.abs(this.rawValue) < ZERO_DETENT ? 0 : this.rawValue;
+    if (this.grabbedBy) {
+      this.lastControllerLocalX = this.controllerLocalX(this.grabbedBy);
+    }
+    this.syncThumbPosition();
+    this.refreshLabelValue();
+  }
+
+  /**
    * Test whether `controller`'s forward ray hits the thumb. On hit, attach
    * the grab to that controller and pulse haptics. Returns whether grabbed.
    */

@@ -3,6 +3,7 @@ import type { Exhibit, ExhibitContext } from '../../shell/Exhibit';
 import { registerExhibit } from '../../shell/registry';
 import { classify } from './classify';
 import { Label } from './Label';
+import { Preset, type PresetValues } from './Preset';
 import { Slider } from './Slider';
 import { WorldAxes } from './WorldAxes';
 
@@ -29,6 +30,30 @@ const RACK_LABEL_PRIMARY_FONT_SIZE = 0.06;
 // up by AXIS_LENGTH = 0.15) symmetric around the rack's vertical center
 // at y = 1.0. z matches the slider plane.
 const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.3, 0.925, -0.7);
+
+// Canonical-pose preset rack (#46): vertical column of buttons to the LEFT
+// of the slider rack. x = -0.45 clears the per-slider name labels, which
+// sit at x = -0.2 with their text extending leftward. Vertical span is
+// centered on SLIDER_RACK_CENTER.y so the rack reads as a single unit.
+// Order matches the issue body: Sphere, Eccentric ellipsoid, Cone, H 1-sheet,
+// H 2-sheets, Cylinder, Reset (back to startup pose).
+//
+// The values are slider-frame (a, b, c, d) per the math convention from #43:
+// X right, Y forward, Z up. So Cylinder (1, 1, 0, 1) is `X² + Y² = 1`, which
+// reads as a vertical (math-Z-aligned) cylinder; Cone (1, 1, -1, 0) opens
+// along math-Z (vertical). Surfaces of revolution are upright by default.
+const PRESETS: readonly { readonly name: string; readonly values: PresetValues }[] = [
+  { name: 'Sphere', values: [1, 1, 1, 1] },
+  { name: 'Ellipsoid', values: [2, 0.5, 1, 1] },
+  { name: 'Cone', values: [1, 1, -1, 0] },
+  { name: 'H 1-sheet', values: [1, 1, -1, 1] },
+  { name: 'H 2-sheets', values: [1, 1, -1, -1] },
+  { name: 'Cylinder', values: [1, 1, 0, 1] },
+  { name: 'Reset', values: [1, 1, 1, 1] },
+];
+
+const PRESET_RACK_X = -0.45;
+const PRESET_BUTTON_PITCH = 0.1;
 
 const BOUND = 2.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
@@ -201,6 +226,7 @@ const FRAGMENT_SHADER = /* glsl */ `
 
 let material: THREE.ShaderMaterial | undefined;
 let sliders: Slider[] = [];
+let presets: Preset[] = [];
 let controllers: THREE.Object3D[] = [];
 let rackLabel: Label | undefined;
 let worldAxes: WorldAxes | undefined;
@@ -263,7 +289,21 @@ const quadricsExhibit: Exhibit = {
       return slider;
     });
 
-    controllers = setupControllers(scene, renderer, sliders);
+    // Centered on SLIDER_RACK_CENTER.y so the rack reads as one unit.
+    const presetTopY =
+      SLIDER_RACK_CENTER.y + ((PRESETS.length - 1) / 2) * PRESET_BUTTON_PITCH;
+    presets = PRESETS.map((p, i) => {
+      const preset = new Preset(p);
+      preset.group.position.set(
+        PRESET_RACK_X,
+        presetTopY - i * PRESET_BUTTON_PITCH,
+        SLIDER_RACK_CENTER.z,
+      );
+      scene.add(preset.group);
+      return preset;
+    });
+
+    controllers = setupControllers(scene, renderer, sliders, presets);
 
     // Rack readout — family name only. Per-slider labels already render
     // coefficient values inline, so duplicating them here would be noise.
@@ -280,6 +320,9 @@ const quadricsExhibit: Exhibit = {
     for (const s of sliders) s.updateHover(controllers);
     for (const s of sliders) s.update();
     if (camera) for (const s of sliders) s.tickLabel(camera);
+    for (const p of presets) p.updateHover(controllers);
+    for (const p of presets) p.update();
+    if (camera) for (const p of presets) p.faceCamera(camera);
     // Slider → uniform routing in the math-textbook frame paired with the
     // axis indicator (#43): X right, Y forward, Z up. The shader still
     // evaluates the implicit equation in the Three.js world frame, so:
@@ -313,6 +356,7 @@ function setupControllers(
   scene: THREE.Scene,
   renderer: THREE.WebGLRenderer,
   sliders: readonly Slider[],
+  presets: readonly Preset[],
 ): THREE.Object3D[] {
   // Visible 1 m laser line along controller −Z, so the user can see where
   // they're aiming before pressing the trigger.
@@ -345,7 +389,17 @@ function setupControllers(
 
     controller.addEventListener('selectstart', () => {
       for (const s of sliders) {
-        if (s.tryGrab(controller)) break;
+        if (s.tryGrab(controller)) return;
+      }
+      for (const p of presets) {
+        if (p.tryActivate(controller)) {
+          // Snap the rack to the preset. Ordering matches COEFF_NAMES
+          // ('a','b','c','d') so values[i] lands on sliders[i] cleanly.
+          for (let i = 0; i < sliders.length; i++) {
+            sliders[i].setValue(p.values[i]);
+          }
+          return;
+        }
       }
     });
     controller.addEventListener('selectend', () => {
