@@ -92,21 +92,25 @@ const SLIDER_SKY_BLUE = 0x56b4e9;
 const SLIDER_YELLOW = 0xf0e442;
 
 // Per-slider config: name + base color + thumb shape. Color is the
-// at-a-glance identification; shape is the redundancy cue (#58, Q4) so
-// the slider→coefficient mapping survives a colorblind viewer or any
-// rendering that strips the colors. Shape choice is deliberately
-// arbitrary among visually distinct primitives — pick whatever reads
-// best in headset.
+// at-a-glance identification; shape additionally maps each axis-coefficient
+// slider's thumb to its spatial direction — bidirectional 3D arrows
+// aligned with the corresponding world axis (slider 'a' = math-X arrow
+// along the track; slider 'b' = math-Y arrow forward/back from the
+// viewer; slider 'c' = math-Z arrow up/down). Slider 'd' is the constant
+// term and has no spatial direction, so a directionless sphere reads
+// pedagogically truthful. Replaces the original sphere/cube/octahedron/
+// cylinder set from #58 (Q4 redundancy cue) — those were visually
+// distinct but didn't carry meaning; the arrows do.
 type CoeffName = 'a' | 'b' | 'c' | 'd';
 const SLIDER_CONFIG: readonly {
   readonly name: CoeffName;
   readonly color: number;
   readonly shape: ThumbShape;
 }[] = [
-  { name: 'a', color: SLIDER_VERMILLION,   shape: 'sphere' },
-  { name: 'b', color: SLIDER_BLUISH_GREEN, shape: 'cube' },
-  { name: 'c', color: SLIDER_SKY_BLUE,     shape: 'octahedron' },
-  { name: 'd', color: SLIDER_YELLOW,       shape: 'cylinder' },
+  { name: 'a', color: SLIDER_VERMILLION,   shape: 'arrow-x' },
+  { name: 'b', color: SLIDER_BLUISH_GREEN, shape: 'arrow-y' },
+  { name: 'c', color: SLIDER_SKY_BLUE,     shape: 'arrow-z' },
+  { name: 'd', color: SLIDER_YELLOW,       shape: 'sphere' },
 ];
 
 // Math-frame axis indicator colors, matched to the slider that drives

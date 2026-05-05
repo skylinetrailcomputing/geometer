@@ -111,11 +111,16 @@ drags through a degeneracy.
 - **Per-slider visual:** horizontal track with a draggable thumb. Each
   slider in the rack is identified by **color** (Wong / Okabe-Ito
   colorblind-safe palette: vermillion / bluish-green / sky-blue / yellow
-  for `a` / `b` / `c` / `d` respectively) and by **thumb shape** as a
-  redundancy cue (sphere / cube / octahedron / cylinder, in the same
-  order). The slider→coefficient mapping is therefore readable even with
-  colors stripped — important on hardware that defeats hue or for
-  viewers with color-vision deficits.
+  for `a` / `b` / `c` / `d` respectively) and by **thumb shape**:
+  bidirectional 3D arrows axis-aligned with the world axis each
+  axis-coefficient slider drives. Slider `a` (math-X) is an arrow along
+  the track (left-right); slider `b` (math-Y) is an arrow toward/away
+  from the viewer; slider `c` (math-Z) is an arrow up/down. Slider `d`
+  is the constant term — no spatial direction, so its thumb is a
+  directionless sphere. The shape thus carries pedagogy on top of color
+  redundancy: the user reads each slider's spatial orientation
+  immediately from its thumb, not just by recalling that "color X means
+  axis Y."
 - **No per-slider numeric labels.** The equation readout above the rack
   carries the live coefficient values (see "Label content" below) — the
   variable-name + value labels that sat left of each track in v0.1 were
