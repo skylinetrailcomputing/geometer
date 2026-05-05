@@ -9,11 +9,15 @@ import { WorldAxes } from './WorldAxes';
 
 // Pushed back from z=-3 to z=-4 as the v0.1.x comfort buffer (#44) — gives
 // extreme-parameter expansions ~1 m of headroom before they invade the
-// viewer's space at default spawn. The companion 45° yaw originally landed
-// alongside this push-back was reverted post-headset (didn't add the comfort /
-// intuition it was meant to, and broke the rectilinear math/standing-frame
-// alignment); door open for non-rectilinear perspectives once teleportation
-// lets the user self-position.
+// viewer's space at default spawn. Secondary benefit observed in headset:
+// a wider parameter band on slider `b` (math-Y, the axis pointing at the
+// user) where the user remains *outside* the surface entirely, avoiding
+// the more-disorienting "rendering the inside of the ellipsoid" failure
+// mode. The companion 45° yaw originally landed alongside this push-back
+// was reverted post-headset (didn't add the comfort / intuition it was
+// meant to, and broke the rectilinear math/standing-frame alignment);
+// door open for non-rectilinear perspectives once teleportation lets the
+// user self-position.
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
 const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 
