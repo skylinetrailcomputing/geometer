@@ -22,6 +22,14 @@ const RACK_LABEL_POSITION = new THREE.Vector3(0, 1.4, -0.7);
 // distance from the user's spawn point.
 const RACK_LABEL_PRIMARY_FONT_SIZE = 0.06;
 
+// Math-frame axis indicator (#43): pinned next to the slider rack so it
+// stays visible regardless of the surface's current parameters. x = 0.3
+// clears the right end of the 0.3 m slider track (which spans ±0.15 from
+// rack center). y = 0.925 puts the indicator's vertical span (Z extends
+// up by AXIS_LENGTH = 0.15) symmetric around the rack's vertical center
+// at y = 1.0. z matches the slider plane.
+const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.3, 0.925, -0.7);
+
 const BOUND = 2.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 
@@ -264,6 +272,7 @@ const quadricsExhibit: Exhibit = {
     scene.add(rackLabel.group);
 
     worldAxes = new WorldAxes();
+    worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
     scene.add(worldAxes.group);
   },
 
@@ -271,10 +280,19 @@ const quadricsExhibit: Exhibit = {
     for (const s of sliders) s.updateHover(controllers);
     for (const s of sliders) s.update();
     if (camera) for (const s of sliders) s.tickLabel(camera);
+    // Slider → uniform routing in the math-textbook frame paired with the
+    // axis indicator (#43): X right, Y forward, Z up. The shader still
+    // evaluates the implicit equation in the Three.js world frame, so:
+    //   slider a → math-X² → world-X² → uA
+    //   slider b → math-Y² → world-Z² → uC
+    //   slider c → math-Z² → world-Y² → uB
+    //   slider d → uD (constant term)
     if (material) {
-      for (const s of sliders) {
-        material.uniforms[`u${s.label.toUpperCase()}`].value = s.value;
-      }
+      const [a, b, c, d] = sliders.map((s) => s.value);
+      material.uniforms.uA.value = a;
+      material.uniforms.uC.value = b;
+      material.uniforms.uB.value = c;
+      material.uniforms.uD.value = d;
     }
     if (DEBUG_SWEEP && material) {
       elapsed += delta;
