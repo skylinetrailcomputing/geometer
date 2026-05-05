@@ -11,10 +11,21 @@ import { Text } from 'troika-three-text';
 // so that slider `a` drives X² (world-X), `b` drives Y² (world-Z), and
 // `c` drives Z² (world-Y). The labels here are the visible half of that
 // contract.
+//
+// Axis line + letter colors are per-axis and supplied by the caller (#58):
+// matches the slider-thumb / equation palette so the user sees one color
+// story across the whole exhibit (slider `a` red ⇔ equation `a`-numeric
+// red ⇔ X axis red, etc.).
+
+export type AxisName = 'X' | 'Y' | 'Z';
+
+export interface WorldAxesOptions {
+  // Per-axis line + label color, keyed by axis name.
+  axisColors: Record<AxisName, number>;
+}
 
 const AXIS_LENGTH = 0.15;
-const AXIS_COLOR = 0xffffff;
-const LINE_OPACITY = 0.7;
+const LINE_OPACITY = 0.85;
 
 // Just larger than the per-slider labels' 0.04 primary, so the letters
 // read as a distinct UI element rather than as another slider value.
@@ -23,7 +34,7 @@ const OUTLINE_WIDTH = '8%';
 const OUTLINE_COLOR = 0x000000;
 
 interface AxisSpec {
-  readonly name: 'X' | 'Y' | 'Z';
+  readonly name: AxisName;
   readonly dir: THREE.Vector3;
 }
 
@@ -48,26 +59,22 @@ export class WorldAxes {
 
   private readonly labels: Text[];
   private readonly lineGeoms: THREE.BufferGeometry[];
-  private readonly lineMat: THREE.LineBasicMaterial;
+  private readonly lineMats: THREE.LineBasicMaterial[];
 
   // Hoisted out of `faceCamera` so per-frame billboarding does no allocation.
   private readonly camWorld = new THREE.Vector3();
   private readonly labelWorld = new THREE.Vector3();
 
-  constructor() {
+  constructor(opts: WorldAxesOptions) {
     this.group = new THREE.Group();
     this.group.name = 'world-axes';
 
-    this.lineMat = new THREE.LineBasicMaterial({
-      color: AXIS_COLOR,
-      transparent: true,
-      opacity: LINE_OPACITY,
-    });
-
     this.labels = [];
     this.lineGeoms = [];
+    this.lineMats = [];
 
     for (const { name, dir } of AXES) {
+      const color = opts.axisColors[name];
       const end = dir.clone().multiplyScalar(AXIS_LENGTH);
 
       const lineGeom = new THREE.BufferGeometry().setFromPoints([
@@ -75,12 +82,21 @@ export class WorldAxes {
         end,
       ]);
       this.lineGeoms.push(lineGeom);
-      this.group.add(new THREE.Line(lineGeom, this.lineMat));
+
+      // One material per axis so each carries its own color. Cheap — three
+      // line materials, no per-frame allocation.
+      const lineMat = new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: LINE_OPACITY,
+      });
+      this.lineMats.push(lineMat);
+      this.group.add(new THREE.Line(lineGeom, lineMat));
 
       const label = new Text();
       label.text = name;
       label.fontSize = FONT_SIZE;
-      label.color = AXIS_COLOR;
+      label.color = color;
       label.anchorX = 'center';
       label.anchorY = 'middle';
       label.outlineWidth = OUTLINE_WIDTH;
@@ -105,6 +121,6 @@ export class WorldAxes {
   dispose(): void {
     for (const label of this.labels) label.dispose();
     for (const geom of this.lineGeoms) geom.dispose();
-    this.lineMat.dispose();
+    for (const mat of this.lineMats) mat.dispose();
   }
 }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { Label } from './Label';
+
+export type ThumbShape = 'sphere' | 'cube' | 'octahedron' | 'cylinder';
 
 export interface SliderOptions {
   label: string;
@@ -12,23 +13,25 @@ export interface SliderOptions {
   // less hand travel per unit value (i.e. the slider feels more sensitive).
   // 1 = thumb tracks controller 1:1 across the visible track length.
   dragGain?: number;
+  // Base diffuse color for the thumb. Hover/grab emissives are scaled
+  // copies of this (see THUMB_HOVER_SCALE / THUMB_GRAB_SCALE), so a single
+  // base color suffices to retune per-slider visuals (#58).
+  baseColor?: number;
+  // Geometry of the thumb. Color is the at-a-glance hint; shape is the
+  // unambiguous redundancy cue per #58 / Q4 — readable even with the
+  // colors stripped (e.g. on a colorblind viewer's display).
+  thumbShape?: ThumbShape;
 }
 
 const DEFAULT_TRACK_LENGTH = 0.3;
 const DEFAULT_THUMB_RADIUS = 0.025;
 const DEFAULT_DRAG_GAIN = 1.75;
+const DEFAULT_BASE_COLOR = 0xeeaa33;
+const DEFAULT_THUMB_SHAPE: ThumbShape = 'sphere';
 
 // Snap-to-zero detent half-width, per quadrics SPEC.md "Slider model".
 // Lets the user park exactly on a degeneracy boundary instead of approximating.
 const ZERO_DETENT = 0.05;
-
-// Per-slider value-label refresh cap during a drag. The displayed value is
-// re-formatted at most once per this interval, keeping the troika SDF
-// `.sync()` rate bounded while head-pose billboarding still runs every frame.
-// Outside an active drag the label always refreshes (so the post-release
-// value is exact). 33 ms ≈ 30 Hz — humans can't read faster than that
-// anyway, and ~3× fewer SDF re-syncs is the whole point (issue #38).
-const LABEL_SYNC_INTERVAL_MS = 33;
 
 // Ray–thumb hit-test radius is this multiple of the thumb's visual radius.
 // Wider than the visual makes re-grab forgiving when the hand drifts off-aim
@@ -41,12 +44,13 @@ const GRAB_RADIUS_MULTIPLIER = 2.75;
 const HAPTIC_AMPLITUDE = 0.5;
 const HAPTIC_DURATION_MS = 10;
 
-const THUMB_BASE_COLOR = 0xeeaa33;
-const THUMB_HOVER_EMISSIVE = 0x884422;
-// Same warm hue as hover, brighter — reads as "engaged" rather than a
-// different affordance. Cool/contrasting hues risked looking like a
-// separate UI element.
-const THUMB_GRAB_EMISSIVE = 0xffaa44;
+// Hover/grab emissive = base × scale. Uniform scale across hues keeps the
+// affordance ("subtle glow" / "strong glow") consistent regardless of the
+// base color (#58). Hover is a soft pre-light; grab clearly reads as
+// engaged. Tune in headset; per-color overrides are easy to add if any
+// hue (e.g. yellow) ends up reading washed out at these scales.
+const THUMB_HOVER_SCALE = 0.4;
+const THUMB_GRAB_SCALE = 0.7;
 
 interface ControllerWithGamepad extends THREE.Object3D {
   userData: { gamepad?: Gamepad };
@@ -61,6 +65,8 @@ export class Slider {
   private readonly thumbWorld = new THREE.Vector3();
   private readonly controllerWorld = new THREE.Vector3();
   private readonly localPoint = new THREE.Vector3();
+  private readonly hoverEmissive: THREE.Color;
+  private readonly grabEmissive: THREE.Color;
 
   // `rawValue` integrates hand motion every frame, untouched by the detent.
   // `currentValue` is the emitted value — snapped to exactly 0 inside the
@@ -72,14 +78,14 @@ export class Slider {
   private grabbedBy: THREE.Object3D | null = null;
   private lastControllerLocalX = 0;
   private hovered = false;
-  private displayLabel: Label | undefined;
-  private lastLabelSyncMs = 0;
 
   constructor(options: SliderOptions) {
     this.opts = {
       trackLength: DEFAULT_TRACK_LENGTH,
       thumbRadius: DEFAULT_THUMB_RADIUS,
       dragGain: DEFAULT_DRAG_GAIN,
+      baseColor: DEFAULT_BASE_COLOR,
+      thumbShape: DEFAULT_THUMB_SHAPE,
       ...options,
     };
     this.rawValue = clamp(options.initial, options.min, options.max);
@@ -104,9 +110,13 @@ export class Slider {
     );
     this.group.add(this.track);
 
+    const baseColor = new THREE.Color(this.opts.baseColor);
+    this.hoverEmissive = baseColor.clone().multiplyScalar(THUMB_HOVER_SCALE);
+    this.grabEmissive = baseColor.clone().multiplyScalar(THUMB_GRAB_SCALE);
+
     this.thumb = new THREE.Mesh(
-      new THREE.SphereGeometry(this.opts.thumbRadius, 16, 12),
-      new THREE.MeshStandardMaterial({ color: THUMB_BASE_COLOR }),
+      buildThumbGeometry(this.opts.thumbShape, this.opts.thumbRadius),
+      new THREE.MeshStandardMaterial({ color: baseColor }),
     );
     this.group.add(this.thumb);
 
@@ -120,63 +130,6 @@ export class Slider {
     return this.opts.label;
   }
 
-  /**
-   * Attach a billboarded text label to this slider, parented to its group so
-   * it tracks the slider's world position automatically. Primary line is the
-   * variable name (large); secondary is the current value with explicit sign
-   * to two decimals, refreshed by `tickLabel()`. Font sizes are tuned for
-   * the ~1.5 m controller-reach viewing distance per SPEC.md.
-   */
-  mountLabel(): void {
-    if (this.displayLabel) return;
-    this.displayLabel = new Label({
-      primaryFontSize: 0.04,
-      secondaryFontSize: 0.02,
-      lineGap: 0.01,
-    });
-    this.displayLabel.setPrimary(this.opts.label);
-    // Just left of the track. Track spans local x ∈ [−L/2, +L/2]; offset
-    // the label center 0.05 m beyond the left end so glyphs clear the
-    // track and the thumb at its leftmost position.
-    this.displayLabel.group.position.set(
-      -this.opts.trackLength / 2 - 0.05,
-      0,
-      0,
-    );
-    this.group.add(this.displayLabel.group);
-    this.refreshLabelValue();
-  }
-
-  /**
-   * Per-frame label tick: refresh the displayed value and re-billboard.
-   * Caller decides whether to tick (e.g. exhibit may skip when no camera
-   * is available yet). No-op if `mountLabel()` was never called.
-   *
-   * The value-string refresh is throttled while a drag is active (see
-   * `LABEL_SYNC_INTERVAL_MS`) so troika SDF `.sync()` work is bounded.
-   * Billboarding (`faceCamera`) runs every frame regardless — head pose
-   * tracks at full rate.
-   */
-  tickLabel(camera: THREE.Camera): void {
-    if (!this.displayLabel) return;
-    const now = performance.now();
-    const dueForSync =
-      this.grabbedBy === null ||
-      now - this.lastLabelSyncMs >= LABEL_SYNC_INTERVAL_MS;
-    if (dueForSync) {
-      this.refreshLabelValue();
-      this.lastLabelSyncMs = now;
-    }
-    this.displayLabel.faceCamera(camera);
-  }
-
-  private refreshLabelValue(): void {
-    if (!this.displayLabel) return;
-    const v = this.currentValue;
-    const sign = v < 0 ? '−' : '+';
-    this.displayLabel.setSecondary(`${sign}${Math.abs(v).toFixed(2)}`);
-  }
-
   get value(): number {
     return this.currentValue;
   }
@@ -188,7 +141,7 @@ export class Slider {
   /**
    * Programmatically set the value (e.g. from a preset, #46). Snaps the raw
    * accumulator and applies the zero detent identically to a drag tick, then
-   * updates the visible thumb + numeric label. Safe mid-drag: rebases
+   * updates the visible thumb. Safe mid-drag: rebases
    * `lastControllerLocalX` so the next `update()` computes deltas from the
    * new state, not the pre-jump one.
    */
@@ -200,7 +153,6 @@ export class Slider {
       this.lastControllerLocalX = this.controllerLocalX(this.grabbedBy);
     }
     this.syncThumbPosition();
-    this.refreshLabelValue();
   }
 
   /**
@@ -251,12 +203,13 @@ export class Slider {
   // and `updateHover` — so the visual always matches state.
   private refreshThumbEmissive(): void {
     const mat = this.thumb.material as THREE.MeshStandardMaterial;
-    const hex = this.grabbedBy
-      ? THUMB_GRAB_EMISSIVE
-      : this.hovered
-        ? THUMB_HOVER_EMISSIVE
-        : 0x000000;
-    mat.emissive.setHex(hex);
+    if (this.grabbedBy) {
+      mat.emissive.copy(this.grabEmissive);
+    } else if (this.hovered) {
+      mat.emissive.copy(this.hoverEmissive);
+    } else {
+      mat.emissive.setHex(0x000000);
+    }
   }
 
   private rayHitsThumb(controller: THREE.Object3D): boolean {
@@ -305,13 +258,12 @@ export class Slider {
 
   // Thumb tracks the *displayed* value (i.e. `currentValue`'s would-be
   // snapped projection of `rawValue`), not raw. Inside the detent the thumb
-  // parks at zero so it stays aligned with what the future two-decimal
-  // numeric label will read (per SPEC.md "Slider model"). The slow-drag-
-  // escape behavior of #24 is preserved by `rawValue` accumulating in
-  // `update()` underneath — once raw clears ±ZERO_DETENT, the thumb tracks
-  // it again. Bonus: the visible "park at zero on approach" is part of the
-  // detent's affordance — the user feels the boundary before reading the
-  // label.
+  // parks at zero so it stays aligned with what the equation readout will
+  // display (per SPEC.md "Slider model"). The slow-drag-escape behavior of
+  // #24 is preserved by `rawValue` accumulating in `update()` underneath —
+  // once raw clears ±ZERO_DETENT, the thumb tracks it again. Bonus: the
+  // visible "park at zero on approach" is part of the detent's affordance —
+  // the user feels the boundary before reading the equation.
   private syncThumbPosition(): void {
     const halfLen = this.opts.trackLength / 2;
     const displayValue =
@@ -319,6 +271,34 @@ export class Slider {
     const t =
       (displayValue - this.opts.min) / (this.opts.max - this.opts.min);
     this.thumb.position.x = -halfLen + t * this.opts.trackLength;
+  }
+}
+
+// Each shape is sized so its bounding sphere ≈ thumbRadius — same hit-test
+// region (`thumbRadius * GRAB_RADIUS_MULTIPLIER`) feels consistent across
+// shapes when sweeping the controller across the rack.
+function buildThumbGeometry(
+  shape: ThumbShape,
+  thumbRadius: number,
+): THREE.BufferGeometry {
+  switch (shape) {
+    case 'sphere':
+      return new THREE.SphereGeometry(thumbRadius, 16, 12);
+    case 'cube': {
+      // Side = 2r/√3 inscribes the cube in a sphere of radius r — keeps the
+      // visual scale matched to the sphere thumb.
+      const side = (2 * thumbRadius) / Math.sqrt(3);
+      return new THREE.BoxGeometry(side, side, side);
+    }
+    case 'octahedron':
+      return new THREE.OctahedronGeometry(thumbRadius);
+    case 'cylinder': {
+      // Knob/puck profile: short, wider radius. Bounding sphere radius =
+      // sqrt(r² + (h/2)²); pick r and h so that ≈ thumbRadius.
+      const r = thumbRadius * 0.85;
+      const h = thumbRadius * 1.1;
+      return new THREE.CylinderGeometry(r, r, h, 16);
+    }
   }
 }
 
