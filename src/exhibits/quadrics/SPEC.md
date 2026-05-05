@@ -135,29 +135,35 @@ bounding cube. Per-fragment depth is written from the implicit-surface
 hit point so Quest's async spacewarp reprojects against the visible
 surface rather than the bounding cube (#3 / earlier).
 
-**World-axis gridlines** (#34) are mixed into the surface color at every
-fragment whose hit point is near an integer multiple of the grid spacing
-on any of the three world axes. The grid is anchored to world `(0, 0, 0)`
-— not to the surface center — so the surface reads as carved out of a
-fixed 3D coordinate frame, and walking around the surface in roomscale
-gives parallax through the grid lines (stronger 3D readout than a
-uniformly-lit single-color quadric). Line spacing 0.5 m, near-black
-"carved" line color, anti-aliased via `fwidth`. Decorative depth cue
-only — labels / measurement come in v0.2.
+**Gridlines** are drawn as a depth cue using one of two systems,
+chosen per-fragment by family — never co-rendered. Both share the
+same near-black "carved" color and intensity so the visual style
+stays consistent across family transitions; only the *frame* the
+lines align to changes, reinforcing the family-classification flip
+already shown in the rack readout.
 
-**Parametric gridlines** (#45) overlay light "highlight" bands using a
-family-aware natural parameterization of the surface — pedagogically
-distinct from the world-axis grid: the world-axis lines stay anchored in
-world space as parameters morph, while the parametric lines flow *with*
-the surface, treating it as a 2-manifold being stretched. Lines of
-constant `θ` ("latitude") and constant `φ` ("longitude") on the
-ellipsoid; lines of constant `u` and `v` on the 1-sheet and 2-sheet
-hyperboloids. Cylinders / cones / planes / degenerate cases fall back to
-world-axis grid only. Family + special-axis dispatch is derived
-in-shader from `sign(uA, uB, uC, uD)` so the JS-side classifier API
-stays unchanged. Polar axis on the ellipsoid is world-Y (math-Z up, per
-#43's axis convention). Decorative — same posture as the world-axis
-grid; labels / measurement deferred.
+- **Parametric** (#45) — used on the ellipsoid and both hyperboloids.
+  Lines of constant `θ` ("latitude") and constant `φ` ("longitude")
+  on the ellipsoid; lines of constant `u` and `v` on the 1-sheet and
+  2-sheet hyperboloids, in a family-aware natural parameterization.
+  Lines flow *with* the surface as parameters morph — the
+  deformation is visible in the gridline pattern, not just the
+  silhouette. Polar axis on the ellipsoid is world-Y (math-Z up, per
+  #43's axis convention).
+
+- **World-axis** (#34) — used on cylinders, cones, planes, and
+  degenerate / empty cases (where a parametric form isn't natural).
+  Distance from each fragment's hit-world coordinate to the nearest
+  integer multiple of `1 / GRID_FREQ` on any of the three world
+  axes; anchored to world `(0, 0, 0)`. Spacing 0.5 m.
+
+Family + special-axis dispatch is derived in-shader from
+`sign(uA, uB, uC, uD)` so the JS-side classifier API stays unchanged.
+Both systems use `fwidth` for screen-space anti-aliasing so lines stay
+one-pixel-wide regardless of viewing angle or distance; walking around
+the surface in roomscale gives parallax through whichever grid is
+currently active. Decorative depth cue only — labels / measurement
+come in v0.2.
 
 ## Frame-pacing knobs (#38)
 
