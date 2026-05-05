@@ -53,9 +53,14 @@ with a URL of the shape
 https://geometer-pr-<PR-number>.<account>.workers.dev
 ```
 
-Open that URL in the Quest browser to smoke-test before requesting
-review or merging. The preview Worker is automatically deleted
-when the PR closes (merged or not).
+The same comment includes a QR code of that URL. If you're
+reviewing the PR on a desktop or laptop, scan the QR with the
+Quest's passthrough camera to open the preview directly in the
+headset — no typing on the virtual keyboard, no copy-paste between
+devices. Otherwise just click the URL.
+
+The preview Worker is automatically deleted when the PR closes
+(merged or not).
 
 Production continues to live at
 <https://skylinetrailcomputing.github.io/geometer/> (GitHub Pages,

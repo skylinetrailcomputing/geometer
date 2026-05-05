@@ -69,4 +69,6 @@ jobs:
 
             https://geometer-pr-${{ github.event.pull_request.number }}.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev
 
-            Open this URL in the Quest browser to smoke-test in headset.
+            ![preview QR code](https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=https%3A%2F%2Fgeometer-pr-${{ github.event.pull_request.number }}.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev)
+
+            Scan the QR with the Quest's passthrough camera, or open the URL directly in the headset browser.
