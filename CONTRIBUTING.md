@@ -41,6 +41,20 @@ project — issues, PRs, and ideas are welcome.
   paragraph of "why" if the change isn't self-evident from the diff.
 - **Keep PRs small.** Easier to review, faster to land.
 
+## Previewing changes in a headset
+
+Every PR against `main` gets an automatic Cloudflare Workers
+preview deploy. The Cloudflare GitHub bot posts the unique preview
+URL as a comment on the PR once the build finishes (~1 minute
+after a push). Open that URL in the Quest browser to smoke-test
+before requesting review or merging.
+
+Production continues to live at
+<https://skylinetrailcomputing.github.io/geometer/> (GitHub Pages,
+deployed on push to `main`); Cloudflare Workers serves the PR
+previews only. See [`DEV_QUEST_SETUP.md`](DEV_QUEST_SETUP.md) for
+the headset's network setup.
+
 ## Adding a new exhibit
 
 If your PR introduces a new exhibit (typically `src/exhibits/<topic>/`):
