@@ -23,12 +23,21 @@ boundaries (Ellipsoid → Hyperboloid → Cone → ...).
 
 ## Try it
 
-Live at <https://skylinetrailcomputing.github.io/geometer/>. Open in either:
+Live at <https://skylinetrailcomputing.github.io/geometer/>. Click **Enter VR** once the page loads.
 
-- A **Quest browser** (Quest 3, 3S, 2, Pro) — see [`DEV_QUEST_SETUP.md`](DEV_QUEST_SETUP.md) for first-run guidance.
-- **Desktop Chrome** with WebXR enabled — useful for inspection, but a connected headset is needed to enter a real VR session.
+Headset paths that work today:
 
-Click **Enter VR** once the page loads.
+- **Quest browser** (Quest 3, 3S, 2, Pro) — open the link directly on the headset. See [`DEV_QUEST_SETUP.md`](DEV_QUEST_SETUP.md) for first-run guidance.
+- **Desktop Chrome with a tethered headset** — useful for development and inspection.
+
+### Without a headset
+
+WebXR emulator extensions (Meta's [Immersive Web Emulator](https://chromewebstore.google.com/detail/immersive-web-emulator/cgffilbpcibhmcfbgggfhfolhkfbhmik); Mozilla's WebXR API Emulator) would in theory let a desktop browser drive the exhibit without hardware. As of v0.2 neither composes cleanly with our Three.js stack:
+
+- Meta's emulator polyfills the WebXR API but Three.js's session setup hits an `XRWebGLBinding` type mismatch on Enter VR.
+- Mozilla's emulator was removed from the Chrome Web Store in late 2025; it remains on Firefox Add-ons, but Firefox's own WebXR support has separate quirks.
+
+Compatibility work is tracked in [#72](https://github.com/skylinetrailcomputing/geometer/issues/72). For now, a real Quest (3 / 3S / 2 / Pro) is the reliable path.
 
 ## Run locally
 
