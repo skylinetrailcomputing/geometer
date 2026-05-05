@@ -164,11 +164,21 @@ const AXIS_COLORS: Record<AxisName, number> = {
   Z: SLIDER_SKY_BLUE,      // slider 'c' (math-Z)
 };
 
-const EQUATION_COEFFICIENT_COLORS: readonly [number, number, number, number] = [
-  SLIDER_VERMILLION,
-  SLIDER_BLUISH_GREEN,
-  SLIDER_SKY_BLUE,
-  SLIDER_YELLOW,
+// Numeric-slot colors for the equation readout, indexed in visual reading
+// order [a, b, c, u, v, w, d] (#89). Linear-term slots (u/v/w) reuse the
+// quadratic-term axis colors so the equation block tells the same axis
+// story twice — once on the top line for the squared coefficients, once on
+// the bottom for the linear ones — matching the slider rack's color story.
+const EQUATION_COEFFICIENT_COLORS: readonly [
+  number, number, number, number, number, number, number,
+] = [
+  SLIDER_VERMILLION,    // a
+  SLIDER_BLUISH_GREEN,  // b
+  SLIDER_SKY_BLUE,      // c
+  SLIDER_VERMILLION,    // u
+  SLIDER_BLUISH_GREEN,  // v
+  SLIDER_SKY_BLUE,      // w
+  SLIDER_YELLOW,        // d
 ];
 
 // Debug sweep on `a`: gated off once controller sliders took over (#5).
@@ -727,7 +737,7 @@ const quadricsExhibit: Exhibit = {
       if (camera) rackLabel.faceCamera(camera);
     }
     if (equationReadout) {
-      equationReadout.setValues(a, b, c, d);
+      equationReadout.setValues(a, b, c, d, u, v, w);
       if (camera) equationReadout.faceCamera(camera);
     }
     if (worldAxes && camera) worldAxes.faceCamera(camera);
