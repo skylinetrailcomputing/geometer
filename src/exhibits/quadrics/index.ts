@@ -164,11 +164,21 @@ const AXIS_COLORS: Record<AxisName, number> = {
   Z: SLIDER_SKY_BLUE,      // slider 'c' (math-Z)
 };
 
-const EQUATION_COEFFICIENT_COLORS: readonly [number, number, number, number] = [
-  SLIDER_VERMILLION,
-  SLIDER_BLUISH_GREEN,
-  SLIDER_SKY_BLUE,
-  SLIDER_YELLOW,
+// Numeric-slot colors for the equation readout, indexed in visual reading
+// order [a, b, c, u, v, w, d] (#89). Linear-term slots (u/v/w) reuse the
+// quadratic-term axis colors so the equation block tells the same axis
+// story twice — once on the top line for the squared coefficients, once on
+// the bottom for the linear ones — matching the slider rack's color story.
+const EQUATION_COEFFICIENT_COLORS: readonly [
+  number, number, number, number, number, number, number,
+] = [
+  SLIDER_VERMILLION,    // a
+  SLIDER_BLUISH_GREEN,  // b
+  SLIDER_SKY_BLUE,      // c
+  SLIDER_VERMILLION,    // u
+  SLIDER_BLUISH_GREEN,  // v
+  SLIDER_SKY_BLUE,      // w
+  SLIDER_YELLOW,        // d
 ];
 
 // Debug sweep on `a`: gated off once controller sliders took over (#5).
@@ -698,13 +708,23 @@ const quadricsExhibit: Exhibit = {
     //   slider c → math-Z² → world-Y² → uB
     //   slider d → uD (constant term)
     // Linear-term routing (#88) follows the same math→world swap, but on
-    // the first-degree variable rather than its square:
-    //   slider u → math-X → world-X → uU
-    //   slider v → math-Y → world-Z → uW
-    //   slider w → math-Z → world-Y → uV
-    // A non-zero (u, v, w) translates the surface's center along the
-    // matching world axis; classify() is invariant under this shift —
-    // the family is unchanged, only the location moves.
+    // the first-degree variable rather than its square. The squared rows
+    // above are sign-symmetric (b · y² = b · z² regardless of sign), so
+    // they need no per-axis flip. The linear rows do — specifically on
+    // math-Y, which maps to −world-Z (camera looks down −Z, so the
+    // textbook "forward = away from user" direction is negative
+    // world-Z, per WorldAxes.ts):
+    //   slider u → math-X → +world-X    → uU = +u
+    //   slider v → math-Y → −world-Z    → uW = −v   (sign-flipped)
+    //   slider w → math-Z → +world-Y    → uV = +w
+    // The flip on `v` keeps completing-the-square consistent across all
+    // three linear sliders: positive coefficient ⇒ center at −coeff/2
+    // along +math-axis. Without it, only slider `v` would translate
+    // the surface in the +math-direction (away from user) instead of
+    // −math-direction (toward user), inverting the pedagogy and
+    // contradicting the math-frame axis indicator. classify() remains
+    // invariant under any (u, v, w) — family unchanged, only the
+    // location moves.
     const [a, b, c, d] = sliders.map((s) => s.value);
     const [u, v, w] = linearSliders.map((s) => s.value);
     if (material) {
@@ -713,7 +733,7 @@ const quadricsExhibit: Exhibit = {
       material.uniforms.uB.value = c;
       material.uniforms.uD.value = d;
       material.uniforms.uU.value = u;
-      material.uniforms.uW.value = v;
+      material.uniforms.uW.value = -v;
       material.uniforms.uV.value = w;
     }
     if (DEBUG_SWEEP && material) {
@@ -727,7 +747,7 @@ const quadricsExhibit: Exhibit = {
       if (camera) rackLabel.faceCamera(camera);
     }
     if (equationReadout) {
-      equationReadout.setValues(a, b, c, d);
+      equationReadout.setValues(a, b, c, d, u, v, w);
       if (camera) equationReadout.faceCamera(camera);
     }
     if (worldAxes && camera) worldAxes.faceCamera(camera);
