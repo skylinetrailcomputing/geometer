@@ -1,0 +1,26 @@
+# Cleanup of per-PR preview Workers when a PR closes (merged or not).
+# Pairs with .github/workflows/pr-preview.yml.
+
+name: pr-preview-cleanup
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete preview Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            delete
+            --name geometer-pr-${{ github.event.pull_request.number }}
+            --force
