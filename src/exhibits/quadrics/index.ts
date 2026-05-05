@@ -5,6 +5,7 @@ import { classify } from './classify';
 import { EquationReadout } from './EquationReadout';
 import { Label } from './Label';
 import { Preset, type PresetValues } from './Preset';
+import { PresetTween } from './PresetTween';
 import { Section } from './Section';
 import { SectionTab } from './SectionTab';
 import { Slider, type ThumbShape } from './Slider';
@@ -444,6 +445,10 @@ let equationReadout: EquationReadout | undefined;
 let worldAxes: WorldAxes | undefined;
 let camera: THREE.Camera | undefined;
 let elapsed = 0;
+// Active preset tween (#56). Replaced on each preset press; canceled on
+// slider grab so the user takes control from wherever the tween last set
+// the thumb. Module-scoped so update() can tick it.
+let presetTween: PresetTween | undefined;
 
 const quadricsExhibit: Exhibit = {
   id: 'quadrics',
@@ -597,6 +602,14 @@ const quadricsExhibit: Exhibit = {
     for (const s of activeSection.sliders) s.updateHover(controllers);
     for (const p of activeSection.presets) p.updateHover(controllers);
     if (camera) for (const p of activeSection.presets) p.faceCamera(camera);
+    // Tween advances its bound section's sliders before the slider→uniform
+    // read below, so this frame's render reflects the morph. The tween
+    // owns its slider reference (set at construction); this loop just
+    // advances time.
+    if (presetTween) {
+      const stillRunning = presetTween.tick(performance.now());
+      if (!stillRunning) presetTween = undefined;
+    }
     // Slider → uniform routing in the math-textbook frame paired with the
     // axis indicator (#43): X right, Y forward, Z up. The shader still
     // evaluates the implicit equation in the Three.js world frame, so:
@@ -670,16 +683,36 @@ function setupControllers(
       // first-hit-wins contract well-defined regardless of layout.
       const activeSection = sections[activeSectionIndex];
       for (const s of activeSection.sliders) {
-        if (s.tryGrab(controller)) return;
+        if (s.tryGrab(controller)) {
+          // Cancel any in-flight preset tween — the user is taking the
+          // wheel, and a still-ticking tween would fight the drag (#56,
+          // "interrupt" interaction policy).
+          presetTween?.cancel();
+          presetTween = undefined;
+          return;
+        }
       }
       for (const p of activeSection.presets) {
         if (p.tryActivate(controller)) {
           // Preset values are section-local (ordering matches the
-          // section's own sliders), so this stays correct as future
-          // sections introduce their own preset palettes.
-          for (let i = 0; i < activeSection.sliders.length; i++) {
-            activeSection.sliders[i].setValue(p.values[i]);
-          }
+          // section's own sliders). Animate the slider rack from its
+          // current values to the preset (#56) instead of snapping —
+          // makes the family transition itself visible. The previous
+          // tween, if any, is replaced; its ticked-state on the
+          // sliders is the new tween's start.
+          const currentValues: PresetValues = [
+            activeSection.sliders[0].value,
+            activeSection.sliders[1].value,
+            activeSection.sliders[2].value,
+            activeSection.sliders[3].value,
+          ];
+          presetTween?.cancel();
+          presetTween = new PresetTween(
+            currentValues,
+            p.values,
+            activeSection.sliders,
+            performance.now(),
+          );
           return;
         }
       }

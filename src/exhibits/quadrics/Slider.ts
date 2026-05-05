@@ -164,6 +164,23 @@ export class Slider {
   }
 
   /**
+   * Detent-bypassing variant of `setValue`, used by programmatic tweens
+   * (#56). The detent's purpose is to let the user park *deliberately* on a
+   * degeneracy boundary; during a multi-frame morph it just creates a dead
+   * window across ±ZERO_DETENT where the thumb visibly sticks at zero. The
+   * tween caller is expected to finish with a normal `setValue` so the
+   * detent re-engages at rest.
+   */
+  setValueRaw(v: number): void {
+    this.rawValue = clamp(v, this.opts.min, this.opts.max);
+    this.currentValue = this.rawValue;
+    if (this.grabbedBy) {
+      this.lastControllerLocalX = this.controllerLocalX(this.grabbedBy);
+    }
+    this.syncThumbPosition();
+  }
+
+  /**
    * Test whether `controller`'s forward ray hits the thumb. On hit, attach
    * the grab to that controller and pulse haptics. Returns whether grabbed.
    */
@@ -264,20 +281,18 @@ export class Slider {
     return this.localPoint.x;
   }
 
-  // Thumb tracks the *displayed* value (i.e. `currentValue`'s would-be
-  // snapped projection of `rawValue`), not raw. Inside the detent the thumb
-  // parks at zero so it stays aligned with what the equation readout will
-  // display (per SPEC.md "Slider model"). The slow-drag-escape behavior of
-  // #24 is preserved by `rawValue` accumulating in `update()` underneath —
-  // once raw clears ±ZERO_DETENT, the thumb tracks it again. Bonus: the
-  // visible "park at zero on approach" is part of the detent's affordance —
-  // the user feels the boundary before reading the equation.
+  // Thumb tracks `currentValue` — the emitted/shader value with the detent
+  // already applied (or bypassed, for setValueRaw). Inside the detent during
+  // a drag the thumb parks at zero so it stays aligned with what the equation
+  // readout will display (per SPEC.md "Slider model"). The slow-drag-escape
+  // behavior of #24 is preserved by `rawValue` accumulating in `update()`
+  // underneath — once raw clears ±ZERO_DETENT, currentValue tracks it again.
+  // Tween-time setValueRaw bypasses the detent so the thumb sweeps through
+  // zero rather than visibly sticking across the ±0.05 window mid-morph (#56).
   private syncThumbPosition(): void {
     const halfLen = this.opts.trackLength / 2;
-    const displayValue =
-      Math.abs(this.rawValue) < ZERO_DETENT ? 0 : this.rawValue;
     const t =
-      (displayValue - this.opts.min) / (this.opts.max - this.opts.min);
+      (this.currentValue - this.opts.min) / (this.opts.max - this.opts.min);
     this.thumb.position.x = -halfLen + t * this.opts.trackLength;
   }
 }
