@@ -3,6 +3,15 @@
 // Sign-flip symmetry — the surface defined by (a, b, c, d) equals the one
 // defined by (−a, −b, −c, −d) — is handled by enumerating both halves of
 // each flip-pair explicitly in the table below, mirroring SPEC.md.
+//
+// Linear-term invariance (#85, #88): the family is determined by the
+// quadratic part alone — adding `+ ux + vy + wz` to the implicit equation
+// translates the surface's center but doesn't cross any taxonomy boundary
+// (completing the square folds (u, v, w) into a shifted center while
+// leaving the diagonal-quadratic signature untouched). So the linear-terms
+// section deliberately skips re-classifying — the rack readout stays
+// stable as the user sweeps u/v/w, and the user *sees* the location change
+// directly in the surface.
 
 // Per SPEC.md "Classifier numerical contract". The slider's own zero detent
 // (0.05) already snaps to exact zero on emit; this epsilon is defense in
