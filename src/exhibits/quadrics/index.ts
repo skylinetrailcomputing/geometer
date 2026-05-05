@@ -126,6 +126,27 @@ const FRAGMENT_SHADER = /* glsl */ `
   const float GRID_INTENSITY = 0.6;
   const vec3  GRID_COLOR = vec3(0.05);
 
+  // Parametric (latitude / longitude) gridlines (#45). Family-aware natural
+  // parameterization — lines flow with the surface as parameters morph,
+  // pedagogically distinct from the world-axis grid above which stays
+  // anchored in world space. PARAM_GRID_COLOR is a warm near-white so the
+  // bands read as highlights painted on the surface (contrast with #34's
+  // dark carved bands). LAT/LON line counts are starting guesses — tune in
+  // headset.
+  const float PARAM_GRID_INTENSITY = 0.55;
+  const vec3  PARAM_GRID_COLOR     = vec3(0.95, 0.92, 0.78);
+  const int   PARAM_LAT_LINES      = 12;
+  const int   PARAM_LON_LINES      = 12;
+  // Hyperboloids: u is unbounded, so we space lines by u-density rather
+  // than fixed count. 1.5 ⇒ a line every ~0.67 in hyperbolic-arc units;
+  // matches roughly 8 lines across the visible surface at default scale.
+  const float PARAM_HYP_DENSITY    = 1.5;
+  // Generous compared to the classifier's 1e-6 — slider snap-detent already
+  // pins zeros exactly, so anything between PARAM_SIGN_EPSILON and 0.05
+  // never appears in practice. Keeps the shader dispatch stable through
+  // floating-point noise.
+  const float PARAM_SIGN_EPSILON   = 1e-4;
+
   varying vec3 vWorldPos;
 
   float fImplicit(vec3 p) {
@@ -142,6 +163,105 @@ const FRAGMENT_SHADER = /* glsl */ `
       fImplicit(p + dy) - fImplicit(p - dy),
       fImplicit(p + dz) - fImplicit(p - dz)
     ) / (2.0 * h);
+  }
+
+  // Anti-aliased fract-based line mask. Used independently for each grid
+  // direction so each gets its own fwidth — avoids the near-pole smear
+  // that fwidth(min(latDist, lonDist)) would produce on the ellipsoid
+  // (longitude derivatives blow up near the poles where lines converge).
+  float lineMaskAA(float t) {
+    float d = abs(fract(t) - 0.5);
+    return 1.0 - smoothstep(0.0, 1.5 * fwidth(d), d);
+  }
+
+  // Inverse hyperbolic sine via the analytic identity. GLSL ES 3.00 has
+  // asinh as a builtin, but Three.js ShaderMaterial defaults to GLSL ES
+  // 1.00 syntax (compiled against WebGL2), where asinh isn't available —
+  // so we roll our own to stay version-portable.
+  float asinhSafe(float x) {
+    return log(x + sqrt(x * x + 1.0));
+  }
+
+  // Family dispatch derived from sign(uA, uB, uC, uD) directly — keeps the
+  // shader self-contained (no extra uniforms) and avoids duplicating the
+  // taxonomy from classify.ts. Three buckets:
+  //   * ellipsoid → spherical (θ, φ); polar axis = world-Y (math-Z up
+  //     per #43's axis convention).
+  //   * 1-sheet hyperboloid → (u, v); axis of revolution = the
+  //     opposite-sign-from-uD coefficient.
+  //   * 2-sheet hyperboloid → (u, v); axis of separation (sheet axis) =
+  //     the same-sign-as-uD coefficient.
+  // Cylinders / cones / planes / degenerates fall back to world-axis only,
+  // matching the issue's "fall back if a parametric form isn't natural"
+  // allowance.
+  float parametricGridMask(vec3 p) {
+    float aSign = (abs(uA) < PARAM_SIGN_EPSILON) ? 0.0 : sign(uA);
+    float bSign = (abs(uB) < PARAM_SIGN_EPSILON) ? 0.0 : sign(uB);
+    float cSign = (abs(uC) < PARAM_SIGN_EPSILON) ? 0.0 : sign(uC);
+    float dSign = (abs(uD) < PARAM_SIGN_EPSILON) ? 0.0 : sign(uD);
+
+    if (aSign == 0.0 || bSign == 0.0 || cSign == 0.0 || dSign == 0.0) {
+      return 0.0;
+    }
+
+    // Normalize to RHS = +|uD| by absorbing sgn(uD): post-normalize,
+    // ellipsoid ⇔ all + ; 1-sheet ⇔ exactly one − ; 2-sheet ⇔ exactly two −.
+    float aN = aSign * dSign;
+    float bN = bSign * dSign;
+    float cN = cSign * dSign;
+    int neg = int(aN < 0.0) + int(bN < 0.0) + int(cN < 0.0);
+    if (neg == 3) return 0.0;  // Empty set — never rasterizes anyway.
+
+    // Dimensionless on-surface coords. q.x = p.x / r_x where
+    // r_x = sqrt(|uD|/|uA|). On the ellipsoid: q.x²+q.y²+q.z² = 1.
+    vec3 q = p * sqrt(vec3(abs(uA), abs(uB), abs(uC)) / abs(uD));
+
+    const float PI = 3.14159265;
+    const float TWO_PI = 6.28318530;
+
+    if (neg == 0) {
+      // Ellipsoid. Polar axis = world-Y (math-Z, vertical, per #43).
+      // θ ∈ [0, π], φ ∈ [-π, π].
+      float theta = acos(clamp(q.y, -1.0, 1.0));
+      float phi   = atan(q.z, q.x);
+      float mLat = lineMaskAA(theta / PI * float(PARAM_LAT_LINES));
+      float mLon = lineMaskAA((phi + PI) / TWO_PI * float(PARAM_LON_LINES));
+      return max(mLat, mLon);
+    }
+
+    if (neg == 1) {
+      // 1-sheet hyperboloid. Special axis (axis of revolution) = the one
+      // whose normalized sign is negative. Param:
+      //   non-special axes: (cosh u · cos v, cosh u · sin v)
+      //   special axis    : sinh u
+      // ⇒ u = asinhSafe(qSpecial), v = atan2(qOnB, qOnA).
+      float qSpecial, qOnA, qOnB;
+      if (aN < 0.0)      { qSpecial = q.x; qOnA = q.y; qOnB = q.z; }
+      else if (bN < 0.0) { qSpecial = q.y; qOnA = q.x; qOnB = q.z; }
+      else               { qSpecial = q.z; qOnA = q.x; qOnB = q.y; }
+      float u = asinhSafe(qSpecial);
+      float v = atan(qOnB, qOnA);
+      float mU = lineMaskAA(u * PARAM_HYP_DENSITY);
+      float mV = lineMaskAA((v + PI) / TWO_PI * float(PARAM_LON_LINES));
+      return max(mU, mV);
+    }
+
+    // neg == 2 → 2-sheet hyperboloid. Special axis (sheet axis) = the only
+    // positive one (= same sign as uD post-normalization). Param:
+    //   non-special axes: (sinh u · cos v, sinh u · sin v)
+    //   special axis    : ±cosh u  (sign picks the sheet)
+    // u ≥ 0 measures distance from each sheet's apex outward; u=0 at the
+    // apex on either sheet, increasing radially. Sheet selector implicit
+    // in sign(qSpecial) — irrelevant for gridline placement.
+    float qSpecial, qOnA, qOnB;
+    if (aN > 0.0)      { qSpecial = q.x; qOnA = q.y; qOnB = q.z; }
+    else if (bN > 0.0) { qSpecial = q.y; qOnA = q.x; qOnB = q.z; }
+    else               { qSpecial = q.z; qOnA = q.x; qOnB = q.y; }
+    float u = asinhSafe(sqrt(qOnA * qOnA + qOnB * qOnB));
+    float v = atan(qOnB, qOnA);
+    float mU = lineMaskAA(u * PARAM_HYP_DENSITY);
+    float mV = lineMaskAA((v + PI) / TWO_PI * float(PARAM_LON_LINES));
+    return max(mU, mV);
   }
 
   bool rayAABB(vec3 ro, vec3 rd, float r, out float tNear, out float tFar) {
@@ -224,6 +344,14 @@ const FRAGMENT_SHADER = /* glsl */ `
     float lineWidth = 1.5 * fwidth(lineDist);
     float mask = 1.0 - smoothstep(0.0, lineWidth, lineDist);
     vec3 color = mix(baseColor, GRID_COLOR, mask * GRID_INTENSITY);
+
+    // Parametric (latitude / longitude) gridlines (#45) — overlay light
+    // highlight bands on top of the world-axis grid. Both display by
+    // default per the issue; if simultaneous display feels cluttered in
+    // headset, revisit toggle vs. replace.
+    float paramMask = parametricGridMask(pHit);
+    color = mix(color, PARAM_GRID_COLOR, paramMask * PARAM_GRID_INTENSITY);
+
     gl_FragColor = vec4(color, 1.0);
 
     // Write the implicit-surface depth, not the bounding cube's. Quest's
