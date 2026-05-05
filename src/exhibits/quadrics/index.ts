@@ -117,29 +117,20 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform vec3  uLightDir;
   uniform vec3  uBaseColor;
 
-  // World-axis gridlines (#34). GRID_FREQ = 2.0 → lines every 0.5 m.
-  // GRID_COLOR is near-black so the lines read as "carved into" the
-  // surface; GRID_INTENSITY caps how much they darken at line-center.
-  // Hardcoded for v0.1 — promote to uniforms only if headset iteration
-  // wants live tuning.
-  const float GRID_FREQ = 2.0;
+  // Gridline color + intensity — shared between world-axis (#34) and
+  // parametric (#45) gridlines, which never co-render (#45 switch
+  // behavior). Near-black so the lines read as "carved into" the surface;
+  // intensity caps the darkening at line-center.
+  const float GRID_FREQ = 2.0;            // World-axis: lines every 0.5 m.
   const float GRID_INTENSITY = 0.6;
   const vec3  GRID_COLOR = vec3(0.05);
 
-  // Parametric (latitude / longitude) gridlines (#45). Family-aware natural
-  // parameterization — lines flow with the surface as parameters morph,
-  // pedagogically distinct from the world-axis grid above which stays
-  // anchored in world space. PARAM_GRID_COLOR is a warm near-white so the
-  // bands read as highlights painted on the surface (contrast with #34's
-  // dark carved bands). LAT/LON line counts are starting guesses — tune in
-  // headset.
-  const float PARAM_GRID_INTENSITY = 0.55;
-  const vec3  PARAM_GRID_COLOR     = vec3(0.95, 0.92, 0.78);
+  // Parametric grid line counts. LAT/LON are uniform on bounded angular
+  // ranges; hyperboloid u is unbounded, so spaced by density rather than
+  // fixed count. Density 1.5 ⇒ a line every ~0.67 in hyperbolic-arc units,
+  // ~8 lines across the visible surface at default scale.
   const int   PARAM_LAT_LINES      = 12;
   const int   PARAM_LON_LINES      = 12;
-  // Hyperboloids: u is unbounded, so we space lines by u-density rather
-  // than fixed count. 1.5 ⇒ a line every ~0.67 in hyperbolic-arc units;
-  // matches roughly 8 lines across the visible surface at default scale.
   const float PARAM_HYP_DENSITY    = 1.5;
   // Generous compared to the classifier's 1e-6 — slider snap-detent already
   // pins zeros exactly, so anything between PARAM_SIGN_EPSILON and 0.05
@@ -184,24 +175,25 @@ const FRAGMENT_SHADER = /* glsl */ `
 
   // Family dispatch derived from sign(uA, uB, uC, uD) directly — keeps the
   // shader self-contained (no extra uniforms) and avoids duplicating the
-  // taxonomy from classify.ts. Three buckets:
+  // taxonomy from classify.ts. Three buckets where parametric is natural:
   //   * ellipsoid → spherical (θ, φ); polar axis = world-Y (math-Z up
   //     per #43's axis convention).
   //   * 1-sheet hyperboloid → (u, v); axis of revolution = the
   //     opposite-sign-from-uD coefficient.
   //   * 2-sheet hyperboloid → (u, v); axis of separation (sheet axis) =
   //     the same-sign-as-uD coefficient.
-  // Cylinders / cones / planes / degenerates fall back to world-axis only,
-  // matching the issue's "fall back if a parametric form isn't natural"
-  // allowance.
-  float parametricGridMask(vec3 p) {
+  // Cylinders / cones / planes / degenerates / empty set get .y = 0.0
+  // ("family inactive") and the caller draws the world-axis grid instead.
+  // Returns vec2(gridMask, familyActive) — when inactive, gridMask is
+  // unspecified and the caller must gate on familyActive.
+  vec2 parametricGrid(vec3 p) {
     float aSign = (abs(uA) < PARAM_SIGN_EPSILON) ? 0.0 : sign(uA);
     float bSign = (abs(uB) < PARAM_SIGN_EPSILON) ? 0.0 : sign(uB);
     float cSign = (abs(uC) < PARAM_SIGN_EPSILON) ? 0.0 : sign(uC);
     float dSign = (abs(uD) < PARAM_SIGN_EPSILON) ? 0.0 : sign(uD);
 
     if (aSign == 0.0 || bSign == 0.0 || cSign == 0.0 || dSign == 0.0) {
-      return 0.0;
+      return vec2(0.0, 0.0);
     }
 
     // Normalize to RHS = +|uD| by absorbing sgn(uD): post-normalize,
@@ -210,7 +202,7 @@ const FRAGMENT_SHADER = /* glsl */ `
     float bN = bSign * dSign;
     float cN = cSign * dSign;
     int neg = int(aN < 0.0) + int(bN < 0.0) + int(cN < 0.0);
-    if (neg == 3) return 0.0;  // Empty set — never rasterizes anyway.
+    if (neg == 3) return vec2(0.0, 0.0);  // Empty set — never rasterizes.
 
     // Dimensionless on-surface coords. q.x = p.x / r_x where
     // r_x = sqrt(|uD|/|uA|). On the ellipsoid: q.x²+q.y²+q.z² = 1.
@@ -226,7 +218,7 @@ const FRAGMENT_SHADER = /* glsl */ `
       float phi   = atan(q.z, q.x);
       float mLat = lineMaskAA(theta / PI * float(PARAM_LAT_LINES));
       float mLon = lineMaskAA((phi + PI) / TWO_PI * float(PARAM_LON_LINES));
-      return max(mLat, mLon);
+      return vec2(max(mLat, mLon), 1.0);
     }
 
     if (neg == 1) {
@@ -243,7 +235,7 @@ const FRAGMENT_SHADER = /* glsl */ `
       float v = atan(qOnB, qOnA);
       float mU = lineMaskAA(u * PARAM_HYP_DENSITY);
       float mV = lineMaskAA((v + PI) / TWO_PI * float(PARAM_LON_LINES));
-      return max(mU, mV);
+      return vec2(max(mU, mV), 1.0);
     }
 
     // neg == 2 → 2-sheet hyperboloid. Special axis (sheet axis) = the only
@@ -261,7 +253,7 @@ const FRAGMENT_SHADER = /* glsl */ `
     float v = atan(qOnB, qOnA);
     float mU = lineMaskAA(u * PARAM_HYP_DENSITY);
     float mV = lineMaskAA((v + PI) / TWO_PI * float(PARAM_LON_LINES));
-    return max(mU, mV);
+    return vec2(max(mU, mV), 1.0);
   }
 
   bool rayAABB(vec3 ro, vec3 rd, float r, out float tNear, out float tFar) {
@@ -330,27 +322,38 @@ const FRAGMENT_SHADER = /* glsl */ `
     float lambert = max(dot(n, normalize(uLightDir)), 0.0);
     vec3 baseColor = uBaseColor * (0.2 + 0.8 * lambert);
 
-    // World-axis gridlines as a depth cue (#34): distance from each
-    // hit-world coordinate to the nearest integer multiple of
-    // (1 / GRID_FREQ). Anti-aliased via fwidth so the line stays one
-    // pixel regardless of viewing angle or distance. Mix darkens the
-    // surface where it crosses a gridline — reads as "carved into" the
-    // surface rather than overlaid on it. Walking around the surface
-    // gives parallax through the grid: stronger 3D readout than a
-    // uniformly-lit single-color quadric.
+    // Gridlines as a depth cue. Two systems, never co-rendered (#45
+    // headset feedback: simultaneous display read as cluttered):
+    //
+    //   * Parametric (#45) — lines of constant θ/φ (ellipsoid) or u/v
+    //     (hyperboloids) in a family-aware natural parameterization.
+    //     Lines flow with the surface as parameters morph.
+    //   * World-axis (#34) — distance to the nearest integer multiple of
+    //     (1 / GRID_FREQ) on each world axis. Anchored to world (0,0,0),
+    //     so the surface reads as carved out of a fixed 3D coordinate
+    //     frame. Used as the fallback when the family doesn't admit a
+    //     natural parametric form (cylinders / cones / planes / degenerates).
+    //
+    // Both systems share GRID_COLOR / GRID_INTENSITY so the line character
+    // stays consistent across family transitions — only the *frame* the
+    // lines align to changes, reinforcing the family-classification flip
+    // already shown in the rack readout above.
+    //
+    // fwidth-based AA keeps lines one-pixel-wide regardless of viewing
+    // angle or distance; walking around the surface gives parallax through
+    // whichever grid is currently active.
     vec3 hitWorld = pHit + uSurfaceCenter;
-    vec3 g = abs(fract(hitWorld * GRID_FREQ) - 0.5);
-    float lineDist = min(min(g.x, g.y), g.z);
-    float lineWidth = 1.5 * fwidth(lineDist);
-    float mask = 1.0 - smoothstep(0.0, lineWidth, lineDist);
-    vec3 color = mix(baseColor, GRID_COLOR, mask * GRID_INTENSITY);
-
-    // Parametric (latitude / longitude) gridlines (#45) — overlay light
-    // highlight bands on top of the world-axis grid. Both display by
-    // default per the issue; if simultaneous display feels cluttered in
-    // headset, revisit toggle vs. replace.
-    float paramMask = parametricGridMask(pHit);
-    color = mix(color, PARAM_GRID_COLOR, paramMask * PARAM_GRID_INTENSITY);
+    vec2 paramGrid = parametricGrid(pHit);
+    float gridMask;
+    if (paramGrid.y > 0.5) {
+      gridMask = paramGrid.x;
+    } else {
+      vec3 g = abs(fract(hitWorld * GRID_FREQ) - 0.5);
+      float lineDist = min(min(g.x, g.y), g.z);
+      float lineWidth = 1.5 * fwidth(lineDist);
+      gridMask = 1.0 - smoothstep(0.0, lineWidth, lineDist);
+    }
+    vec3 color = mix(baseColor, GRID_COLOR, gridMask * GRID_INTENSITY);
 
     gl_FragColor = vec4(color, 1.0);
 
