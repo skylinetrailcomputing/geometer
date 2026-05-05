@@ -4,6 +4,7 @@ import { registerExhibit } from '../../shell/registry';
 import { classify } from './classify';
 import { Label } from './Label';
 import { Slider } from './Slider';
+import { WorldAxes } from './WorldAxes';
 
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -3);
 const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
@@ -194,6 +195,7 @@ let material: THREE.ShaderMaterial | undefined;
 let sliders: Slider[] = [];
 let controllers: THREE.Object3D[] = [];
 let rackLabel: Label | undefined;
+let worldAxes: WorldAxes | undefined;
 let camera: THREE.Camera | undefined;
 let elapsed = 0;
 
@@ -260,6 +262,9 @@ const quadricsExhibit: Exhibit = {
     rackLabel = new Label({ primaryFontSize: RACK_LABEL_PRIMARY_FONT_SIZE });
     rackLabel.group.position.copy(RACK_LABEL_POSITION);
     scene.add(rackLabel.group);
+
+    worldAxes = new WorldAxes();
+    scene.add(worldAxes.group);
   },
 
   update({ delta }) {
@@ -282,6 +287,7 @@ const quadricsExhibit: Exhibit = {
       rackLabel.setPrimary(family);
       if (camera) rackLabel.faceCamera(camera);
     }
+    if (worldAxes && camera) worldAxes.faceCamera(camera);
   },
 };
 
