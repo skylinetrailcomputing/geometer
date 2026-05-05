@@ -283,7 +283,7 @@ export class Slider {
 }
 
 // `sphere` matches the hit-test radius exactly. The arrow variants extend
-// past `thumbRadius` along their axis (~1.3r at the cone tip), but the
+// past `thumbRadius` along their axis (~1.475r at the cone tip), but the
 // grab zone (`thumbRadius * GRAB_RADIUS_MULTIPLIER` = 2.75r) covers the
 // full visible arrow plus margin, so the entire shape stays grabbable.
 function buildThumbGeometry(
@@ -306,10 +306,16 @@ function buildArrowGeometry(
   axis: 'arrow-x' | 'arrow-y' | 'arrow-z',
 ): THREE.BufferGeometry {
   const r = thumbRadius;
-  const shaftLength = 1.4 * r;
-  const shaftRadius = 0.2 * r;
+  // Arrow proportions retuned post-headset (#65 follow-up). Shaft thicker
+  // and longer, cones wider — arrows now read as substantive 3D objects
+  // rather than thin sticks at the ~0.7 m viewing distance from the
+  // user's spawn pose. Cone height unchanged: at coneRadius = 1.0r the
+  // cones are intentionally squat (wider than tall) — bump coneHeight if
+  // the arrowheads look too disc-like in headset.
+  const shaftLength = 1.75 * r;
+  const shaftRadius = 0.25 * r;
   const coneHeight = 0.6 * r;
-  const coneRadius = 0.5 * r;
+  const coneRadius = 1.0 * r;
   // Cone center sits at half-shaft + half-cone along Y so its base flushes
   // against the shaft's end.
   const coneCenter = shaftLength / 2 + coneHeight / 2;
