@@ -7,8 +7,21 @@ import { Preset, type PresetValues } from './Preset';
 import { Slider } from './Slider';
 import { WorldAxes } from './WorldAxes';
 
-const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -3);
+// Pushed back from z=-3 to z=-4 as part of the comfort trial in #44 — gives
+// extreme-parameter expansions ~1 m of headroom before they invade the
+// viewer's space at default spawn. Paired with MATH_FRAME_YAW_RAD below; the
+// rotation alone reduces worst-case forward projection to ~0.71, the push-back
+// is the fixed buffer on top of that.
+const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
 const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
+
+// Comfort-trial yaw applied to the surface's implicit equation about world-Y
+// (= math-Z, vertical) (#44). At π/4, the math-X axis points forward-right of
+// the viewer and math-Y forward-left, so no principal axis points directly at
+// the viewer — worst-case forward projection of an axis-aligned expansion
+// drops from 1.0 to cos(45°) ≈ 0.71. Set to 0 to disable the rotation while
+// keeping the push-back in SURFACE_CENTER, for headset A/B comparison.
+const MATH_FRAME_YAW_RAD = Math.PI / 4;
 
 // Single classification readout, anchored above the rack so the family
 // name sits in the user's gaze area while interacting (#33). A second
@@ -106,6 +119,15 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform vec3  uLightDir;
   uniform vec3  uBaseColor;
 
+  // Yaw of the implicit surface about world-Y (#44 comfort trial). Applied
+  // inside fImplicit so the shader still evaluates an axis-aligned quadric in
+  // a rotated frame; gradF inherits the rotation transparently because it
+  // calls fImplicit. World-axis gridlines and the bounding cube stay
+  // world-aligned by design — the gridlines visibly disclose the rotation,
+  // and the cube remains a comfortable container at any yaw since the
+  // surface extent is invariant under rotation about Y.
+  uniform float uYawRad;
+
   // World-axis gridlines (#34). GRID_FREQ = 2.0 → lines every 0.5 m.
   // GRID_COLOR is near-black so the lines read as "carved into" the
   // surface; GRID_INTENSITY caps how much they darken at line-center.
@@ -118,7 +140,13 @@ const FRAGMENT_SHADER = /* glsl */ `
   varying vec3 vWorldPos;
 
   float fImplicit(vec3 p) {
-    return uA * p.x * p.x + uB * p.y * p.y + uC * p.z * p.z - uD;
+    // Rotate p by -uYawRad about Y into the surface's own frame, then
+    // evaluate the axis-aligned quadric there. Equivalently: the surface
+    // is rotated by +uYawRad in the world.
+    float c = cos(uYawRad);
+    float s = sin(uYawRad);
+    vec3 q = vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z);
+    return uA * q.x * q.x + uB * q.y * q.y + uC * q.z * q.z - uD;
   }
 
   vec3 gradF(vec3 p) {
@@ -265,6 +293,7 @@ const quadricsExhibit: Exhibit = {
         uBound: { value: BOUND },
         uLightDir: { value: LIGHT_DIR.clone() },
         uBaseColor: { value: new THREE.Color(0.4, 0.7, 0.95) },
+        uYawRad: { value: MATH_FRAME_YAW_RAD },
       },
     });
 
@@ -313,6 +342,9 @@ const quadricsExhibit: Exhibit = {
 
     worldAxes = new WorldAxes();
     worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
+    // Match the surface's yaw (#44) so the indicator's X / Y arrows point
+    // where the surface's math-X / math-Y axes actually go in the world.
+    worldAxes.group.rotation.y = MATH_FRAME_YAW_RAD;
     scene.add(worldAxes.group);
   },
 
