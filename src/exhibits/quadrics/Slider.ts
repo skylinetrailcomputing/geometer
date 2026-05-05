@@ -1,6 +1,14 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
-export type ThumbShape = 'sphere' | 'cube' | 'octahedron' | 'cylinder';
+// `arrow-{x,y,z}` are bidirectional 3D arrows aligned with their respective
+// world axis. The slider group has no rotation, so slider-local frame =
+// world frame; pick the variant whose axis matches the math-frame axis the
+// slider drives (arrow-x for slider 'a' → math-X, arrow-y for slider 'b' →
+// math-Y, arrow-z for slider 'c' → math-Z). `sphere` is reserved for
+// slider 'd' (the constant term — no spatial direction, so a directionless
+// thumb reads as pedagogically truthful).
+export type ThumbShape = 'sphere' | 'arrow-x' | 'arrow-y' | 'arrow-z';
 
 export interface SliderOptions {
   label: string;
@@ -274,32 +282,78 @@ export class Slider {
   }
 }
 
-// Each shape is sized so its bounding sphere ≈ thumbRadius — same hit-test
-// region (`thumbRadius * GRAB_RADIUS_MULTIPLIER`) feels consistent across
-// shapes when sweeping the controller across the rack.
+// `sphere` matches the hit-test radius exactly. The arrow variants extend
+// past `thumbRadius` along their axis (~1.3r at the cone tip), but the
+// grab zone (`thumbRadius * GRAB_RADIUS_MULTIPLIER` = 2.75r) covers the
+// full visible arrow plus margin, so the entire shape stays grabbable.
 function buildThumbGeometry(
   shape: ThumbShape,
   thumbRadius: number,
 ): THREE.BufferGeometry {
-  switch (shape) {
-    case 'sphere':
-      return new THREE.SphereGeometry(thumbRadius, 16, 12);
-    case 'cube': {
-      // Side = 2r/√3 inscribes the cube in a sphere of radius r — keeps the
-      // visual scale matched to the sphere thumb.
-      const side = (2 * thumbRadius) / Math.sqrt(3);
-      return new THREE.BoxGeometry(side, side, side);
-    }
-    case 'octahedron':
-      return new THREE.OctahedronGeometry(thumbRadius);
-    case 'cylinder': {
-      // Knob/puck profile: short, wider radius. Bounding sphere radius =
-      // sqrt(r² + (h/2)²); pick r and h so that ≈ thumbRadius.
-      const r = thumbRadius * 0.85;
-      const h = thumbRadius * 1.1;
-      return new THREE.CylinderGeometry(r, r, h, 16);
-    }
+  if (shape === 'sphere') {
+    return new THREE.SphereGeometry(thumbRadius, 16, 12);
   }
+  return buildArrowGeometry(thumbRadius, shape);
+}
+
+// Bidirectional 3D arrow (`<->`) for the axis-coefficient sliders. Built
+// along +Y as a merged geometry (shaft cylinder + two outward-pointing
+// cones), then rotated to the requested world axis. Single mesh + single
+// material via `mergeGeometries` keeps Slider's hover/grab emissive logic
+// untouched.
+function buildArrowGeometry(
+  thumbRadius: number,
+  axis: 'arrow-x' | 'arrow-y' | 'arrow-z',
+): THREE.BufferGeometry {
+  const r = thumbRadius;
+  const shaftLength = 1.4 * r;
+  const shaftRadius = 0.2 * r;
+  const coneHeight = 0.6 * r;
+  const coneRadius = 0.5 * r;
+  // Cone center sits at half-shaft + half-cone along Y so its base flushes
+  // against the shaft's end.
+  const coneCenter = shaftLength / 2 + coneHeight / 2;
+
+  const shaft = new THREE.CylinderGeometry(
+    shaftRadius,
+    shaftRadius,
+    shaftLength,
+    12,
+  );
+
+  const upperCone = new THREE.ConeGeometry(coneRadius, coneHeight, 16);
+  upperCone.translate(0, coneCenter, 0);
+
+  // Lower cone: flip 180° around Z so apex points -Y, then translate to
+  // mirror the upper cone across the origin.
+  const lowerCone = new THREE.ConeGeometry(coneRadius, coneHeight, 16);
+  lowerCone.rotateZ(Math.PI);
+  lowerCone.translate(0, -coneCenter, 0);
+
+  const merged = mergeGeometries([shaft, upperCone, lowerCone]);
+  // Sources have identical attribute layouts (position/normal/uv) — merge
+  // can't fail in practice, but the type signature requires the check.
+  if (!merged) {
+    throw new Error('Failed to merge arrow thumb geometries');
+  }
+  shaft.dispose();
+  upperCone.dispose();
+  lowerCone.dispose();
+
+  // Rotate from +Y default to the target world axis. Slider local frame =
+  // world frame (the slider group is positioned but not rotated):
+  //   arrow-x → ±world-X (parallel to track; slider 'a' / math-X)
+  //   arrow-y → ±world-Z (toward/away from viewer; slider 'b' / math-Y per #43,
+  //                       which routes math-Y to world-Z; bidirectional, so
+  //                       sign of the rotation doesn't matter pedagogically)
+  //   arrow-z → ±world-Y (up/down; slider 'c' / math-Z, no rotation needed)
+  if (axis === 'arrow-x') {
+    merged.rotateZ(-Math.PI / 2);
+  } else if (axis === 'arrow-y') {
+    merged.rotateX(Math.PI / 2);
+  }
+
+  return merged;
 }
 
 function clamp(v: number, lo: number, hi: number): number {
