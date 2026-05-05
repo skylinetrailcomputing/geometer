@@ -145,6 +145,20 @@ uniformly-lit single-color quadric). Line spacing 0.5 m, near-black
 "carved" line color, anti-aliased via `fwidth`. Decorative depth cue
 only — labels / measurement come in v0.2.
 
+**Parametric gridlines** (#45) overlay light "highlight" bands using a
+family-aware natural parameterization of the surface — pedagogically
+distinct from the world-axis grid: the world-axis lines stay anchored in
+world space as parameters morph, while the parametric lines flow *with*
+the surface, treating it as a 2-manifold being stretched. Lines of
+constant `θ` ("latitude") and constant `φ` ("longitude") on the
+ellipsoid; lines of constant `u` and `v` on the 1-sheet and 2-sheet
+hyperboloids. Cylinders / cones / planes / degenerate cases fall back to
+world-axis grid only. Family + special-axis dispatch is derived
+in-shader from `sign(uA, uB, uC, uD)` so the JS-side classifier API
+stays unchanged. Polar axis on the ellipsoid is world-Y (math-Z up, per
+#43's axis convention). Decorative — same posture as the world-axis
+grid; labels / measurement deferred.
+
 ## Frame-pacing knobs (#38)
 
 Two surgical knobs land in v0.1.1 to tighten the labels-vs-surface
