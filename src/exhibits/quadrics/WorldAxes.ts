@@ -1,26 +1,25 @@
 import * as THREE from 'three';
 import { Text } from 'troika-three-text';
 
-// World-anchored X / Y / Z axis indicator (#43). Three thin lines from world
-// origin out along +X, +Y, +Z, with a single-letter troika label at each end.
-// Lets the viewer map a slider (a/b/c) to a spatial direction without having
-// to infer it from surface morphing alone — and stays a stable reference if
-// the v0.2 comfort pass (#44) rotates the world or shifts the surface.
+// Compact math-frame axis indicator (#43). Pinned next to the slider rack;
+// the caller positions the group. Three short lines + single-letter labels
+// in the US-undergrad textbook convention: X right, Y forward (away from
+// the user), Z up — right-handed (X × Y = Z).
+//
+// The shader still evaluates the implicit equation in the Three.js world
+// frame; the caller is responsible for routing slider values to uniforms
+// so that slider `a` drives X² (world-X), `b` drives Y² (world-Z), and
+// `c` drives Z² (world-Y). The labels here are the visible half of that
+// contract.
 
-const AXIS_LENGTH = 2.0;
+const AXIS_LENGTH = 0.15;
 const AXIS_COLOR = 0xffffff;
-const LINE_OPACITY = 0.5;
+const LINE_OPACITY = 0.7;
 
-// Lifts the floor-grazing X and Z lines off y=0 so they don't z-fight with
-// the floor plane. Y line extends purely upward from the same offset so the
-// triad meets at a single visible point above the floor.
-const FLOOR_OFFSET = 0.005;
-
-// Sized for readability across the three viewing distances from the spawn
-// pose (~1.9 m for Z, ~3.0 m for Y, ~3.9 m for X). A bit larger than Label's
-// 0.16 primary default so the longest leg still reads clearly.
-const FONT_SIZE = 0.18;
-const OUTLINE_WIDTH = '6%';
+// Just larger than the per-slider labels' 0.04 primary, so the letters
+// read as a distinct UI element rather than as another slider value.
+const FONT_SIZE = 0.045;
+const OUTLINE_WIDTH = '8%';
 const OUTLINE_COLOR = 0x000000;
 
 interface AxisSpec {
@@ -28,17 +27,21 @@ interface AxisSpec {
   readonly dir: THREE.Vector3;
 }
 
+// Map math-frame axes to Three.js world directions:
+//   math-X (right)   = +world-X
+//   math-Y (forward) = -world-Z   (camera looks down -Z)
+//   math-Z (up)      = +world-Y
 const AXES: readonly AxisSpec[] = [
   { name: 'X', dir: new THREE.Vector3(1, 0, 0) },
-  { name: 'Y', dir: new THREE.Vector3(0, 1, 0) },
-  { name: 'Z', dir: new THREE.Vector3(0, 0, 1) },
+  { name: 'Y', dir: new THREE.Vector3(0, 0, -1) },
+  { name: 'Z', dir: new THREE.Vector3(0, 1, 0) },
 ];
 
 /**
- * Persistent world-axis indicator. Owns a `THREE.Group` you add to the
- * scene; call `faceCamera(camera)` per-frame to billboard the letter
+ * Compact axis indicator. Owns a `THREE.Group` you position and add to
+ * the scene; call `faceCamera(camera)` per-frame to billboard the letter
  * labels (yaw-only, matching the family / per-slider labels — head pitch
- * and roll stay out of the labels for the same #29 reason).
+ * and roll stay out for the same #29 reason).
  */
 export class WorldAxes {
   readonly group: THREE.Group;
@@ -54,7 +57,6 @@ export class WorldAxes {
   constructor() {
     this.group = new THREE.Group();
     this.group.name = 'world-axes';
-    this.group.position.set(0, FLOOR_OFFSET, 0);
 
     this.lineMat = new THREE.LineBasicMaterial({
       color: AXIS_COLOR,
