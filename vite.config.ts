@@ -1,11 +1,11 @@
 import { defineConfig } from 'vite';
 
-// On GitHub Pages the site is served at
-// https://skylinetrailcomputing.github.io/geometer/, so static asset paths
-// need /geometer/ as the base. Locally and on Cloudflare Workers (served
-// at the project subdomain root), serve from /.
+// Base path is set explicitly per deploy target via the BASE_PATH env var.
+// GitHub Pages serves at /geometer/ (set by .github/workflows/pages.yml);
+// every other context — local dev, CI preview deploys at the workers.dev
+// subdomain root — uses /.
 export default defineConfig({
-  base: process.env.GITHUB_ACTIONS ? '/geometer/' : '/',
+  base: process.env.BASE_PATH || '/',
   plugins: [],
   server: {
     host: true,
