@@ -27,13 +27,24 @@ import { WorldAxes, type AxisName } from './WorldAxes';
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
 const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 
-// Vertical stacking above the slider rack (top → bottom):
-//   y = 1.95 — debug FPS overlay (?fps=1, hidden by default)
-//   y = 1.78 — section tab row + canonical-forms expandable heading (#57; bumped up in #93)
-//   y = 1.65 — canonical-pose preset row (#93; hidden until heading tapped)
-//   y = 1.5  — family classifier readout
-//   y = 1.4  — live equation readout (#58)
-//   y = 1.225 — top slider 'a' (= SLIDER_RACK_CENTER.y + 1.5 * SLIDER_ROW_PITCH)
+// Vertical stacking (top → bottom):
+//   centered column (x = 0):
+//     y = 1.85  — debug FPS overlay (?fps=1, hidden by default)
+//     y = 1.5   — family classifier readout
+//     y = 1.4   — live equation readout (#58)
+//     y = 1.225 — top slider 'a' (= SLIDER_RACK_CENTER.y + 1.5 * SLIDER_ROW_PITCH)
+//   left rack (x = -0.45) — section / canonical-forms tabs (#93 follow-up):
+//     y = 1.65 — Canonical forms expandable heading (▸ collapsed / ▾ expanded)
+//     y = 1.4  — Coefficients tab
+//     y = 1.15 — Linear terms tab
+//   when Canonical forms is expanded:
+//     y = 1.65, x ∈ [-0.32, +0.46] — preset row, extending rightward from
+//                                    the heading at pitch 0.13.
+// The vertical tab rack replaced an earlier horizontal row at y = 1.78
+// (#93 first-pass landed it horizontally; the second pass moved it left
+// per headset feedback that the horizontal row was crowding the upper
+// viewport and reading further from the sliders it controls than the
+// rack center where the slider names live).
 // Family classifier was at y = 1.4 in v0.1; pushed up to y = 1.5 to make
 // room for the equation. The equation occupies the slot the per-slider
 // labels used to fill (those left-of-track 'a +1.00' labels are gone in
@@ -42,12 +53,10 @@ const RACK_LABEL_POSITION = new THREE.Vector3(0, 1.5, -0.7);
 const EQUATION_READOUT_POSITION = new THREE.Vector3(0, 1.4, -0.7);
 
 // Debug-only FPS readout (#99), gated behind `?fps=1`. Sits above the
-// section-tab row so it doesn't crowd the family classifier or surface
-// viewport when enabled. Same z-plane as the rack stack so yaw-billboarding
-// behaves the same as the other readouts. Bumped from y = 1.85 → 1.95 in
-// #93 when the section tab row moved up to make room for the global preset
-// row; the prior height collided with the new tab labels.
-const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.95, -0.7);
+// family classifier so it doesn't crowd the surface viewport when
+// enabled. Same z-plane as the rack stack so yaw-billboarding behaves
+// the same as the other readouts.
+const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.85, -0.7);
 
 // Smaller than Label's 0.16 default; matches the closer ~0.7 m viewing
 // distance from the user's spawn point.
@@ -61,33 +70,34 @@ const RACK_LABEL_PRIMARY_FONT_SIZE = 0.06;
 // at y = 1.0. z matches the slider plane.
 const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.3, 0.925, -0.7);
 
-// Section-selector tab row (#57): horizontal strip above the global preset
-// row, family classifier (y = 1.5), and equation readout (y = 1.4). One
-// tab per section; tapping a tab swaps which sliders are visible and
-// grabbable in the rack. Today's sections: "Coefficients" and "Linear
+// Section-selector tab rack (#57; rotated to a vertical left column in
+// #93): a stack of buttons at the left of the slider rack. Each button
+// is a tab (Coefficients, Linear terms) or the canonical-forms
+// expandable heading; tapping a section tab swaps which sliders are
+// visible and grabbable. Today's sections: "Coefficients" and "Linear
 // terms" (#88).
 //
-// Pitch chosen large enough to fit the longest current section name
-// ("Coefficients" at LABEL_FONT_SIZE 0.035) without collisions; revisit
-// when a third tab actually lands and we can headset-trial the row.
-//
-// Bumped y = 1.65 → 1.78 in #93 to make room for the canonical-pose
-// preset row that now sits directly below the tabs (where the tabs used
-// to live).
-const SECTION_TAB_ROW_Y = 1.78;
-const SECTION_TAB_PITCH = 0.25;
+// Vertical pitch chosen so the canonical-forms heading sits above the
+// family classifier (y = 1.5) and the section tabs land alongside the
+// slider rack — Coefficients across from the equation readout, Linear
+// terms near the top of the slider stack.
+const SECTION_TAB_RACK_X = -0.45;
+const SECTION_TAB_RACK_TOP_Y = 1.65;
+const SECTION_TAB_RACK_PITCH = 0.25;
 
-// Canonical-pose preset row (#46, relocated #93): horizontal strip below
-// the section tab row and above the family classifier. Buttons centered
-// on x = 0 at PRESET_ROW_PITCH spacing.
+// Canonical-pose preset row (#46, relocated #93): horizontal strip
+// anchored to the canonical-forms heading on the left rack, extending
+// rightward across the upper viewport. Hidden by default; tapping the
+// heading reveals it.
 //
 // Was a vertical column to the left of the slider rack at x = -0.45 (#46);
-// moved here in #93 because the rack was reading as a third UI element
-// competing with the slider rack and the section tabs. Presets are also
-// now globally scoped — they drive the coefficient rack to a canonical
-// pose and zero the linear-term rack regardless of the active section
-// (the latter half came in via #92), which fits naturally with their new
-// position above the section boundary rather than inside one tab.
+// moved out of that slot in #93 because the rack was reading as a third
+// UI element competing with the slider rack and the section tabs. Presets
+// are also now globally scoped — they drive the coefficient rack to a
+// canonical pose and zero the linear-term rack regardless of the active
+// section (the latter half came in via #92), which fits naturally with
+// their new position above the section boundary rather than inside one
+// tab.
 //
 // Order matches the original issue body: Sphere, Ellipsoid, Cone,
 // H 1-sheet, H 2-sheets, Cylinder, Reset (back to startup pose).
@@ -106,25 +116,29 @@ const PRESETS: readonly { readonly name: string; readonly values: PresetValues }
   { name: 'Reset', values: [1, 1, 1, 1] },
 ];
 
-// Sits at the original section-tab-row height; section tabs moved up to
-// 1.78 (#93) so the preset row could occupy this slot.
-const PRESET_ROW_Y = 1.65;
-// 7 buttons at 0.13 m pitch span 0.78 m total — wider than the slider
-// rack but still inside arm's reach. First-iteration trial used 0.08
-// pitch and was reported as "smooshed" in headset (#93 follow-up): the
-// labels (down to "H 2-sheets") need ~0.11 m of horizontal real estate
-// at the chosen 0.022 m font, so 0.08 pitch had labels overlapping into
-// adjacent buttons. 0.13 leaves ~0.02 m of clear air between labels.
+// Preset row expansion (#93). Anchored to the canonical-forms heading on
+// the left rack — when the heading is tapped, the 7 preset buttons appear
+// in a horizontal row at the heading's y, extending rightward across the
+// upper viewport.
+//
+// PRESET_ROW_Y matches the heading's y (top of the section tab rack).
+// PRESET_ROW_START_X positions the leftmost preset just right of the
+// heading button, with PRESET_ROW_PITCH spacing between adjacent presets.
+// 7 buttons at 0.13 pitch span 0.78 m of x — fits within arm's reach
+// from the user's spawn point. First-iteration trial used 0.08 pitch
+// and was reported as "smooshed" in headset (#93 follow-up): labels (down
+// to "H 2-sheets") need ~0.11 m of horizontal real estate at the chosen
+// 0.022 m font, so 0.08 had labels overlapping into adjacent buttons.
+// 0.13 leaves ~0.02 m of clear air between labels.
+const PRESET_ROW_Y = SECTION_TAB_RACK_TOP_Y;
+const PRESET_ROW_START_X = SECTION_TAB_RACK_X + 0.13;
 const PRESET_ROW_PITCH = 0.13;
 
-// Expandable "Canonical forms" heading on the section tab row (#93
-// follow-up). The preset row is hidden by default; tapping the heading
-// toggles the row visible/hidden. Sits to the right of the section tabs
-// at x = +0.4 — a clear horizontal gap from the centered tab pair so
-// the affordance reads as a peer, not as a third tab. Reuses SectionTab
-// for the click-target + hover/active emissive machinery; the active
-// state doubles as the "expanded" indicator.
-const CANONICAL_FORMS_HEADING_X = 0.4;
+// Canonical-forms heading label text. Includes a chevron that flips on
+// expand/collapse so the affordance is unambiguous even at a glance:
+// ▸ when collapsed (tap to expand to the right), ▾ when expanded.
+const CANONICAL_FORMS_LABEL_COLLAPSED = 'Canonical forms ▸';
+const CANONICAL_FORMS_LABEL_EXPANDED = 'Canonical forms ▾';
 
 // Half-extent of the raymarcher's AABB around uSurfaceCenter. Bumped from
 // 2.5 to 3.5 (#87) to give linear-term sliders u/v/w (#85, ±2 each) room to
@@ -621,15 +635,15 @@ const quadricsExhibit: Exhibit = {
     });
     sliders = coefficientSliders;
 
-    // Horizontal preset row centered on x = 0, just below the section tab
-    // row (#93). Order is left → right, matching the original top → bottom
-    // vertical column the rack used before relocation. Hidden by default —
-    // the canonical-forms heading toggle below controls visibility.
-    const presetStartX = -((PRESETS.length - 1) / 2) * PRESET_ROW_PITCH;
+    // Preset row, anchored to the canonical-forms heading on the left
+    // rack and extending rightward (#93). Hidden by default — the
+    // heading toggle below controls visibility. Order is left → right,
+    // matching the original top → bottom vertical column the rack used
+    // before relocation.
     presets = PRESETS.map((p, i) => {
       const preset = new Preset(p);
       preset.group.position.set(
-        presetStartX + i * PRESET_ROW_PITCH,
+        PRESET_ROW_START_X + i * PRESET_ROW_PITCH,
         PRESET_ROW_Y,
         SLIDER_RACK_CENTER.z,
       );
@@ -690,16 +704,16 @@ const quadricsExhibit: Exhibit = {
       sections[i].setActive(i === activeSectionIndex);
     }
 
-    // Tab row centered on x = 0 above the family classifier. With one
-    // section the row is a single button; arithmetic generalizes to N
-    // tabs spread on the SECTION_TAB_PITCH.
-    const tabSpan = (sections.length - 1) * SECTION_TAB_PITCH;
-    const tabStartX = -tabSpan / 2;
+    // Vertical tab rack on the left (#93). Top → bottom: canonical-forms
+    // heading (built below the section tabs but positioned above them in
+    // y), then one button per Section. The slot for the heading is
+    // SECTION_TAB_RACK_TOP_Y; section tabs follow at SECTION_TAB_RACK_PITCH
+    // intervals below.
     tabs = sections.map((section, i) => {
       const tab = new SectionTab({ name: section.name });
       tab.group.position.set(
-        tabStartX + i * SECTION_TAB_PITCH,
-        SECTION_TAB_ROW_Y,
+        SECTION_TAB_RACK_X,
+        SECTION_TAB_RACK_TOP_Y - (i + 1) * SECTION_TAB_RACK_PITCH,
         SLIDER_RACK_CENTER.z,
       );
       scene.add(tab.group);
@@ -707,13 +721,18 @@ const quadricsExhibit: Exhibit = {
     });
     tabs[activeSectionIndex].setActive(true);
 
-    // Canonical-forms expandable heading: same row as the section tabs
-    // but offset right with a clear gap so it reads as a peer, not a
-    // third tab. Active emissive doubles as the expanded-state indicator.
-    canonicalFormsHeading = new SectionTab({ name: 'Canonical forms ▾' });
+    // Canonical-forms expandable heading at the top of the rack (#93).
+    // Reuses SectionTab for the hover / press flash / active emissive
+    // machinery; the active state doubles as the expanded-state
+    // indicator alongside the chevron flip.
+    canonicalFormsHeading = new SectionTab({
+      name: presetsExpanded
+        ? CANONICAL_FORMS_LABEL_EXPANDED
+        : CANONICAL_FORMS_LABEL_COLLAPSED,
+    });
     canonicalFormsHeading.group.position.set(
-      CANONICAL_FORMS_HEADING_X,
-      SECTION_TAB_ROW_Y,
+      SECTION_TAB_RACK_X,
+      SECTION_TAB_RACK_TOP_Y,
       SLIDER_RACK_CENTER.z,
     );
     canonicalFormsHeading.setActive(presetsExpanded);
@@ -988,6 +1007,11 @@ function togglePresetsExpanded(): void {
   presetsExpanded = !presetsExpanded;
   for (const p of presets) p.group.visible = presetsExpanded;
   canonicalFormsHeading?.setActive(presetsExpanded);
+  canonicalFormsHeading?.setName(
+    presetsExpanded
+      ? CANONICAL_FORMS_LABEL_EXPANDED
+      : CANONICAL_FORMS_LABEL_COLLAPSED,
+  );
 }
 
 registerExhibit(quadricsExhibit);

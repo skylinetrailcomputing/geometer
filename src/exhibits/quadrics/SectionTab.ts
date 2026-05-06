@@ -98,6 +98,15 @@ export class SectionTab {
     this.refreshButtonEmissive();
   }
 
+  // Dynamic label update — used for the canonical-forms heading's
+  // chevron flip on expand / collapse (#93). Issues a troika sync;
+  // the cost is a one-frame text re-layout, fine on a press cadence.
+  setName(name: string): void {
+    if (this.label.text === name) return;
+    this.label.text = name;
+    this.label.sync();
+  }
+
   /**
    * Test whether `controller`'s forward ray hits the button. On hit, fire
    * haptics, kick off the press flash, and return true. The caller owns
