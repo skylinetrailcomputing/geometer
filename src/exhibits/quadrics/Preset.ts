@@ -15,10 +15,18 @@ import { Text } from 'troika-three-text';
 // above).
 
 export type PresetValues = readonly [number, number, number, number];
+// Linear-term coefficients (u, v, w) in math frame — see index.ts for the
+// math→world routing. Only paraboloid / saddle presets need a non-zero
+// entry today; everything else is the canonical centered pose (0, 0, 0).
+export type LinearPresetValues = readonly [number, number, number];
 
 export interface PresetOptions {
   name: string;
   values: PresetValues;
+  // Optional. Defaults to (0, 0, 0). Paraboloid uses (0, 0, -1) so that
+  // ax² + by² + wz = 0 with a=b=1, w=-1 reads as z = x² + y² (open along
+  // +math-Z, the "up" axis under the math-frame convention).
+  linearValues?: LinearPresetValues;
 }
 
 const BUTTON_RADIUS = 0.02;
@@ -60,6 +68,7 @@ export class Preset {
   readonly group: THREE.Group;
   readonly name: string;
   readonly values: PresetValues;
+  readonly linearValues: LinearPresetValues;
 
   private readonly button: THREE.Mesh;
   private readonly label: Text;
@@ -72,6 +81,7 @@ export class Preset {
   constructor(opts: PresetOptions) {
     this.name = opts.name;
     this.values = opts.values;
+    this.linearValues = opts.linearValues ?? [0, 0, 0];
 
     this.group = new THREE.Group();
     this.group.name = `preset:${opts.name}`;
