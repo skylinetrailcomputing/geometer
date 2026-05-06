@@ -30,31 +30,33 @@ const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 // Vertical stacking (top → bottom):
 //   centered column (x = 0):
 //     y = 1.85  — debug FPS overlay (?fps=1, hidden by default)
-//     y = 1.36  — family classifier readout
-//     y = 1.30  — live equation readout (#58)
-//     y = 1.225 — top slider 'a' (= SLIDER_RACK_CENTER.y + 1.5 * SLIDER_ROW_PITCH)
-//   left rack (x = -0.45) — section / canonical-forms tabs (#93 follow-up):
-//     y = 1.62 — Canonical forms expandable heading (▸ collapsed / ▾ expanded)
-//     y = 1.39 — Coefficients tab
-//     y = 1.16 — Linear terms tab
-//   when Canonical forms is expanded — 2 × 4 grid (#110):
-//     y = 1.62, x ∈ [-0.32, +0.07] — row 0 (Reset, Ellipsoid, Cone, H 1-sheet)
-//     y = 1.49, x ∈ [-0.32, +0.07] — row 1 (H 2-sheets, Cylinder, Paraboloid, Saddle)
-//   The grid extends rightward from the heading at horizontal pitch 0.13
-//   and downward at vertical pitch 0.13.
+//     y = 1.68  — preset 2 × 4 grid row 0 (centered on x = 0, slightly above
+//                 classifier so labels don't overlap the family text)
+//     y = 1.55  — preset 2 × 4 grid row 1
+//     y = 1.41  — family classifier readout
+//     y = 1.32  — live equation readout (#58)
+//     y = 1.21  — top slider 'a' (= SLIDER_RACK_CENTER.y + 1.5 * SLIDER_ROW_PITCH)
+//   left rack (x = -0.40) — section / canonical-forms tabs (#93 follow-up):
+//     y = 1.50 — Canonical forms expandable heading (▸ collapsed / ▾ expanded)
+//     y = 1.27 — Coefficients tab
+//     y = 1.04 — Linear terms tab
+//   right side (x ≈ 0.35):
+//     y = 1.17 — math-frame axis indicator origin (Z arrow points up to ≈ 1.32,
+//                aligning the indicator's top with the equation readout)
 // The vertical tab rack replaced an earlier horizontal row at y = 1.78
 // (#93 first-pass landed it horizontally; the second pass moved it left
 // per headset feedback that the horizontal row was crowding the upper
 // viewport and reading further from the sliders it controls than the
 // rack center where the slider names live).
-// Family classifier was at y = 1.4 in v0.1; pushed up to y = 1.5 with #58
-// when the equation joined the stack; pulled back down to y = 1.36 in
-// #110 to sit just above the top slider 'a' rather than floating in the
-// middle of the gap. The equation followed the same path: 1.4 → 1.30,
-// keeping the same ~0.06 vertical pitch between classifier bottom edge
-// and equation top line.
-const RACK_LABEL_POSITION = new THREE.Vector3(0, 1.36, -0.7);
-const EQUATION_READOUT_POSITION = new THREE.Vector3(0, 1.30, -0.7);
+// #110 first-pass anchored the preset row at the heading's y. Headset
+// feedback (#110 follow-up) was: 1) the grid sat left-of-center, asking
+// the eye to scan away from the surface to read it; 2) the rack tabs
+// crowded the grid's labels with no horizontal breathing room. Fixed by
+// decoupling — grid centered on x=0 just above the classifier; rack
+// shifted down + right so its column sits well clear of the leftmost
+// preset col.
+const RACK_LABEL_POSITION = new THREE.Vector3(0, 1.41, -0.7);
+const EQUATION_READOUT_POSITION = new THREE.Vector3(0, 1.32, -0.7);
 
 // Debug-only FPS readout (#99), gated behind `?fps=1`. Sits above the
 // family classifier so it doesn't crowd the surface viewport when
@@ -67,28 +69,35 @@ const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.85, -0.7);
 const RACK_LABEL_PRIMARY_FONT_SIZE = 0.06;
 
 // Math-frame axis indicator (#43): pinned next to the slider rack so it
-// stays visible regardless of the surface's current parameters. x = 0.3
-// clears the right end of the 0.3 m slider track (which spans ±0.15 from
-// rack center). y = 0.925 puts the indicator's vertical span (Z extends
-// up by AXIS_LENGTH = 0.15) symmetric around the rack's vertical center
-// at y = 1.0. z matches the slider plane.
-const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.3, 0.925, -0.7);
+// stays visible regardless of the surface's current parameters. x = 0.35
+// sits well clear of the right end of the 0.3 m slider track (spans ±0.15
+// from rack center). y = 1.17 raises the origin so the Z-axis arrow (which
+// extends up by AXIS_LENGTH = 0.15) terminates at y ≈ 1.32 — aligned with
+// the equation readout, per #110 follow-up. Was at y = 0.925 (centered
+// on the rack), but headset feedback was that the indicator read as
+// "down by the floor" instead of as a reference for the math frame the
+// equation is written in. z matches the slider plane.
+const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
 
 // Section-selector tab rack (#57; rotated to a vertical left column in
-// #93; lowered + tightened in #110): a stack of buttons at the left of
+// #93; relocated in #110 follow-up): a stack of buttons at the left of
 // the slider rack. Each button is a tab (Coefficients, Linear terms) or
 // the canonical-forms expandable heading; tapping a section tab swaps
 // which sliders are visible and grabbable. Today's sections:
 // "Coefficients" and "Linear terms" (#88).
 //
-// The heading dropped from y = 1.65 to y = 1.62 in #110 — modest because
-// the readouts (now at y = 1.36 / 1.30) need vertical clearance below
-// row 1 of the 2 × 4 preset grid (y = 1.49) and the family-classifier
-// label is wide horizontally. The pitch tightened from 0.25 to 0.23 so
-// the rack still terminates above the slider rack rather than stretching
-// the Linear-terms tab down past slider 'b'.
-const SECTION_TAB_RACK_X = -0.45;
-const SECTION_TAB_RACK_TOP_Y = 1.62;
+// Once the preset grid was decoupled from the heading and centered on
+// x=0, the rack lost its anchoring purpose at the top of the viewport
+// and became free to descend. Headset feedback after #110 first pass:
+// give the rack horizontal breathing room from the grid (Coefficients
+// label was visually colliding with the H-2-sheets / Cylinder column)
+// and bring it down to a comfortable reach height. The new x = -0.40
+// pulls the column 0.05 m closer to center; y = 1.50 + pitch 0.23 lands
+// Coefficients across from the equation readout and Linear terms just
+// below the bottom slider 'd' / 'w' — clear of the slider rack rather
+// than crammed inside it.
+const SECTION_TAB_RACK_X = -0.40;
+const SECTION_TAB_RACK_TOP_Y = 1.50;
 const SECTION_TAB_RACK_PITCH = 0.23;
 
 // Canonical-pose preset grid (#46, relocated #93, restructured #110):
@@ -142,29 +151,36 @@ const PRESETS: readonly {
   { name: 'Saddle', values: [1, -1, 0, 0], linearValues: [0, 0, -1] },
 ];
 
-// Preset grid expansion (#93, 2 × 4 in #110). Anchored to the canonical-
-// forms heading on the left rack — when the heading is tapped, the 8
-// preset buttons appear in a 2-row × 4-col grid at the heading's y,
-// extending rightward and downward.
+// Preset grid expansion (#93, 2 × 4 in #110, decoupled in #110 follow-up).
+// 8 preset buttons in a 2-row × 4-col grid, centered horizontally on x = 0
+// directly above the family-classifier readout. Hidden by default; the
+// heading's chevron toggle makes the grid visible.
 //
-// PRESET_ROW_TOP_Y matches the heading's y (top of the section tab rack).
-// PRESET_ROW_START_X positions the leftmost preset just right of the
-// heading button, with PRESET_HORIZONTAL_PITCH spacing between adjacent
-// columns and PRESET_VERTICAL_PITCH between rows. 4 buttons at 0.13 m
-// horizontal pitch span 0.39 m, well within arm's reach and clear of
-// the family-classifier readout's horizontal extent. Vertical pitch
-// matches the horizontal so cells read as roughly square — and so row 1
-// lands above the family-classifier label with comfortable clearance.
-// First-iteration trial in #93 used 0.08 horizontal pitch and was reported
-// as "smooshed" in headset: labels (down to "H 2-sheets") need ~0.11 m
-// of horizontal real estate at the chosen 0.022 m font, so 0.08 had
-// labels overlapping into adjacent buttons. 0.13 leaves ~0.02 m of clear
-// air between labels.
+// First pass in #110 anchored the grid at the heading's (x, y) and
+// extended rightward, putting the grid's center off to the left and
+// asking the eye to scan away from the surface to read it. Headset
+// feedback was: re-center over the classifier text. Decoupling the grid
+// from the heading lets each find its own comfortable spot — heading
+// down + left as the section-tab anchor, grid up + center as the
+// canonical-pose menu sitting visually above the live classification.
+// The chevron on the heading still affords expand/collapse; spatial
+// adjacency isn't the only legible signal.
+//
+// 4 buttons × 0.13 m horizontal pitch span 0.39 m, centered on x = 0
+// (cols at -0.195, -0.065, 0.065, 0.195) — fits within arm's reach and
+// stays clear of the family-classifier label's horizontal extent.
+// Vertical pitch matches the horizontal so cells read as roughly square,
+// and so row 1 lands above the classifier with comfortable clearance.
+// First-iteration trial in #93 used 0.08 horizontal pitch and was
+// reported as "smooshed" in headset: labels (down to "H 2-sheets") need
+// ~0.11 m of horizontal real estate at the chosen 0.022 m font, so 0.08
+// had labels overlapping into adjacent buttons.
 const PRESET_COLS = 4;
-const PRESET_ROW_TOP_Y = SECTION_TAB_RACK_TOP_Y;
-const PRESET_ROW_START_X = SECTION_TAB_RACK_X + 0.13;
+const PRESET_ROW_TOP_Y = 1.68;
 const PRESET_HORIZONTAL_PITCH = 0.13;
 const PRESET_VERTICAL_PITCH = 0.13;
+// Centers the 4-col span on x = 0: leftmost col at -1.5 × pitch.
+const PRESET_ROW_START_X = -1.5 * PRESET_HORIZONTAL_PITCH;
 
 // Canonical-forms heading label text. Includes a chevron that flips on
 // expand/collapse so the affordance is unambiguous even at a glance:
@@ -186,10 +202,11 @@ const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 // region: at thumbRadius (0.025) × GRAB_RADIUS_MULTIPLIER (2.75), each
 // thumb's hit sphere is ~0.069 m, so adjacent thumbs need ≥ 0.138 m of
 // pitch to keep their grab regions disjoint (otherwise a ray near the
-// midpoint could resolve to either slider). 0.15 leaves ~1 cm of
-// clearance between hit spheres and reads as comfortably spaced in
-// headset.
-const SLIDER_ROW_PITCH = 0.15;
+// midpoint could resolve to either slider). 0.14 leaves ~2.5 mm of
+// clearance — tighter than the original 0.15 (#110 follow-up: headset
+// feedback called the rack overly spread out and asked for a more
+// compact stack), but still above the disjoint-grab floor.
+const SLIDER_ROW_PITCH = 0.14;
 
 // Wong / Okabe-Ito colorblind-safe palette (#58, Q3). Distinguishable
 // across deuteranopia / protanopia / tritanopia. The fourth slot —
