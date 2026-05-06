@@ -722,9 +722,11 @@ const quadricsExhibit: Exhibit = {
     // along +math-axis. Without it, only slider `v` would translate
     // the surface in the +math-direction (away from user) instead of
     // −math-direction (toward user), inverting the pedagogy and
-    // contradicting the math-frame axis indicator. classify() remains
-    // invariant under any (u, v, w) — family unchanged, only the
-    // location moves.
+    // contradicting the math-frame axis indicator. classify() takes
+    // the math-frame (a, b, c, u, v, w) directly — see classify.ts for
+    // how completing-the-square folds linears into d_eff (rank 3 / 2 /
+    // 1) and how zero-axis linears introduce paraboloid / parabolic-
+    // cylinder / plane families (rank 2 / 1 / 0).
     const [a, b, c, d] = sliders.map((s) => s.value);
     const [u, v, w] = linearSliders.map((s) => s.value);
     if (material) {
@@ -742,7 +744,7 @@ const quadricsExhibit: Exhibit = {
       material.uniforms.uA.value = sweep;
     }
     if (rackLabel) {
-      const { family } = classify(a, b, c, d);
+      const { family } = classify(a, b, c, d, u, v, w);
       rackLabel.setPrimary(family);
       if (camera) rackLabel.faceCamera(camera);
     }

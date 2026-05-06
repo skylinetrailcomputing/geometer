@@ -1,17 +1,29 @@
-// Pure classifier: (a, b, c, d) → family label, per SPEC.md "Classification taxonomy".
+// Pure classifier: (a, b, c, d, u, v, w) → family label, per SPEC.md
+// "Classification taxonomy".
 //
 // Sign-flip symmetry — the surface defined by (a, b, c, d) equals the one
 // defined by (−a, −b, −c, −d) — is handled by enumerating both halves of
 // each flip-pair explicitly in the table below, mirroring SPEC.md.
 //
-// Linear-term invariance (#85, #88): the family is determined by the
-// quadratic part alone — adding `+ ux + vy + wz` to the implicit equation
-// translates the surface's center but doesn't cross any taxonomy boundary
-// (completing the square folds (u, v, w) into a shifted center while
-// leaving the diagonal-quadratic signature untouched). So the linear-terms
-// section deliberately skips re-classifying — the rack readout stays
-// stable as the user sweeps u/v/w, and the user *sees* the location change
-// directly in the surface.
+// Linear terms (#85, #88, #94, #96): the implicit equation
+//   ax² + by² + cz² + ux + vy + wz = d
+// classifies via completing-the-square on every axis where the squared
+// coefficient is nonzero. For each such axis,
+//   ax² + ux  =  a(x + u/2a)² − u²/4a
+// so the linear term folds into a shifted center plus an effective
+// constant `d_eff = d + Σ_{nonzero squared axes} linear² / (4·squared)`.
+// The original (n+, n−, n₀) signature of the quadratic part is unchanged
+// by the shift; only sgn(d_eff) is what the existing taxonomy keys on.
+//
+// Linear terms on a *zero-coefficient axis* can't be folded away — there's
+// no completing-the-square when the squared coefficient is zero. They
+// instead introduce new families that aren't in the v0.1 30-entry table:
+//   - Rank 2 + zero-axis linear → paraboloid (elliptic if the two nonzero
+//     squared signs match, hyperbolic if mixed).
+//   - Rank 1 + any zero-axis linear → parabolic cylinder.
+//   - Rank 0 + any nonzero linear → plane.
+// These four labels are additions in v0.4 alongside the linear-terms
+// section.
 
 // Per SPEC.md "Classifier numerical contract". The slider's own zero detent
 // (0.05) already snaps to exact zero on emit; this epsilon is defense in
@@ -25,7 +37,7 @@ export interface Classification {
 }
 
 const TABLE: ReadonlyMap<string, string> = new Map([
-  // (n+, n−, n₀) | sgn(d) | Family
+  // (n+, n−, n₀) | sgn(d_eff) | Family
   ['3,0,0|1', 'Ellipsoid'],
   ['3,0,0|0', 'Degenerate'],
   ['3,0,0|-1', 'Empty set'],
@@ -63,20 +75,74 @@ export function sign(v: number): Sign {
   return v > 0 ? 1 : -1;
 }
 
-export function classify(a: number, b: number, c: number, d: number): Classification {
-  const signs = [sign(a), sign(b), sign(c)];
+export function classify(
+  a: number,
+  b: number,
+  c: number,
+  d: number,
+  u: number = 0,
+  v: number = 0,
+  w: number = 0,
+): Classification {
+  const aS = sign(a);
+  const bS = sign(b);
+  const cS = sign(c);
+  const uS = sign(u);
+  const vS = sign(v);
+  const wS = sign(w);
+
   let nPlus = 0;
   let nMinus = 0;
   let nZero = 0;
-  for (const s of signs) {
+  for (const s of [aS, bS, cS]) {
     if (s === 1) nPlus++;
     else if (s === -1) nMinus++;
     else nZero++;
   }
-  const key = `${nPlus},${nMinus},${nZero}|${sign(d)}`;
+  const rank = nPlus + nMinus;
+
+  // Zero-axis linear: a linear coefficient on an axis whose squared
+  // coefficient is zero. These can't be folded into d_eff and instead
+  // signal a paraboloid / parabolic-cylinder / plane family.
+  const zeroAxisLinearNonzero =
+    (aS === 0 && uS !== 0) || (bS === 0 && vS !== 0) || (cS === 0 && wS !== 0);
+
+  if (rank === 0) {
+    if (uS !== 0 || vS !== 0 || wS !== 0) return { family: 'Plane' };
+    // Pure constant equation 0 = d: empty if d ≠ 0, all of ℝ³ if d = 0.
+    return { family: lookup(nPlus, nMinus, nZero, sign(d)) };
+  }
+
+  if (rank === 2 && zeroAxisLinearNonzero) {
+    return {
+      family:
+        nPlus === 2 || nMinus === 2 ? 'Elliptic paraboloid' : 'Hyperbolic paraboloid',
+    };
+  }
+
+  if (rank === 1 && zeroAxisLinearNonzero) {
+    return { family: 'Parabolic cylinder' };
+  }
+
+  // Fall-through: rank 3, or rank-deficient with no zero-axis linear.
+  // Compute d_eff by completing the square on every nonzero squared axis.
+  // Folding linears into d_eff captures cases the v0.1 table couldn't see —
+  // e.g., (1,1,1,0) with u=1 is actually a sphere of radius 1/2 centered
+  // at (−1/2, 0, 0), not the single-point degenerate that sgn(d) alone
+  // would suggest.
+  let dEff = d;
+  if (aS !== 0) dEff += (u * u) / (4 * a);
+  if (bS !== 0) dEff += (v * v) / (4 * b);
+  if (cS !== 0) dEff += (w * w) / (4 * c);
+
+  return { family: lookup(nPlus, nMinus, nZero, sign(dEff)) };
+}
+
+function lookup(nPlus: number, nMinus: number, nZero: number, dSign: Sign): string {
+  const key = `${nPlus},${nMinus},${nZero}|${dSign}`;
   const family = TABLE.get(key);
-  // Unreachable: (n+, n−, n₀) always partitions 3, sgn(d) ∈ {-1, 0, 1};
+  // Unreachable: (n+, n−, n₀) always partitions 3, sgn(d_eff) ∈ {-1, 0, 1};
   // the table enumerates all 10 × 3 = 30 combinations.
   if (!family) throw new Error(`classify: missing taxonomy entry for ${key}`);
-  return { family };
+  return family;
 }
