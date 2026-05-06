@@ -30,13 +30,13 @@ const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 // Vertical stacking (top → bottom):
 //   centered column (x = 0):
 //     y = 1.85  — debug FPS overlay (?fps=1, hidden by default)
-//     y = 1.70  — preset 2 × 4 grid row 0 (centered on x = 0, slightly above
+//     y = 1.72  — preset 2 × 4 grid row 0 (centered on x = 0, slightly above
 //                 classifier so labels don't overlap the family text)
-//     y = 1.57  — preset 2 × 4 grid row 1
+//     y = 1.59  — preset 2 × 4 grid row 1
 //     y = 1.41  — family classifier readout
 //     y = 1.32  — live equation readout (#58)
 //     y = 1.21  — top slider 'a' (= SLIDER_RACK_CENTER.y + 1.5 * SLIDER_ROW_PITCH)
-//   left rack (x = -0.42) — section / canonical-forms tabs (#93 follow-up):
+//   left rack (x = -0.44) — section / canonical-forms tabs (#93 follow-up):
 //     y = 1.50 — Canonical forms expandable heading (▸ collapsed / ▾ expanded)
 //     y = 1.27 — Squared terms tab
 //     y = 1.04 — Linear terms tab
@@ -94,13 +94,12 @@ const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
 // and became free to descend. Headset feedback after #110 first pass:
 // give the rack horizontal breathing room from the grid (the tab label
 // was visually colliding with the H-2-sheets / Cylinder column) and
-// bring it down to a comfortable reach height. x = -0.42 pulls the
-// column slightly closer to center than v0.1's -0.45 while leaving a
-// character's-width of horizontal clearance from the leftmost preset
-// col at -0.195; y = 1.50 + pitch 0.23 lands Squared terms across from
+// bring it down to a comfortable reach height. x = -0.44 sits just
+// inside v0.1's -0.45 while leaving comfortable horizontal clearance
+// from the leftmost preset col at -0.195; y = 1.50 + pitch 0.23 lands Squared terms across from
 // the equation readout and Linear terms just below the bottom slider
 // 'd' / 'w' — clear of the slider rack rather than crammed inside it.
-const SECTION_TAB_RACK_X = -0.42;
+const SECTION_TAB_RACK_X = -0.44;
 const SECTION_TAB_RACK_TOP_Y = 1.50;
 const SECTION_TAB_RACK_PITCH = 0.23;
 
@@ -180,7 +179,7 @@ const PRESETS: readonly {
 // ~0.11 m of horizontal real estate at the chosen 0.022 m font, so 0.08
 // had labels overlapping into adjacent buttons.
 const PRESET_COLS = 4;
-const PRESET_ROW_TOP_Y = 1.70;
+const PRESET_ROW_TOP_Y = 1.72;
 const PRESET_HORIZONTAL_PITCH = 0.13;
 const PRESET_VERTICAL_PITCH = 0.13;
 // Centers the 4-col span on x = 0: leftmost col at -1.5 × pitch.
