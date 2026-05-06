@@ -199,8 +199,10 @@ const CANONICAL_FORMS_LABEL_EXPANDED = 'Canonical forms ▾';
 // 2.5 to 3.5 (#87) to give linear-term sliders u/v/w (#85, ±2 each) room to
 // translate the implicit surface without pushing its visible region outside
 // the cube. The cost is per-step thickness in the raymarch (cube grows ~1.4×
-// per axis), which the STEPS = 96 loop absorbs without visibly slowing on
-// Quest 3S — re-evaluate if 72 Hz starts dropping in headset.
+// per axis); per #102 the per-fragment STEPS loop turned out to be the
+// dominant steady-state cost, so the four-knob ladder there compensates
+// (FBO scale 0.85 in #114, then STEPS 96 → 64 here, with BOUND tighten
+// queued as knob 3 if more headroom is needed).
 const BOUND = 3.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 
@@ -537,7 +539,21 @@ const FRAGMENT_SHADER = /* glsl */ `
     }
     float tStart = max(tNear, 0.0);
 
-    const int STEPS = 96;
+    // STEPS = the per-fragment uniform-march sample count across the AABB
+    // span, before the 8-iter bisection refines a sign change to a hit.
+    // Was 96 originally; lowered to 64 in #102 (knob B) — the per-fragment
+    // STEPS loop runs for every rasterized fragment in the bounding cube
+    // even when no surface is hit, so STEPS is a near-linear knob on
+    // steady-state fragment cost. Tradeoff: the AABB span at BOUND = 3.5
+    // is up to ~12 m diagonal; at 64 steps that's ~19 cm of march
+    // per-step worst case, which the bisection follow-up still resolves
+    // to sub-mm precision once a sign change is detected. Visible cost is
+    // missed-feature aliasing on geometry thinner than dt — relevant only
+    // at extreme (u, v, w) poses where the surface degenerates to a
+    // narrow sliver crossing the AABB; non-degenerate quadrics are
+    // contiguous and easily caught by 64 samples. If 48 is needed (knob B
+    // step 2), revisit.
+    const int STEPS = 64;
     float dt = (tFar - tStart) / float(STEPS);
     float t = tStart;
     float fPrev = fImplicit(ro + rd * t);
