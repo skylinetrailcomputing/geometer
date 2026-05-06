@@ -40,7 +40,11 @@ const BUTTON_PRESS_EMISSIVE = 0x88ddff;
 // short enough not to read as a sticky toggle.
 const PRESS_FLASH_DURATION_MS = 150;
 
-const LABEL_FONT_SIZE = 0.03;
+// Smaller than the original 0.03 to keep adjacent labels from running
+// together in the horizontal preset row introduced in #93. Paired with
+// the row pitch in index.ts: 0.13 m pitch + 0.022 m font leaves clear
+// air between "H 2-sheets" and its neighbors.
+const LABEL_FONT_SIZE = 0.022;
 // Offset just clears the button (radius 0.02) plus a small breathing gap.
 // Negative because the label sits *below* the button.
 const LABEL_OFFSET_Y = -0.025;

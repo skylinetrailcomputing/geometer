@@ -29,8 +29,8 @@ const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 
 // Vertical stacking above the slider rack (top → bottom):
 //   y = 1.95 — debug FPS overlay (?fps=1, hidden by default)
-//   y = 1.78 — section tab row (#57; bumped up in #93)
-//   y = 1.65 — global canonical-pose preset row (#93)
+//   y = 1.78 — section tab row + canonical-forms expandable heading (#57; bumped up in #93)
+//   y = 1.65 — canonical-pose preset row (#93; hidden until heading tapped)
 //   y = 1.5  — family classifier readout
 //   y = 1.4  — live equation readout (#58)
 //   y = 1.225 — top slider 'a' (= SLIDER_RACK_CENTER.y + 1.5 * SLIDER_ROW_PITCH)
@@ -109,12 +109,22 @@ const PRESETS: readonly { readonly name: string; readonly values: PresetValues }
 // Sits at the original section-tab-row height; section tabs moved up to
 // 1.78 (#93) so the preset row could occupy this slot.
 const PRESET_ROW_Y = 1.65;
-// 7 buttons at 0.08 m pitch span 0.48 m total, fitting comfortably below
-// the slider track width (0.3 m) plus its name labels. Hit-sphere radius
-// is BUTTON_RADIUS (0.02) × GRAB_RADIUS_MULTIPLIER (2.75) = 0.055, so
-// 0.08 pitch leaves 0.025 m between adjacent hit spheres — disjoint, so
-// a near-midpoint ray resolves cleanly to one button.
-const PRESET_ROW_PITCH = 0.08;
+// 7 buttons at 0.13 m pitch span 0.78 m total — wider than the slider
+// rack but still inside arm's reach. First-iteration trial used 0.08
+// pitch and was reported as "smooshed" in headset (#93 follow-up): the
+// labels (down to "H 2-sheets") need ~0.11 m of horizontal real estate
+// at the chosen 0.022 m font, so 0.08 pitch had labels overlapping into
+// adjacent buttons. 0.13 leaves ~0.02 m of clear air between labels.
+const PRESET_ROW_PITCH = 0.13;
+
+// Expandable "Canonical forms" heading on the section tab row (#93
+// follow-up). The preset row is hidden by default; tapping the heading
+// toggles the row visible/hidden. Sits to the right of the section tabs
+// at x = +0.4 — a clear horizontal gap from the centered tab pair so
+// the affordance reads as a peer, not as a third tab. Reuses SectionTab
+// for the click-target + hover/active emissive machinery; the active
+// state doubles as the "expanded" indicator.
+const CANONICAL_FORMS_HEADING_X = 0.4;
 
 // Half-extent of the raymarcher's AABB around uSurfaceCenter. Bumped from
 // 2.5 to 3.5 (#87) to give linear-term sliders u/v/w (#85, ±2 each) room to
@@ -522,6 +532,12 @@ let presets: Preset[] = [];
 let sections: Section[] = [];
 let tabs: SectionTab[] = [];
 let activeSectionIndex = 0;
+// Canonical-forms expandable heading (#93 follow-up). When `presetsExpanded`
+// is false (default), the preset row is hidden + skipped from controller
+// dispatch; the heading itself stays interactive. Tapping the heading
+// flips the flag and shows / hides the row.
+let canonicalFormsHeading: SectionTab | undefined;
+let presetsExpanded = false;
 let controllers: THREE.Object3D[] = [];
 let rackLabel: Label | undefined;
 let equationReadout: EquationReadout | undefined;
@@ -607,7 +623,8 @@ const quadricsExhibit: Exhibit = {
 
     // Horizontal preset row centered on x = 0, just below the section tab
     // row (#93). Order is left → right, matching the original top → bottom
-    // vertical column the rack used before relocation.
+    // vertical column the rack used before relocation. Hidden by default —
+    // the canonical-forms heading toggle below controls visibility.
     const presetStartX = -((PRESETS.length - 1) / 2) * PRESET_ROW_PITCH;
     presets = PRESETS.map((p, i) => {
       const preset = new Preset(p);
@@ -616,6 +633,7 @@ const quadricsExhibit: Exhibit = {
         PRESET_ROW_Y,
         SLIDER_RACK_CENTER.z,
       );
+      preset.group.visible = false;
       scene.add(preset.group);
       return preset;
     });
@@ -689,6 +707,18 @@ const quadricsExhibit: Exhibit = {
     });
     tabs[activeSectionIndex].setActive(true);
 
+    // Canonical-forms expandable heading: same row as the section tabs
+    // but offset right with a clear gap so it reads as a peer, not a
+    // third tab. Active emissive doubles as the expanded-state indicator.
+    canonicalFormsHeading = new SectionTab({ name: 'Canonical forms ▾' });
+    canonicalFormsHeading.group.position.set(
+      CANONICAL_FORMS_HEADING_X,
+      SECTION_TAB_ROW_Y,
+      SLIDER_RACK_CENTER.z,
+    );
+    canonicalFormsHeading.setActive(presetsExpanded);
+    scene.add(canonicalFormsHeading.group);
+
     controllers = setupControllers(scene, renderer);
 
     // Family classifier readout sits at the top of the stack above the
@@ -728,6 +758,13 @@ const quadricsExhibit: Exhibit = {
     for (const t of tabs) t.updateHover(controllers);
     for (const t of tabs) t.update();
     if (camera) for (const t of tabs) t.faceCamera(camera);
+    // Canonical-forms heading lives on the tab row but isn't a section
+    // tab — same per-frame ticks, separate dispatch.
+    if (canonicalFormsHeading) {
+      canonicalFormsHeading.updateHover(controllers);
+      canonicalFormsHeading.update();
+      if (camera) canonicalFormsHeading.faceCamera(camera);
+    }
 
     // Per-frame slider ticks happen across all sections so press flashes
     // and similar transient state still expire cleanly when a section is
@@ -737,11 +774,16 @@ const quadricsExhibit: Exhibit = {
     for (const section of sections) {
       for (const s of section.sliders) s.update();
     }
-    // Presets are global (#93): always tick, hover, and billboard them
-    // regardless of the active section.
+    // Presets are global (#93): always tick so any in-flight press flash
+    // expires cleanly even after the row collapses. Hover / billboard
+    // only when expanded — collapsed presets are hidden and shouldn't
+    // chase the ray (the hit-test ignores .visible) or thrash their
+    // troika sync.
     for (const p of presets) p.update();
-    for (const p of presets) p.updateHover(controllers);
-    if (camera) for (const p of presets) p.faceCamera(camera);
+    if (presetsExpanded) {
+      for (const p of presets) p.updateHover(controllers);
+      if (camera) for (const p of presets) p.faceCamera(camera);
+    }
     const activeSection = sections[activeSectionIndex];
     for (const s of activeSection.sliders) s.updateHover(controllers);
     // Tween advances its bound section's sliders before the slider→uniform
@@ -854,9 +896,10 @@ function setupControllers(
     controller.addEventListener('selectstart', () => {
       // Dispatch in z-order from rack-local outward: active section's
       // sliders first (the warm drag affordance), then the global preset
-      // row, then the section tabs. These regions are spatially disjoint
-      // but the explicit ordering keeps the first-hit-wins contract
-      // well-defined regardless of layout.
+      // row (only when expanded), then the section tabs and canonical-
+      // forms heading. These regions are spatially disjoint but the
+      // explicit ordering keeps the first-hit-wins contract well-defined
+      // regardless of layout.
       const activeSection = sections[activeSectionIndex];
       for (const s of activeSection.sliders) {
         if (s.tryGrab(controller)) {
@@ -868,7 +911,7 @@ function setupControllers(
           return;
         }
       }
-      for (const p of presets) {
+      if (presetsExpanded) for (const p of presets) {
         if (p.tryActivate(controller)) {
           // Preset values are coefficient-frame [a, b, c, d] regardless
           // of the active section (#93): the preset row is global, so
@@ -913,6 +956,10 @@ function setupControllers(
           return;
         }
       }
+      if (canonicalFormsHeading?.tryActivate(controller)) {
+        togglePresetsExpanded();
+        return;
+      }
     });
     controller.addEventListener('selectend', () => {
       // Release sliders across all sections — releasing a slider that
@@ -935,6 +982,12 @@ function switchToSection(index: number): void {
   activeSectionIndex = index;
   sections[activeSectionIndex].setActive(true);
   tabs[activeSectionIndex].setActive(true);
+}
+
+function togglePresetsExpanded(): void {
+  presetsExpanded = !presetsExpanded;
+  for (const p of presets) p.group.visible = presetsExpanded;
+  canonicalFormsHeading?.setActive(presetsExpanded);
 }
 
 registerExhibit(quadricsExhibit);
