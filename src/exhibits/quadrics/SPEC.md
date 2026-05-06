@@ -205,17 +205,32 @@ Both are reversible knobs.
 Real-world readings on Quest 3S (#102) showed steady-state ~40 FPS
 even on degenerate / empty-set surfaces — surface-independent, which
 points at the raymarcher's per-fragment STEPS loop over the bounding
-cube as the dominant cost. First profile-guided follow-up landed:
+cube as the dominant cost. Two profile-guided knobs landed and lifted
+the steady-state to ~70–80 FPS sustained, meeting the v0.1 DoD's
+72 Hz bar:
 
 - **Quest framebuffer scale factor** at 0.85
-  (`renderer.xr.setFramebufferScaleFactor(0.85)` in the shell). Cuts
-  per-eye render target resolution by ~15 % per axis (~28 % fewer
-  fragments to shade). Perceptually invisible in motion at the Quest
-  3S panel's pixel density; the Three.js `WebXRManager` applies the
+  (`renderer.xr.setFramebufferScaleFactor(0.85)` in the shell, #114).
+  Cuts per-eye render target resolution by ~15 % per axis (~28 %
+  fewer fragments). Perceptually invisible in motion at the Quest 3S
+  panel's pixel density; the Three.js `WebXRManager` applies the
   scale at session-start when the XR projection layer is created.
+  Smoke result: ~40 → ~50–55 FPS.
+- **Raymarcher STEPS** at 64, down from 96 (the `STEPS` literal in
+  the fragment shader inside `src/exhibits/quadrics/index.ts`, #115).
+  The loop runs for every rasterized fragment in the bounding cube
+  even on no-hit, so it's a near-linear knob on steady-state
+  fragment cost. The 8-iter bisection follow-up still resolves to
+  sub-mm precision once a sign change is detected, so the visible
+  tradeoff is missed-feature aliasing on geometry thinner than dt
+  (~19 cm worst case at BOUND = 3.5); non-degenerate quadrics are
+  contiguous and easily caught by 64 samples. Smoke result: ~50–55
+  → ~70–80 FPS sustained.
 
-Further knobs deferred until profile data on the above
-(STEPS reduction, BOUND tighten, foveation ramp).
+Two further knobs from the #102 ladder (BOUND tighten 3.5 → 2.5;
+foveation ramp 0.3 → 0.5–0.6) were not needed — the bar was met
+after knob 2. Available as future-tightening knobs if scene
+complexity climbs in v0.5+.
 
 ## Label content
 
