@@ -28,6 +28,9 @@ const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
 const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 
 // Vertical stacking above the slider rack (top → bottom):
+//   y = 1.95 — debug FPS overlay (?fps=1, hidden by default)
+//   y = 1.78 — section tab row (#57; bumped up in #93)
+//   y = 1.65 — global canonical-pose preset row (#93)
 //   y = 1.5  — family classifier readout
 //   y = 1.4  — live equation readout (#58)
 //   y = 1.225 — top slider 'a' (= SLIDER_RACK_CENTER.y + 1.5 * SLIDER_ROW_PITCH)
@@ -39,10 +42,12 @@ const RACK_LABEL_POSITION = new THREE.Vector3(0, 1.5, -0.7);
 const EQUATION_READOUT_POSITION = new THREE.Vector3(0, 1.4, -0.7);
 
 // Debug-only FPS readout (#99), gated behind `?fps=1`. Sits above the
-// section-tab row (y = 1.65) so it doesn't crowd the family classifier
-// or surface viewport when enabled. Same z-plane as the rack stack so
-// yaw-billboarding behaves the same as the other readouts.
-const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.85, -0.7);
+// section-tab row so it doesn't crowd the family classifier or surface
+// viewport when enabled. Same z-plane as the rack stack so yaw-billboarding
+// behaves the same as the other readouts. Bumped from y = 1.85 → 1.95 in
+// #93 when the section tab row moved up to make room for the global preset
+// row; the prior height collided with the new tab labels.
+const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.95, -0.7);
 
 // Smaller than Label's 0.16 default; matches the closer ~0.7 m viewing
 // distance from the user's spawn point.
@@ -56,25 +61,36 @@ const RACK_LABEL_PRIMARY_FONT_SIZE = 0.06;
 // at y = 1.0. z matches the slider plane.
 const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.3, 0.925, -0.7);
 
-// Section-selector tab row (#57): horizontal strip above the family
-// classifier (y = 1.5) and the equation readout (y = 1.4). One tab per
-// section; tapping a tab swaps which sliders + presets are visible and
-// grabbable in the rack. Ships with one section ("Coefficients") today;
-// the architecture is what unblocks #56-tier work (level-set slicing,
-// first-degree linear terms, …) landing alongside the existing rack.
+// Section-selector tab row (#57): horizontal strip above the global preset
+// row, family classifier (y = 1.5), and equation readout (y = 1.4). One
+// tab per section; tapping a tab swaps which sliders are visible and
+// grabbable in the rack. Today's sections: "Coefficients" and "Linear
+// terms" (#88).
 //
 // Pitch chosen large enough to fit the longest current section name
 // ("Coefficients" at LABEL_FONT_SIZE 0.035) without collisions; revisit
-// when a second tab actually lands and we can headset-trial the row.
-const SECTION_TAB_ROW_Y = 1.65;
+// when a third tab actually lands and we can headset-trial the row.
+//
+// Bumped y = 1.65 → 1.78 in #93 to make room for the canonical-pose
+// preset row that now sits directly below the tabs (where the tabs used
+// to live).
+const SECTION_TAB_ROW_Y = 1.78;
 const SECTION_TAB_PITCH = 0.25;
 
-// Canonical-pose preset rack (#46): vertical column of buttons to the LEFT
-// of the slider rack. x = -0.45 clears the per-slider name labels, which
-// sit at x = -0.2 with their text extending leftward. Vertical span is
-// centered on SLIDER_RACK_CENTER.y so the rack reads as a single unit.
-// Order matches the issue body: Sphere, Eccentric ellipsoid, Cone, H 1-sheet,
-// H 2-sheets, Cylinder, Reset (back to startup pose).
+// Canonical-pose preset row (#46, relocated #93): horizontal strip below
+// the section tab row and above the family classifier. Buttons centered
+// on x = 0 at PRESET_ROW_PITCH spacing.
+//
+// Was a vertical column to the left of the slider rack at x = -0.45 (#46);
+// moved here in #93 because the rack was reading as a third UI element
+// competing with the slider rack and the section tabs. Presets are also
+// now globally scoped — they drive the coefficient rack to a canonical
+// pose and zero the linear-term rack regardless of the active section
+// (the latter half came in via #92), which fits naturally with their new
+// position above the section boundary rather than inside one tab.
+//
+// Order matches the original issue body: Sphere, Ellipsoid, Cone,
+// H 1-sheet, H 2-sheets, Cylinder, Reset (back to startup pose).
 //
 // The values are slider-frame (a, b, c, d) per the math convention from #43:
 // X right, Y forward, Z up. So Cylinder (1, 1, 0, 1) is `X² + Y² = 1`, which
@@ -90,8 +106,15 @@ const PRESETS: readonly { readonly name: string; readonly values: PresetValues }
   { name: 'Reset', values: [1, 1, 1, 1] },
 ];
 
-const PRESET_RACK_X = -0.45;
-const PRESET_BUTTON_PITCH = 0.1;
+// Sits at the original section-tab-row height; section tabs moved up to
+// 1.78 (#93) so the preset row could occupy this slot.
+const PRESET_ROW_Y = 1.65;
+// 7 buttons at 0.08 m pitch span 0.48 m total, fitting comfortably below
+// the slider track width (0.3 m) plus its name labels. Hit-sphere radius
+// is BUTTON_RADIUS (0.02) × GRAB_RADIUS_MULTIPLIER (2.75) = 0.055, so
+// 0.08 pitch leaves 0.025 m between adjacent hit spheres — disjoint, so
+// a near-midpoint ray resolves cleanly to one button.
+const PRESET_ROW_PITCH = 0.08;
 
 // Half-extent of the raymarcher's AABB around uSurfaceCenter. Bumped from
 // 2.5 to 3.5 (#87) to give linear-term sliders u/v/w (#85, ±2 each) room to
@@ -480,7 +503,7 @@ const FRAGMENT_SHADER = /* glsl */ `
 `;
 
 let material: THREE.ShaderMaterial | undefined;
-// Sections own their sliders + presets (#57). `sliders` and `linearSliders`
+// Sections own their sliders (#57). `sliders` and `linearSliders`
 // alias each section's slider array — they always drive the shader uniforms
 // regardless of which section is currently active, so stable references are
 // convenient for the slider→uniform routing block in update(). The active
@@ -488,8 +511,14 @@ let material: THREE.ShaderMaterial | undefined;
 // grabbable), not the slider-value-to-uniform read — that runs unconditionally
 // for every section so e.g. a value mid-tween from another section keeps
 // driving the surface even after a tab switch.
+//
+// Presets live outside the Section abstraction (#93): they're a global
+// "snap to canonical pose" row that drives the coefficient rack and zeros
+// the linear-term rack regardless of which section is focused. Always
+// rendered, always grabbable.
 let sliders: readonly Slider[] = [];
 let linearSliders: readonly Slider[] = [];
+let presets: Preset[] = [];
 let sections: Section[] = [];
 let tabs: SectionTab[] = [];
 let activeSectionIndex = 0;
@@ -576,14 +605,15 @@ const quadricsExhibit: Exhibit = {
     });
     sliders = coefficientSliders;
 
-    // Centered on SLIDER_RACK_CENTER.y so the rack reads as one unit.
-    const presetTopY =
-      SLIDER_RACK_CENTER.y + ((PRESETS.length - 1) / 2) * PRESET_BUTTON_PITCH;
-    const coefficientPresets = PRESETS.map((p, i) => {
+    // Horizontal preset row centered on x = 0, just below the section tab
+    // row (#93). Order is left → right, matching the original top → bottom
+    // vertical column the rack used before relocation.
+    const presetStartX = -((PRESETS.length - 1) / 2) * PRESET_ROW_PITCH;
+    presets = PRESETS.map((p, i) => {
       const preset = new Preset(p);
       preset.group.position.set(
-        PRESET_RACK_X,
-        presetTopY - i * PRESET_BUTTON_PITCH,
+        presetStartX + i * PRESET_ROW_PITCH,
+        PRESET_ROW_Y,
         SLIDER_RACK_CENTER.z,
       );
       scene.add(preset.group);
@@ -628,12 +658,10 @@ const quadricsExhibit: Exhibit = {
       new Section({
         name: 'Coefficients',
         sliders: coefficientSliders,
-        presets: coefficientPresets,
       }),
       new Section({
         name: 'Linear terms',
         sliders: linearTermSliders,
-        presets: [],
       }),
     ];
     activeSectionIndex = 0;
@@ -701,19 +729,21 @@ const quadricsExhibit: Exhibit = {
     for (const t of tabs) t.update();
     if (camera) for (const t of tabs) t.faceCamera(camera);
 
-    // Per-frame slider/preset ticks happen across all sections so press
-    // flashes and similar transient state still expire cleanly when a
-    // section is hidden mid-effect; hover dispatch and faceCamera fire
-    // only on the active section so invisible controls don't chase the
-    // ray or thrash their billboards.
+    // Per-frame slider ticks happen across all sections so press flashes
+    // and similar transient state still expire cleanly when a section is
+    // hidden mid-effect; hover dispatch and faceCamera fire only on the
+    // active section so invisible controls don't chase the ray or thrash
+    // their billboards.
     for (const section of sections) {
       for (const s of section.sliders) s.update();
-      for (const p of section.presets) p.update();
     }
+    // Presets are global (#93): always tick, hover, and billboard them
+    // regardless of the active section.
+    for (const p of presets) p.update();
+    for (const p of presets) p.updateHover(controllers);
+    if (camera) for (const p of presets) p.faceCamera(camera);
     const activeSection = sections[activeSectionIndex];
     for (const s of activeSection.sliders) s.updateHover(controllers);
-    for (const p of activeSection.presets) p.updateHover(controllers);
-    if (camera) for (const p of activeSection.presets) p.faceCamera(camera);
     // Tween advances its bound section's sliders before the slider→uniform
     // read below, so this frame's render reflects the morph. The tween
     // owns its slider reference (set at construction); this loop just
@@ -823,10 +853,10 @@ function setupControllers(
 
     controller.addEventListener('selectstart', () => {
       // Dispatch in z-order from rack-local outward: active section's
-      // sliders first (the warm drag affordance), then its presets, then
-      // the section tabs. The active section's controls and the tab row
-      // are spatially disjoint, but the explicit ordering keeps the
-      // first-hit-wins contract well-defined regardless of layout.
+      // sliders first (the warm drag affordance), then the global preset
+      // row, then the section tabs. These regions are spatially disjoint
+      // but the explicit ordering keeps the first-hit-wins contract
+      // well-defined regardless of layout.
       const activeSection = sections[activeSectionIndex];
       for (const s of activeSection.sliders) {
         if (s.tryGrab(controller)) {
@@ -838,25 +868,27 @@ function setupControllers(
           return;
         }
       }
-      for (const p of activeSection.presets) {
+      for (const p of presets) {
         if (p.tryActivate(controller)) {
-          // Preset values are section-local (ordering matches the
-          // section's own sliders). Animate the slider rack from its
-          // current values to the preset (#56) instead of snapping —
-          // makes the family transition itself visible. The previous
-          // tween, if any, is replaced; its ticked-state on the
-          // sliders is the new tween's start.
+          // Preset values are coefficient-frame [a, b, c, d] regardless
+          // of the active section (#93): the preset row is global, so
+          // pressing a preset always drives the coefficient rack toward
+          // the named canonical pose. Animate from the rack's current
+          // values to the preset (#56) instead of snapping — makes the
+          // family transition itself visible. The previous tween, if
+          // any, is replaced; its ticked-state on the sliders is the
+          // new tween's start.
           //
-          // Coefficient presets also drive the linear-terms rack to
-          // (0, 0, 0) (#92): "canonical pose" is only canonical if the
-          // surface is centered, which means linear terms must zero.
-          // Bundled into the same tween so a single cancel() on
-          // mid-drag interrupt drops both racks together.
+          // Presets also drive the linear-terms rack to (0, 0, 0) (#92):
+          // "canonical pose" is only canonical if the surface is
+          // centered, which means linear terms must zero. Bundled into
+          // the same tween so a single cancel() on mid-drag interrupt
+          // drops both racks together.
           const currentValues: PresetValues = [
-            activeSection.sliders[0].value,
-            activeSection.sliders[1].value,
-            activeSection.sliders[2].value,
-            activeSection.sliders[3].value,
+            sliders[0].value,
+            sliders[1].value,
+            sliders[2].value,
+            sliders[3].value,
           ];
           const linearStart = linearSliders.map((s) => s.value);
           const linearTarget = linearStart.map(() => 0);
@@ -864,7 +896,7 @@ function setupControllers(
           presetTween = new PresetTween(
             currentValues,
             p.values,
-            activeSection.sliders,
+            sliders,
             performance.now(),
             {
               start: linearStart,

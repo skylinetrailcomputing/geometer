@@ -2,10 +2,17 @@ import * as THREE from 'three';
 import { Text } from 'troika-three-text';
 
 // One canonical-pose preset button (#46). A small sphere with a text label
-// to its right; pressing snaps the slider rack to a named family member
+// below it; pressing snaps the slider rack to a named family member
 // (Sphere, Cylinder, Cone, Hyperboloid 1- or 2-sheet, …). Read as a tap-
 // affordance distinct from the warm slider thumbs by use of a cool fill
 // color and a brief press flash on activation.
+//
+// Label placement is below-button rather than right-of-button (#93): the
+// preset rack is a horizontal sub-row beneath the section tabs, so right-
+// of-button labels would collide with the next preset's button. Mirrors
+// SectionTab's above-button label arrangement (with the offset flipped so
+// labels fall toward the family classifier rather than crowding the tabs
+// above).
 
 export type PresetValues = readonly [number, number, number, number];
 
@@ -34,7 +41,9 @@ const BUTTON_PRESS_EMISSIVE = 0x88ddff;
 const PRESS_FLASH_DURATION_MS = 150;
 
 const LABEL_FONT_SIZE = 0.03;
-const LABEL_OFFSET_X = 0.04;
+// Offset just clears the button (radius 0.02) plus a small breathing gap.
+// Negative because the label sits *below* the button.
+const LABEL_OFFSET_Y = -0.025;
 const LABEL_COLOR = 0xffffff;
 const LABEL_OUTLINE_WIDTH = '8%';
 const LABEL_OUTLINE_COLOR = 0x000000;
@@ -73,11 +82,11 @@ export class Preset {
     this.label.text = opts.name;
     this.label.fontSize = LABEL_FONT_SIZE;
     this.label.color = LABEL_COLOR;
-    this.label.anchorX = 'left';
-    this.label.anchorY = 'middle';
+    this.label.anchorX = 'center';
+    this.label.anchorY = 'top';
     this.label.outlineWidth = LABEL_OUTLINE_WIDTH;
     this.label.outlineColor = LABEL_OUTLINE_COLOR;
-    this.label.position.set(LABEL_OFFSET_X, 0, 0);
+    this.label.position.set(0, LABEL_OFFSET_Y, 0);
     this.label.sync();
     this.group.add(this.label);
   }
