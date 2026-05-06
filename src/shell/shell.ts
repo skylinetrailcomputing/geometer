@@ -26,6 +26,13 @@ export function bootShell(): void {
   // fraction, gentle falloff — so the periphery doesn't read as visibly
   // blurry; ramp up if profiling says we still need more headroom (#38).
   renderer.xr.setFoveation(0.3);
+  // Quest framebuffer scale: cuts per-eye render target resolution to free
+  // fragment-shader budget — the dominant cost in this exhibit, where the
+  // raymarcher runs a STEPS-loop over the bounding cube for every fragment
+  // (#102). 0.85 saves ~28 % of fragment work and is perceptually invisible
+  // in motion at the Quest 3S panel's pixel density. SPEC.md `## Frame-pacing
+  // knobs` named this as the next deferred knob; this is its first land.
+  renderer.xr.setFramebufferScaleFactor(0.85);
   document.body.appendChild(renderer.domElement);
   document.body.appendChild(VRButton.createButton(renderer));
 

@@ -200,9 +200,22 @@ asymmetry first reported post-#8 (smooth surface, slightly-jank UI):
   labels in v0.1; #58 retired those labels in favor of the equation
   readout and ported the cap to the new readout for the same reason.
 
-Both are reversible knobs. Profile-guided follow-ups (ray-march
-`STEPS`, framebuffer scale factor, etc.) deferred to a follow-on PR
-if these don't fully close the gap.
+Both are reversible knobs.
+
+Real-world readings on Quest 3S (#102) showed steady-state ~40 FPS
+even on degenerate / empty-set surfaces — surface-independent, which
+points at the raymarcher's per-fragment STEPS loop over the bounding
+cube as the dominant cost. First profile-guided follow-up landed:
+
+- **Quest framebuffer scale factor** at 0.85
+  (`renderer.xr.setFramebufferScaleFactor(0.85)` in the shell). Cuts
+  per-eye render target resolution by ~15 % per axis (~28 % fewer
+  fragments to shade). Perceptually invisible in motion at the Quest
+  3S panel's pixel density; the Three.js `WebXRManager` applies the
+  scale at session-start when the XR projection layer is created.
+
+Further knobs deferred until profile data on the above
+(STEPS reduction, BOUND tighten, foveation ramp).
 
 ## Label content
 
