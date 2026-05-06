@@ -13,13 +13,21 @@ import { Text } from 'troika-three-text';
 // neutral white. Yaw-only billboarded as one unit so the whole equation
 // reads from a consistent direction.
 //
+// Hide-on-zero (#95): when a slider sits at exactly 0 (snap-to-zero detent
+// in Slider.ts guarantees exact equality, no epsilon needed), the
+// corresponding numeric and its adjacent connector drop out and the
+// surviving terms reflow + re-center. Reflow only fires when the
+// visibility mask actually changes, which — thanks to the detent — happens
+// at grab/release boundaries (and tween completion), not per-frame
+// mid-drag. Slot `d` is the one exception: hiding the equation's RHS
+// reads as broken, so a zero d still renders as `= +0.00`. v1 trial
+// choice for the design questions in #95; revisit in headset.
+//
 // troika-three-text doesn't support inline rich text / per-span color, so
-// the equation is built from independent Text instances laid out at fixed
-// offsets. Each line is independently centered on the readout group's x=0,
-// which leaves the wider bottom line (with its trailing `= d`) extending
-// slightly further right than the top line — natural reading flow for a
-// continued equation. Constants are em-based so retuning fontSize stays
-// self-consistent.
+// the equation is built from independent Text instances. Numerics are
+// pre-allocated one per slot; separators are pooled (max 3 per line) and
+// repurposed dynamically across reflows so we don't allocate / dispose
+// during interaction.
 
 export interface EquationReadoutOptions {
   // Diffuse colors for the seven numeric slots in visual reading order:
@@ -44,14 +52,6 @@ const NUMERIC_SLOT_EM = 2.6;
 const SEPARATOR_SLOT_EM = 2.4;
 const SEPARATOR_TAIL_EM = 1.2;
 
-// Top line (3 numerics + 3 separators): a, ` x² + `, b, ` y² + `, c, ` z²`.
-// Bottom line (4 numerics + 3 separators): u, ` x + `, v, ` y + `, w, ` z = `, d.
-// The trailing `+` on the top line's final separator is dropped — the
-// bottom line's first numeric carries an explicit sign (always-show-sign
-// convention) which serves as the implicit continuation marker.
-const TOP_SEPARATOR_CONTENT = [' x² + ', ' y² + ', ' z²'] as const;
-const BOTTOM_SEPARATOR_CONTENT = [' x + ', ' y + ', ' z = '] as const;
-
 // Vertical gap between the two lines. Larger than 1× fontSize so the lines
 // read as visually distinct rows; smaller than 2.5× to keep the readout's
 // total height under the gap to the family-classifier label at y=1.5.
@@ -67,8 +67,8 @@ const OUTLINE_COLOR = 0x000000;
 // frame so motion smoothness is unaffected.
 const SYNC_INTERVAL_MS = 33;
 
-// Numeric-slot indices in visual reading order, used by both the layout
-// loop in the constructor and the value-write loop in setValues.
+// Numeric-slot indices in visual reading order. Indexes into numericTexts,
+// numericValues, visibilityMask, and the coefficientColors array.
 const SLOT_A = 0;
 const SLOT_B = 1;
 const SLOT_C = 2;
@@ -78,14 +78,37 @@ const SLOT_W = 5;
 const SLOT_D = 6;
 const NUMERIC_SLOT_COUNT = 7;
 
+// Per-numeric variable label, used to assemble dynamic separators. d has
+// no following variable — its separator-to-self position is the line's
+// end, terminated by `=` from the preceding connector.
+const NUMERIC_VAR_LABEL: readonly string[] = ['x²', 'y²', 'z²', 'x', 'y', 'z', ''];
+
+// Top line carries the squared coefficients; bottom line carries linear
+// coefficients + the RHS constant.
+const TOP_SLOTS: readonly number[] = [SLOT_A, SLOT_B, SLOT_C];
+const BOTTOM_NON_D_SLOTS: readonly number[] = [SLOT_U, SLOT_V, SLOT_W];
+
+// Maximum separators needed per line: top is 2 connectors + 1 tail; bottom
+// is 2 connectors + 1 connector-to-d. Pool sized once at construction so
+// reflow never allocates.
+const TOP_SEPARATOR_POOL = 3;
+const BOTTOM_SEPARATOR_POOL = 3;
+
 export class EquationReadout {
   readonly group: THREE.Group;
 
+  private readonly fontSize: number;
   private readonly numericTexts: readonly Text[];
   private readonly numericValues: number[] = new Array<number>(
     NUMERIC_SLOT_COUNT,
   ).fill(NaN);
-  private readonly separatorTexts: readonly Text[];
+  private readonly topSeparators: readonly Text[];
+  private readonly bottomSeparators: readonly Text[];
+  // True = numeric slot is currently rendered; false = hidden because its
+  // value is exactly 0. d is forced true regardless of value.
+  private readonly visibilityMask: boolean[] = new Array<boolean>(
+    NUMERIC_SLOT_COUNT,
+  ).fill(true);
   private lastSyncMs = 0;
 
   // Hoisted out of `faceCamera` so per-frame billboarding does no allocation.
@@ -93,87 +116,43 @@ export class EquationReadout {
   private readonly groupWorld = new THREE.Vector3();
 
   constructor(opts: EquationReadoutOptions) {
-    const fontSize = opts.fontSize ?? DEFAULT_FONT_SIZE;
-    const numericW = NUMERIC_SLOT_EM * fontSize;
-    const separatorW = SEPARATOR_SLOT_EM * fontSize;
-    const separatorTailW = SEPARATOR_TAIL_EM * fontSize;
-
-    // Top line: 3 numerics + 2 full separators + 1 tail separator.
-    // Bottom line: 4 numerics + 3 full separators.
-    const topLineW = 3 * numericW + 2 * separatorW + separatorTailW;
-    const bottomLineW = 4 * numericW + 3 * separatorW;
-    const topY = LINE_PITCH / 2;
-    const bottomY = -LINE_PITCH / 2;
+    this.fontSize = opts.fontSize ?? DEFAULT_FONT_SIZE;
 
     this.group = new THREE.Group();
     this.group.name = 'equation-readout';
 
+    // Numerics — one per slot, color baked in. Position is assigned by
+    // applyLayout(); kept at origin until the first layout pass.
     const numericTexts: Text[] = new Array<Text>(NUMERIC_SLOT_COUNT);
-    const separatorTexts: Text[] = [];
-
-    // Top line layout — slots alternate N S N S N S' (S' = tail separator).
-    // Slot ordering: N(a) S(' x² + ') N(b) S(' y² + ') N(c) S(' z²').
-    let cursor = -topLineW / 2;
-    const topSlotIndex = (i: number): number => [SLOT_A, SLOT_B, SLOT_C][i];
-    for (let i = 0; i < 6; i++) {
-      const isNumeric = i % 2 === 0;
-      const isTail = i === 5;
-      const w = isNumeric ? numericW : isTail ? separatorTailW : separatorW;
-      const centerX = cursor + w / 2;
-      cursor += w;
-
-      if (isNumeric) {
-        const slot = topSlotIndex(i / 2);
-        const t = this.makeNumericText(
-          fontSize,
-          opts.coefficientColors[slot],
-        );
-        t.position.set(centerX, topY, 0);
-        this.group.add(t);
-        numericTexts[slot] = t;
-      } else {
-        const t = this.makeSeparatorText(fontSize);
-        t.text = TOP_SEPARATOR_CONTENT[(i - 1) / 2];
-        t.position.set(centerX, topY, 0);
-        t.sync();
-        this.group.add(t);
-        separatorTexts.push(t);
-      }
+    for (let i = 0; i < NUMERIC_SLOT_COUNT; i++) {
+      const t = this.makeNumericText(this.fontSize, opts.coefficientColors[i]);
+      this.group.add(t);
+      numericTexts[i] = t;
     }
-
-    // Bottom line layout — same alternation as the original single-line
-    // readout: N S N S N S N. Slot ordering: N(u) S(' x + ') N(v)
-    // S(' y + ') N(w) S(' z = ') N(d).
-    cursor = -bottomLineW / 2;
-    const bottomSlotIndex = (i: number): number =>
-      [SLOT_U, SLOT_V, SLOT_W, SLOT_D][i];
-    for (let i = 0; i < 7; i++) {
-      const isNumeric = i % 2 === 0;
-      const w = isNumeric ? numericW : separatorW;
-      const centerX = cursor + w / 2;
-      cursor += w;
-
-      if (isNumeric) {
-        const slot = bottomSlotIndex(i / 2);
-        const t = this.makeNumericText(
-          fontSize,
-          opts.coefficientColors[slot],
-        );
-        t.position.set(centerX, bottomY, 0);
-        this.group.add(t);
-        numericTexts[slot] = t;
-      } else {
-        const t = this.makeSeparatorText(fontSize);
-        t.text = BOTTOM_SEPARATOR_CONTENT[(i - 1) / 2];
-        t.position.set(centerX, bottomY, 0);
-        t.sync();
-        this.group.add(t);
-        separatorTexts.push(t);
-      }
-    }
-
     this.numericTexts = numericTexts;
-    this.separatorTexts = separatorTexts;
+
+    // Separator pools — content + position assigned by applyLayout().
+    // Repurposed across reflows so layout transitions don't allocate.
+    const topSeparators: Text[] = new Array<Text>(TOP_SEPARATOR_POOL);
+    for (let i = 0; i < TOP_SEPARATOR_POOL; i++) {
+      const t = this.makeSeparatorText(this.fontSize);
+      this.group.add(t);
+      topSeparators[i] = t;
+    }
+    this.topSeparators = topSeparators;
+
+    const bottomSeparators: Text[] = new Array<Text>(BOTTOM_SEPARATOR_POOL);
+    for (let i = 0; i < BOTTOM_SEPARATOR_POOL; i++) {
+      const t = this.makeSeparatorText(this.fontSize);
+      this.group.add(t);
+      bottomSeparators[i] = t;
+    }
+    this.bottomSeparators = bottomSeparators;
+
+    // Initial layout — visibilityMask defaults to all-true. The first
+    // setValues call will flip u/v/w to hidden (their initial value is 0)
+    // and reflow once; that's a deliberately small cost paid at startup.
+    this.applyLayout();
   }
 
   private makeNumericText(fontSize: number, color: number): Text {
@@ -199,11 +178,136 @@ export class EquationReadout {
   }
 
   /**
+   * Recompute positions + visibility based on `visibilityMask`. Called
+   * from the constructor and from setValues whenever a slot crosses zero.
+   * Reflow at this granularity is cheap because the snap-to-zero detent
+   * (Slider.ts ZERO_DETENT) makes mask transitions acyclic — once a
+   * slider hits 0 it stays there until re-grabbed, so this fires at
+   * grab/release boundaries (and tween completion), never per-frame
+   * mid-drag.
+   *
+   * Each line is independently centered on x=0. Top line's invisible-when-
+   * empty contract: if a/b/c are all zero, the top line drops out entirely
+   * (no reserved height). Bottom line always renders at minimum `= ±N.NN`
+   * because d is forced visible — keeps the equation's RHS anchor.
+   */
+  private applyLayout(): void {
+    const numericW = NUMERIC_SLOT_EM * this.fontSize;
+    const separatorW = SEPARATOR_SLOT_EM * this.fontSize;
+    const separatorTailW = SEPARATOR_TAIL_EM * this.fontSize;
+    const topY = LINE_PITCH / 2;
+    const bottomY = -LINE_PITCH / 2;
+
+    const topVisible = TOP_SLOTS.filter((s) => this.visibilityMask[s]);
+    const bottomNonDVisible = BOTTOM_NON_D_SLOTS.filter(
+      (s) => this.visibilityMask[s],
+    );
+
+    // Hide numerics that are masked out — applies to both lines uniformly.
+    // d is masked-in (always-visible), so this loop never touches it.
+    for (let i = 0; i < NUMERIC_SLOT_COUNT; i++) {
+      if (!this.visibilityMask[i]) this.numericTexts[i].visible = false;
+    }
+
+    // --- Top line ---
+    if (topVisible.length === 0) {
+      for (const t of this.topSeparators) t.visible = false;
+    } else {
+      const totalTopW =
+        topVisible.length * numericW +
+        Math.max(0, topVisible.length - 1) * separatorW +
+        separatorTailW;
+      let cursor = -totalTopW / 2;
+      let sepIdx = 0;
+      for (let i = 0; i < topVisible.length; i++) {
+        const slot = topVisible[i];
+        const isLast = i === topVisible.length - 1;
+        // Numeric.
+        const nText = this.numericTexts[slot];
+        nText.position.set(cursor + numericW / 2, topY, 0);
+        nText.visible = true;
+        cursor += numericW;
+        // Following separator — connector for non-last, tail for last.
+        const sep = this.topSeparators[sepIdx++];
+        if (isLast) {
+          sep.text = ` ${NUMERIC_VAR_LABEL[slot]}`;
+          sep.position.set(cursor + separatorTailW / 2, topY, 0);
+          cursor += separatorTailW;
+        } else {
+          sep.text = ` ${NUMERIC_VAR_LABEL[slot]} + `;
+          sep.position.set(cursor + separatorW / 2, topY, 0);
+          cursor += separatorW;
+        }
+        sep.visible = true;
+        sep.sync();
+      }
+      for (let i = sepIdx; i < this.topSeparators.length; i++) {
+        this.topSeparators[i].visible = false;
+      }
+    }
+
+    // --- Bottom line ---
+    // d is always visible. Three structural cases:
+    //   * non-d empty       → ` = ` + d
+    //   * non-d 1+ visible  → [non-d numerics with between-connectors] +
+    //                          ` <last-var> = ` + d
+    const bottomNumericCount = bottomNonDVisible.length + 1;
+    const bottomSepCount = Math.max(1, bottomNonDVisible.length);
+    const totalBottomW =
+      bottomNumericCount * numericW + bottomSepCount * separatorW;
+    let cursor = -totalBottomW / 2;
+    let bSepIdx = 0;
+
+    if (bottomNonDVisible.length === 0) {
+      const sep = this.bottomSeparators[bSepIdx++];
+      sep.text = ' = ';
+      sep.position.set(cursor + separatorW / 2, bottomY, 0);
+      sep.visible = true;
+      sep.sync();
+      cursor += separatorW;
+    } else {
+      for (let i = 0; i < bottomNonDVisible.length; i++) {
+        const slot = bottomNonDVisible[i];
+        const isLast = i === bottomNonDVisible.length - 1;
+        // Numeric.
+        const nText = this.numericTexts[slot];
+        nText.position.set(cursor + numericW / 2, bottomY, 0);
+        nText.visible = true;
+        cursor += numericW;
+        // Following separator — connector to next non-d, or to d if last.
+        const sep = this.bottomSeparators[bSepIdx++];
+        sep.text = isLast
+          ? ` ${NUMERIC_VAR_LABEL[slot]} = `
+          : ` ${NUMERIC_VAR_LABEL[slot]} + `;
+        sep.position.set(cursor + separatorW / 2, bottomY, 0);
+        sep.visible = true;
+        sep.sync();
+        cursor += separatorW;
+      }
+    }
+
+    // d (always rendered).
+    const dText = this.numericTexts[SLOT_D];
+    dText.position.set(cursor + numericW / 2, bottomY, 0);
+    dText.visible = true;
+
+    for (let i = bSepIdx; i < this.bottomSeparators.length; i++) {
+      this.bottomSeparators[i].visible = false;
+    }
+  }
+
+  /**
    * Update the seven numeric values. Throttled to ≈30 Hz; pre-throttle the
    * work would dominate troika SDF rebuild cost during fast drags (#38
    * rationale, ported from Slider's per-slider label cap). Sign is always
    * shown explicitly (matching the per-slider label format) so transitions
    * across zero are unambiguous on every slot, top line and bottom alike.
+   *
+   * Reflow path (#95): if any slot's exact-zero state changed since the
+   * last update, the visibility mask flips and applyLayout() re-runs.
+   * Hidden slots skip the numeric-text write — the cached value stays
+   * stale, but that's fine: the next un-hide is by definition a value
+   * change (0 → non-zero), so the cache mismatch retriggers the write.
    */
   setValues(
     a: number,
@@ -219,9 +323,21 @@ export class EquationReadout {
     this.lastSyncMs = now;
 
     // Indexed in visual reading order [a, b, c, u, v, w, d] to match the
-    // slot constants above and the coefficientColors array.
+    // slot constants and coefficientColors array.
     const values = [a, b, c, u, v, w, d];
+
+    let maskChanged = false;
     for (let i = 0; i < NUMERIC_SLOT_COUNT; i++) {
+      const visible = i === SLOT_D ? true : values[i] !== 0;
+      if (visible !== this.visibilityMask[i]) {
+        this.visibilityMask[i] = visible;
+        maskChanged = true;
+      }
+    }
+    if (maskChanged) this.applyLayout();
+
+    for (let i = 0; i < NUMERIC_SLOT_COUNT; i++) {
+      if (!this.visibilityMask[i]) continue;
       const value = values[i];
       if (value === this.numericValues[i]) continue;
       this.numericValues[i] = value;
@@ -244,6 +360,7 @@ export class EquationReadout {
 
   dispose(): void {
     for (const t of this.numericTexts) t.dispose();
-    for (const t of this.separatorTexts) t.dispose();
+    for (const t of this.topSeparators) t.dispose();
+    for (const t of this.bottomSeparators) t.dispose();
   }
 }
