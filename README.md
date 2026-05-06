@@ -43,6 +43,8 @@ WebXR emulator extensions (Meta's [Immersive Web Emulator](https://chromewebstor
 
 Compatibility work is tracked in [#80](https://github.com/skylinetrailcomputing/geometer/issues/80). The Meta emulator's `XRWebGLBinding` mismatch is fixed upstream in Three.js [r185](https://github.com/mrdoob/three.js/issues/33414) (closed-completed, unreleased as of this writing — expected mid-2026 based on Three.js's recent ~2-month cadence); once it ships to npm we'll bump our pin and re-verify. For now, a real Quest (3 / 3S / 2 / Pro) is the reliable path.
 
+Separately, [#105](https://github.com/skylinetrailcomputing/geometer/issues/105) is exploring a first-class **desktop interaction mode** (mouse + keyboard, WASD or orbit camera) — a real production path for visitors without a headset, not a developer workaround. Design discussion is open.
+
 ## Run locally
 
 Requires Node 20+ and npm.
