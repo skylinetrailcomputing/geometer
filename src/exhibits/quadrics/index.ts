@@ -7,6 +7,7 @@ import { FpsOverlay } from './FpsOverlay';
 import { Label } from './Label';
 import { Preset, type PresetValues } from './Preset';
 import { PresetTween } from './PresetTween';
+import { RendererInfoProbe } from './RendererInfoProbe';
 import { Section } from './Section';
 import { SectionTab } from './SectionTab';
 import { Slider, type ThumbShape } from './Slider';
@@ -496,6 +497,7 @@ let controllers: THREE.Object3D[] = [];
 let rackLabel: Label | undefined;
 let equationReadout: EquationReadout | undefined;
 let fpsOverlay: FpsOverlay | undefined;
+let rendererInfoProbe: RendererInfoProbe | undefined;
 let worldAxes: WorldAxes | undefined;
 let camera: THREE.Camera | undefined;
 let elapsed = 0;
@@ -679,13 +681,16 @@ const quadricsExhibit: Exhibit = {
     worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
     scene.add(worldAxes.group);
 
-    // Optional in-VR FPS readout (#99). Off by default; opt-in via a
-    // `?fps=1` query string on the URL. Useful for sanity-checking
-    // perf-related changes without leaving the headset.
+    // Optional in-VR FPS readout (#99) + console renderer.info dump
+    // (#102). Both off by default; opt-in via a `?fps=1` query string
+    // on the URL. The console probe pairs with the in-VR overlay: FPS
+    // says how fast we're rendering, renderer.info says what we're
+    // asking the GPU to render.
     if (isFpsOverlayEnabled()) {
       fpsOverlay = new FpsOverlay();
       fpsOverlay.group.position.copy(FPS_OVERLAY_POSITION);
       scene.add(fpsOverlay.group);
+      rendererInfoProbe = new RendererInfoProbe(renderer);
     }
   },
 
@@ -774,6 +779,7 @@ const quadricsExhibit: Exhibit = {
       fpsOverlay.update(delta, performance.now());
       if (camera) fpsOverlay.faceCamera(camera);
     }
+    if (rendererInfoProbe) rendererInfoProbe.update(performance.now());
   },
 };
 
