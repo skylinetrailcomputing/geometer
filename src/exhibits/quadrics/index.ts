@@ -5,7 +5,7 @@ import { classify } from './classify';
 import { EquationReadout } from './EquationReadout';
 import { FpsOverlay } from './FpsOverlay';
 import { Label } from './Label';
-import { Preset, type PresetValues } from './Preset';
+import { Preset, type LinearPresetValues, type PresetValues } from './Preset';
 import { PresetTween } from './PresetTween';
 import { RendererInfoProbe } from './RendererInfoProbe';
 import { Section } from './Section';
@@ -30,27 +30,33 @@ const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 // Vertical stacking (top → bottom):
 //   centered column (x = 0):
 //     y = 1.85  — debug FPS overlay (?fps=1, hidden by default)
-//     y = 1.5   — family classifier readout
-//     y = 1.4   — live equation readout (#58)
-//     y = 1.225 — top slider 'a' (= SLIDER_RACK_CENTER.y + 1.5 * SLIDER_ROW_PITCH)
-//   left rack (x = -0.45) — section / canonical-forms tabs (#93 follow-up):
-//     y = 1.65 — Canonical forms expandable heading (▸ collapsed / ▾ expanded)
-//     y = 1.4  — Coefficients tab
-//     y = 1.15 — Linear terms tab
-//   when Canonical forms is expanded:
-//     y = 1.65, x ∈ [-0.32, +0.46] — preset row, extending rightward from
-//                                    the heading at pitch 0.13.
+//     y = 1.72  — preset 2 × 4 grid row 0 (centered on x = 0, slightly above
+//                 classifier so labels don't overlap the family text)
+//     y = 1.59  — preset 2 × 4 grid row 1
+//     y = 1.41  — family classifier readout
+//     y = 1.32  — live equation readout (#58)
+//     y = 1.21  — top slider 'a' (= SLIDER_RACK_CENTER.y + 1.5 * SLIDER_ROW_PITCH)
+//   left rack (x = -0.44) — section / canonical-forms tabs (#93 follow-up):
+//     y = 1.50 — Canonical forms expandable heading (▸ collapsed / ▾ expanded)
+//     y = 1.27 — Squared terms tab
+//     y = 1.04 — Linear terms tab
+//   right side (x ≈ 0.35):
+//     y = 1.17 — math-frame axis indicator origin (Z arrow points up to ≈ 1.32,
+//                aligning the indicator's top with the equation readout)
 // The vertical tab rack replaced an earlier horizontal row at y = 1.78
 // (#93 first-pass landed it horizontally; the second pass moved it left
 // per headset feedback that the horizontal row was crowding the upper
 // viewport and reading further from the sliders it controls than the
 // rack center where the slider names live).
-// Family classifier was at y = 1.4 in v0.1; pushed up to y = 1.5 to make
-// room for the equation. The equation occupies the slot the per-slider
-// labels used to fill (those left-of-track 'a +1.00' labels are gone in
-// #58 — the equation makes them redundant).
-const RACK_LABEL_POSITION = new THREE.Vector3(0, 1.5, -0.7);
-const EQUATION_READOUT_POSITION = new THREE.Vector3(0, 1.4, -0.7);
+// #110 first-pass anchored the preset row at the heading's y. Headset
+// feedback (#110 follow-up) was: 1) the grid sat left-of-center, asking
+// the eye to scan away from the surface to read it; 2) the rack tabs
+// crowded the grid's labels with no horizontal breathing room. Fixed by
+// decoupling — grid centered on x=0 just above the classifier; rack
+// shifted down + right so its column sits well clear of the leftmost
+// preset col.
+const RACK_LABEL_POSITION = new THREE.Vector3(0, 1.41, -0.7);
+const EQUATION_READOUT_POSITION = new THREE.Vector3(0, 1.32, -0.7);
 
 // Debug-only FPS readout (#99), gated behind `?fps=1`. Sits above the
 // family classifier so it doesn't crowd the surface viewport when
@@ -63,76 +69,121 @@ const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.85, -0.7);
 const RACK_LABEL_PRIMARY_FONT_SIZE = 0.06;
 
 // Math-frame axis indicator (#43): pinned next to the slider rack so it
-// stays visible regardless of the surface's current parameters. x = 0.3
-// clears the right end of the 0.3 m slider track (which spans ±0.15 from
-// rack center). y = 0.925 puts the indicator's vertical span (Z extends
-// up by AXIS_LENGTH = 0.15) symmetric around the rack's vertical center
-// at y = 1.0. z matches the slider plane.
-const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.3, 0.925, -0.7);
+// stays visible regardless of the surface's current parameters. x = 0.35
+// sits well clear of the right end of the 0.3 m slider track (spans ±0.15
+// from rack center). y = 1.17 raises the origin so the Z-axis arrow (which
+// extends up by AXIS_LENGTH = 0.15) terminates at y ≈ 1.32 — aligned with
+// the equation readout, per #110 follow-up. Was at y = 0.925 (centered
+// on the rack), but headset feedback was that the indicator read as
+// "down by the floor" instead of as a reference for the math frame the
+// equation is written in. z matches the slider plane.
+const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
 
 // Section-selector tab rack (#57; rotated to a vertical left column in
-// #93): a stack of buttons at the left of the slider rack. Each button
-// is a tab (Coefficients, Linear terms) or the canonical-forms
-// expandable heading; tapping a section tab swaps which sliders are
-// visible and grabbable. Today's sections: "Coefficients" and "Linear
-// terms" (#88).
+// #93; relocated in #110 follow-up): a stack of buttons at the left of
+// the slider rack. Each button is a tab (Squared terms, Linear terms)
+// or the canonical-forms expandable heading; tapping a section tab swaps
+// which sliders are visible and grabbable. Today's sections: "Squared
+// terms" and "Linear terms" (#88; the squared-terms tab was originally
+// named "Coefficients" — renamed in the #110 follow-up so the two tab
+// labels read as a parallel pair: squared coefficients vs. linear
+// coefficients, both sharing the same axis-color story).
 //
-// Vertical pitch chosen so the canonical-forms heading sits above the
-// family classifier (y = 1.5) and the section tabs land alongside the
-// slider rack — Coefficients across from the equation readout, Linear
-// terms near the top of the slider stack.
-const SECTION_TAB_RACK_X = -0.45;
-const SECTION_TAB_RACK_TOP_Y = 1.65;
-const SECTION_TAB_RACK_PITCH = 0.25;
+// Once the preset grid was decoupled from the heading and centered on
+// x=0, the rack lost its anchoring purpose at the top of the viewport
+// and became free to descend. Headset feedback after #110 first pass:
+// give the rack horizontal breathing room from the grid (the tab label
+// was visually colliding with the H-2-sheets / Cylinder column) and
+// bring it down to a comfortable reach height. x = -0.44 sits just
+// inside v0.1's -0.45 while leaving comfortable horizontal clearance
+// from the leftmost preset col at -0.195; y = 1.50 + pitch 0.23 lands Squared terms across from
+// the equation readout and Linear terms just below the bottom slider
+// 'd' / 'w' — clear of the slider rack rather than crammed inside it.
+const SECTION_TAB_RACK_X = -0.44;
+const SECTION_TAB_RACK_TOP_Y = 1.50;
+const SECTION_TAB_RACK_PITCH = 0.23;
 
-// Canonical-pose preset row (#46, relocated #93): horizontal strip
-// anchored to the canonical-forms heading on the left rack, extending
-// rightward across the upper viewport. Hidden by default; tapping the
+// Canonical-pose preset grid (#46, relocated #93, restructured #110):
+// 2 × 4 grid anchored to the canonical-forms heading on the left rack,
+// extending rightward and downward. Hidden by default; tapping the
 // heading reveals it.
 //
 // Was a vertical column to the left of the slider rack at x = -0.45 (#46);
 // moved out of that slot in #93 because the rack was reading as a third
 // UI element competing with the slider rack and the section tabs. Presets
 // are also now globally scoped — they drive the coefficient rack to a
-// canonical pose and zero the linear-term rack regardless of the active
-// section (the latter half came in via #92), which fits naturally with
-// their new position above the section boundary rather than inside one
-// tab.
+// canonical pose and zero (or, for paraboloid / saddle, fix) the linear-
+// term rack regardless of the active section (the latter half came in via
+// #92, with the linearValues hook landing in #110), which fits naturally
+// with their new position above the section boundary rather than inside
+// one tab.
 //
-// Order matches the original issue body: Sphere, Ellipsoid, Cone,
-// H 1-sheet, H 2-sheets, Cylinder, Reset (back to startup pose).
+// 2 × 4 layout (#110): the original 1 × 7 row reached too far rightward
+// to comfortably scan; reshaping into 2 rows × 4 cols keeps the same
+// horizontal pitch (0.13 m, sized to the longest label "H 2-sheets") but
+// halves the rightward reach. Drop "Sphere" — Reset is identical (both
+// (1,1,1,1)) and "Reset" carries the wider UX meaning, with Ellipsoid
+// adjacent for the closest related pose. Add Paraboloid + Saddle to fill
+// out the bottom row, completing the rank-2 quadric tour the v0.1 row
+// was missing.
 //
-// The values are slider-frame (a, b, c, d) per the math convention from #43:
-// X right, Y forward, Z up. So Cylinder (1, 1, 0, 1) is `X² + Y² = 1`, which
-// reads as a vertical (math-Z-aligned) cylinder; Cone (1, 1, -1, 0) opens
-// along math-Z (vertical). Surfaces of revolution are upright by default.
-const PRESETS: readonly { readonly name: string; readonly values: PresetValues }[] = [
-  { name: 'Sphere', values: [1, 1, 1, 1] },
+// Reading order is row-major left → right, top → bottom:
+//   Row 0: Reset, Ellipsoid, Cone, H 1-sheet
+//   Row 1: H 2-sheets, Cylinder, Paraboloid, Saddle
+//
+// Values are slider-frame (a, b, c, d) per the math convention from #43:
+// X right, Y forward, Z up. So Cylinder (1, 1, 0, 1) is `X² + Y² = 1`, a
+// vertical (math-Z-aligned) cylinder; Cone (1, 1, -1, 0) opens along
+// math-Z (vertical); Paraboloid (1, 1, 0, 0) with linearValues (0, 0, -1)
+// reads as Z = X² + Y² (open upward along math-Z); Saddle (1, -1, 0, 0)
+// with the same linearValues reads as Z = X² - Y².
+const PRESETS: readonly {
+  readonly name: string;
+  readonly values: PresetValues;
+  readonly linearValues?: LinearPresetValues;
+}[] = [
+  // Row 0
+  { name: 'Reset', values: [1, 1, 1, 1] },
   { name: 'Ellipsoid', values: [2, 0.5, 1, 1] },
   { name: 'Cone', values: [1, 1, -1, 0] },
   { name: 'H 1-sheet', values: [1, 1, -1, 1] },
+  // Row 1
   { name: 'H 2-sheets', values: [1, 1, -1, -1] },
   { name: 'Cylinder', values: [1, 1, 0, 1] },
-  { name: 'Reset', values: [1, 1, 1, 1] },
+  { name: 'Paraboloid', values: [1, 1, 0, 0], linearValues: [0, 0, -1] },
+  { name: 'Saddle', values: [1, -1, 0, 0], linearValues: [0, 0, -1] },
 ];
 
-// Preset row expansion (#93). Anchored to the canonical-forms heading on
-// the left rack — when the heading is tapped, the 7 preset buttons appear
-// in a horizontal row at the heading's y, extending rightward across the
-// upper viewport.
+// Preset grid expansion (#93, 2 × 4 in #110, decoupled in #110 follow-up).
+// 8 preset buttons in a 2-row × 4-col grid, centered horizontally on x = 0
+// directly above the family-classifier readout. Hidden by default; the
+// heading's chevron toggle makes the grid visible.
 //
-// PRESET_ROW_Y matches the heading's y (top of the section tab rack).
-// PRESET_ROW_START_X positions the leftmost preset just right of the
-// heading button, with PRESET_ROW_PITCH spacing between adjacent presets.
-// 7 buttons at 0.13 pitch span 0.78 m of x — fits within arm's reach
-// from the user's spawn point. First-iteration trial used 0.08 pitch
-// and was reported as "smooshed" in headset (#93 follow-up): labels (down
-// to "H 2-sheets") need ~0.11 m of horizontal real estate at the chosen
-// 0.022 m font, so 0.08 had labels overlapping into adjacent buttons.
-// 0.13 leaves ~0.02 m of clear air between labels.
-const PRESET_ROW_Y = SECTION_TAB_RACK_TOP_Y;
-const PRESET_ROW_START_X = SECTION_TAB_RACK_X + 0.13;
-const PRESET_ROW_PITCH = 0.13;
+// First pass in #110 anchored the grid at the heading's (x, y) and
+// extended rightward, putting the grid's center off to the left and
+// asking the eye to scan away from the surface to read it. Headset
+// feedback was: re-center over the classifier text. Decoupling the grid
+// from the heading lets each find its own comfortable spot — heading
+// down + left as the section-tab anchor, grid up + center as the
+// canonical-pose menu sitting visually above the live classification.
+// The chevron on the heading still affords expand/collapse; spatial
+// adjacency isn't the only legible signal.
+//
+// 4 buttons × 0.13 m horizontal pitch span 0.39 m, centered on x = 0
+// (cols at -0.195, -0.065, 0.065, 0.195) — fits within arm's reach and
+// stays clear of the family-classifier label's horizontal extent.
+// Vertical pitch matches the horizontal so cells read as roughly square,
+// and so row 1 lands above the classifier with comfortable clearance.
+// First-iteration trial in #93 used 0.08 horizontal pitch and was
+// reported as "smooshed" in headset: labels (down to "H 2-sheets") need
+// ~0.11 m of horizontal real estate at the chosen 0.022 m font, so 0.08
+// had labels overlapping into adjacent buttons.
+const PRESET_COLS = 4;
+const PRESET_ROW_TOP_Y = 1.72;
+const PRESET_HORIZONTAL_PITCH = 0.13;
+const PRESET_VERTICAL_PITCH = 0.13;
+// Centers the 4-col span on x = 0: leftmost col at -1.5 × pitch.
+const PRESET_ROW_START_X = -1.5 * PRESET_HORIZONTAL_PITCH;
 
 // Canonical-forms heading label text. Includes a chevron that flips on
 // expand/collapse so the affordance is unambiguous even at a glance:
@@ -154,10 +205,11 @@ const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 // region: at thumbRadius (0.025) × GRAB_RADIUS_MULTIPLIER (2.75), each
 // thumb's hit sphere is ~0.069 m, so adjacent thumbs need ≥ 0.138 m of
 // pitch to keep their grab regions disjoint (otherwise a ray near the
-// midpoint could resolve to either slider). 0.15 leaves ~1 cm of
-// clearance between hit spheres and reads as comfortably spaced in
-// headset.
-const SLIDER_ROW_PITCH = 0.15;
+// midpoint could resolve to either slider). 0.14 leaves ~2.5 mm of
+// clearance — tighter than the original 0.15 (#110 follow-up: headset
+// feedback called the rack overly spread out and asked for a more
+// compact stack), but still above the disjoint-grab floor.
+const SLIDER_ROW_PITCH = 0.14;
 
 // Wong / Okabe-Ito colorblind-safe palette (#58, Q3). Distinguishable
 // across deuteranopia / protanopia / tritanopia. The fourth slot —
@@ -635,16 +687,18 @@ const quadricsExhibit: Exhibit = {
     });
     sliders = coefficientSliders;
 
-    // Preset row, anchored to the canonical-forms heading on the left
-    // rack and extending rightward (#93). Hidden by default — the
-    // heading toggle below controls visibility. Order is left → right,
-    // matching the original top → bottom vertical column the rack used
-    // before relocation.
+    // Preset 2 × 4 grid, anchored to the canonical-forms heading on the
+    // left rack and extending rightward + downward (#93, restructured
+    // #110). Hidden by default — the heading toggle below controls
+    // visibility. Reading order is row-major left → right, top → bottom,
+    // matching the array order in PRESETS above.
     presets = PRESETS.map((p, i) => {
       const preset = new Preset(p);
+      const col = i % PRESET_COLS;
+      const row = Math.floor(i / PRESET_COLS);
       preset.group.position.set(
-        PRESET_ROW_START_X + i * PRESET_ROW_PITCH,
-        PRESET_ROW_Y,
+        PRESET_ROW_START_X + col * PRESET_HORIZONTAL_PITCH,
+        PRESET_ROW_TOP_Y - row * PRESET_VERTICAL_PITCH,
         SLIDER_RACK_CENTER.z,
       );
       preset.group.visible = false;
@@ -655,13 +709,18 @@ const quadricsExhibit: Exhibit = {
     // Linear-terms section sliders (#88). Same spatial position as the
     // coefficient rack — Section.setActive(false) hides whichever rack is
     // not currently selected, so they never co-render. Three rows for
-    // u/v/w, centered vertically on SLIDER_RACK_CENTER like the four-row
-    // coefficient rack. Default value 0 (so the linear-terms section
-    // starts as "pure quadric" until the user drags); range ±2 mirrors
-    // the coefficient-slider domain.
-    const linearTopY =
-      SLIDER_RACK_CENTER.y +
-      ((LINEAR_SLIDER_CONFIG.length - 1) / 2) * SLIDER_ROW_PITCH;
+    // u/v/w. Default value 0 (so the linear-terms section starts as
+    // "pure quadric" until the user drags); range ±2 mirrors the
+    // coefficient-slider domain.
+    //
+    // Top row aligned with the coefficient rack's top row (#110): u stacks
+    // exactly on slider 'a', v on slider 'b', w on slider 'c'. The
+    // sections never co-render, so there's no need to physically separate
+    // their vertical centers — aligning the same-axis sliders keeps the
+    // mental model "color = math axis" continuous when toggling between
+    // sections, with the slider 'd' slot left empty in the linear section
+    // (no constant-term linear analogue).
+    const linearTopY = topY;
     const linearTermSliders = LINEAR_SLIDER_CONFIG.map((cfg, i) => {
       const slider = new Slider({
         label: cfg.name,
@@ -688,7 +747,7 @@ const quadricsExhibit: Exhibit = {
     // (cheap, and keeps any tween-in-flight from stalling on a tab switch).
     sections = [
       new Section({
-        name: 'Coefficients',
+        name: 'Squared terms',
         sliders: coefficientSliders,
       }),
       new Section({
@@ -941,11 +1000,15 @@ function setupControllers(
           // any, is replaced; its ticked-state on the sliders is the
           // new tween's start.
           //
-          // Presets also drive the linear-terms rack to (0, 0, 0) (#92):
-          // "canonical pose" is only canonical if the surface is
-          // centered, which means linear terms must zero. Bundled into
-          // the same tween so a single cancel() on mid-drag interrupt
-          // drops both racks together.
+          // Presets also drive the linear-terms rack (#92): for centered
+          // canonical poses (Sphere / Reset / Cone / cylinders / hyperb-
+          // oloids …) the target is (0, 0, 0) because the surface is
+          // only canonical if it's centered. Paraboloid / Saddle break
+          // that pattern: their canonical form *requires* a linear
+          // coefficient (z = x² + y² needs w = -1), so the preset
+          // declares a non-zero linearValues target which the tween
+          // honors verbatim. Either way, both racks tween together —
+          // a single cancel() on mid-drag interrupt drops both at once.
           const currentValues: PresetValues = [
             sliders[0].value,
             sliders[1].value,
@@ -953,7 +1016,7 @@ function setupControllers(
             sliders[3].value,
           ];
           const linearStart = linearSliders.map((s) => s.value);
-          const linearTarget = linearStart.map(() => 0);
+          const linearTarget: readonly number[] = p.linearValues;
           presetTween?.cancel();
           presetTween = new PresetTween(
             currentValues,
