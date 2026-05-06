@@ -846,18 +846,31 @@ function setupControllers(
           // makes the family transition itself visible. The previous
           // tween, if any, is replaced; its ticked-state on the
           // sliders is the new tween's start.
+          //
+          // Coefficient presets also drive the linear-terms rack to
+          // (0, 0, 0) (#92): "canonical pose" is only canonical if the
+          // surface is centered, which means linear terms must zero.
+          // Bundled into the same tween so a single cancel() on
+          // mid-drag interrupt drops both racks together.
           const currentValues: PresetValues = [
             activeSection.sliders[0].value,
             activeSection.sliders[1].value,
             activeSection.sliders[2].value,
             activeSection.sliders[3].value,
           ];
+          const linearStart = linearSliders.map((s) => s.value);
+          const linearTarget = linearStart.map(() => 0);
           presetTween?.cancel();
           presetTween = new PresetTween(
             currentValues,
             p.values,
             activeSection.sliders,
             performance.now(),
+            {
+              start: linearStart,
+              target: linearTarget,
+              sliders: linearSliders,
+            },
           );
           return;
         }

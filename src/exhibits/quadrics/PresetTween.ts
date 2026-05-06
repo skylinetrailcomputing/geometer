@@ -48,11 +48,24 @@ interface Phase {
   readonly tEnd: number;
 }
 
+// Optional secondary rack tweened in parallel with the coefficient phases
+// (#92). Used so coefficient-section presets also drive the linear-terms
+// rack to (0, 0, 0) — otherwise tapping "Sphere" with non-zero (u, v, w)
+// produces a translated sphere instead of the canonical pose. Lerps across
+// the full duration; phase ordering is unnecessary because zeroing linear
+// terms has no degeneracy region to dodge.
+export interface SecondaryRackSpec {
+  readonly start: readonly number[];
+  readonly target: readonly number[];
+  readonly sliders: readonly Slider[];
+}
+
 export class PresetTween {
   private readonly start: PresetValues;
   private readonly target: PresetValues;
   private readonly sliders: readonly Slider[];
   private readonly phases: readonly Phase[];
+  private readonly secondary?: SecondaryRackSpec;
   private readonly startedAtMs: number;
   private done = false;
 
@@ -61,11 +74,13 @@ export class PresetTween {
     target: PresetValues,
     sliders: readonly Slider[],
     nowMs: number,
+    secondary?: SecondaryRackSpec,
   ) {
     this.start = start;
     this.target = target;
     this.sliders = sliders;
     this.startedAtMs = nowMs;
+    this.secondary = secondary;
 
     // Source-at-cone (d=0) is the only signal that flips ordering: leave
     // the cone before flipping signs, so we never sit at d=0 with same-sign
@@ -81,9 +96,11 @@ export class PresetTween {
 
     const phase1Active = phase1Indices.some((i) => start[i] !== target[i]);
     const phase2Active = phase2Indices.some((i) => start[i] !== target[i]);
+    const secondaryActive =
+      !!secondary && secondary.start.some((v, i) => v !== secondary.target[i]);
 
     // Edge case: nothing changes. Already-done tween is a no-op on tick().
-    if (!phase1Active && !phase2Active) {
+    if (!phase1Active && !phase2Active && !secondaryActive) {
       this.phases = [];
       this.done = true;
       return;
@@ -126,6 +143,14 @@ export class PresetTween {
       }
     }
 
+    if (this.secondary) {
+      const easedFull = ease(t);
+      for (let i = 0; i < this.secondary.sliders.length; i++) {
+        const v = lerp(this.secondary.start[i], this.secondary.target[i], easedFull);
+        this.secondary.sliders[i].setValueRaw(v);
+      }
+    }
+
     if (t >= 1) {
       // Land exactly on target values *and* re-engage the detent. Targets
       // are typically detent-clean (1, 0, -1, …), so setValue is a no-op
@@ -133,6 +158,11 @@ export class PresetTween {
       // preset press.
       for (let i = 0; i < this.sliders.length; i++) {
         this.sliders[i].setValue(this.target[i]);
+      }
+      if (this.secondary) {
+        for (let i = 0; i < this.secondary.sliders.length; i++) {
+          this.secondary.sliders[i].setValue(this.secondary.target[i]);
+        }
       }
       this.done = true;
       return false;
