@@ -3,6 +3,7 @@ import type { Exhibit, ExhibitContext } from '../../shell/Exhibit';
 import { registerExhibit } from '../../shell/registry';
 import { classify } from './classify';
 import { EquationReadout } from './EquationReadout';
+import { FpsOverlay } from './FpsOverlay';
 import { Label } from './Label';
 import { Preset, type PresetValues } from './Preset';
 import { PresetTween } from './PresetTween';
@@ -35,6 +36,12 @@ const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 // #58 — the equation makes them redundant).
 const RACK_LABEL_POSITION = new THREE.Vector3(0, 1.5, -0.7);
 const EQUATION_READOUT_POSITION = new THREE.Vector3(0, 1.4, -0.7);
+
+// Debug-only FPS readout (#99), gated behind `?fps=1`. Sits above the
+// section-tab row (y = 1.65) so it doesn't crowd the family classifier
+// or surface viewport when enabled. Same z-plane as the rack stack so
+// yaw-billboarding behaves the same as the other readouts.
+const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.85, -0.7);
 
 // Smaller than Label's 0.16 default; matches the closer ~0.7 m viewing
 // distance from the user's spawn point.
@@ -488,6 +495,7 @@ let activeSectionIndex = 0;
 let controllers: THREE.Object3D[] = [];
 let rackLabel: Label | undefined;
 let equationReadout: EquationReadout | undefined;
+let fpsOverlay: FpsOverlay | undefined;
 let worldAxes: WorldAxes | undefined;
 let camera: THREE.Camera | undefined;
 let elapsed = 0;
@@ -670,6 +678,15 @@ const quadricsExhibit: Exhibit = {
     worldAxes = new WorldAxes({ axisColors: AXIS_COLORS });
     worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
     scene.add(worldAxes.group);
+
+    // Optional in-VR FPS readout (#99). Off by default; opt-in via a
+    // `?fps=1` query string on the URL. Useful for sanity-checking
+    // perf-related changes without leaving the headset.
+    if (isFpsOverlayEnabled()) {
+      fpsOverlay = new FpsOverlay();
+      fpsOverlay.group.position.copy(FPS_OVERLAY_POSITION);
+      scene.add(fpsOverlay.group);
+    }
   },
 
   update({ delta }) {
@@ -753,8 +770,17 @@ const quadricsExhibit: Exhibit = {
       if (camera) equationReadout.faceCamera(camera);
     }
     if (worldAxes && camera) worldAxes.faceCamera(camera);
+    if (fpsOverlay) {
+      fpsOverlay.update(delta, performance.now());
+      if (camera) fpsOverlay.faceCamera(camera);
+    }
   },
 };
+
+function isFpsOverlayEnabled(): boolean {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('fps') === '1';
+}
 
 function setupControllers(
   scene: THREE.Scene,
