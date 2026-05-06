@@ -15,7 +15,7 @@ sibling sections (level-set slicing, linear terms) in future versions.
 
 ## Demo
 
-<video src="https://github.com/user-attachments/assets/bdaa5f33-0cef-4eda-ab95-ed6e83a50165" autoplay loop muted playsinline width="720" aria-label="Quest 3S view of the quadrics exhibit: dragging sliders and tapping canonical-pose preset buttons morph the surface through ellipsoid, cone, and hyperboloid families, with the live family classification label updating across each transition">
+<video src="REPLACE_ME_PENDING_USER_ATTACHMENTS_URL" autoplay loop muted playsinline width="720" aria-label="Quest 3S view of the quadrics exhibit: dragging sliders and tapping canonical-pose preset buttons morph the surface through ellipsoid, cone, and hyperboloid families, with the live family classification label updating across each transition">
   Your browser does not support inline video.
 </video>
 
