@@ -56,6 +56,8 @@ npm run dev
 
 Then open the printed URL on `localhost`. WebXR sessions require either `localhost` or HTTPS — local dev with a tethered headset works on `localhost`. For over-the-network testing on a Quest, deploy to GitHub Pages or use an HTTPS tunnel (ngrok, etc.).
 
+`npm test` runs the unit suite (vitest) — currently scoped to pure-logic modules (classifier, future slider/routing math). Most of the exhibit's behavior is verified manually in headset; the unit suite covers what's silently breakable between sessions.
+
 ## Roadmap
 
 - **MVP exhibit:** slider-driven quadric surfaces — `ax² + by² + cz² = d` with live family classification (Ellipsoid / Hyperboloid of two sheets / Cone / etc.) as parameters morph through degenerate cases.
