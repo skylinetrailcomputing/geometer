@@ -16,6 +16,19 @@ export interface SliderOptions {
   min: number;
   max: number;
   initial: number;
+  // Snap-to-zero detent half-width. When the slider's continuous
+  // position satisfies |v| < snapDetent, the emitted value clamps to
+  // exactly 0. 0 disables the detent. The quadrics exhibit passes
+  // 0.05 (per its SPEC.md "Slider model") so the user can park
+  // precisely on degeneracy boundaries. Required so each scene
+  // declares the design choice rather than inheriting it implicitly.
+  snapDetent: number;
+  // Ray–thumb hit-test sphere radius is `thumbRadius *
+  // grabRadiusMultiplier`. Wider than the visual thumb makes re-grab
+  // forgiving when the hand drifts off-aim during release; especially
+  // important after a zero-snap, where the thumb jumps while the
+  // controller is still pointed where the drag ended. Required.
+  grabRadiusMultiplier: number;
   trackLength?: number;
   thumbRadius?: number;
   // Multiplier on per-frame controller motion → value change. >1 means
@@ -37,18 +50,6 @@ const DEFAULT_THUMB_RADIUS = 0.025;
 const DEFAULT_DRAG_GAIN = 1.75;
 const DEFAULT_BASE_COLOR = 0xeeaa33;
 const DEFAULT_THUMB_SHAPE: ThumbShape = 'sphere';
-
-// Snap-to-zero detent half-width, per quadrics SPEC.md "Slider model".
-// Lets the user park exactly on a degeneracy boundary instead of approximating.
-const ZERO_DETENT = 0.05;
-
-// Ray–thumb hit-test radius is this multiple of the thumb's visual radius.
-// Wider than the visual makes re-grab forgiving when the hand drifts off-aim
-// during release — especially after a zero-snap, where the thumb jumps to
-// `value = 0` while the controller is still pointed where the drag ended.
-// Used identically by `tryGrab` and `updateHover` so the highlight region
-// equals the actual grabbable region.
-const GRAB_RADIUS_MULTIPLIER = 2.75;
 
 const HAPTIC_AMPLITUDE = 0.5;
 const HAPTIC_DURATION_MS = 10;
@@ -99,7 +100,7 @@ export class Slider {
     };
     this.rawValue = clamp(options.initial, options.min, options.max);
     this.currentValue =
-      Math.abs(this.rawValue) < ZERO_DETENT ? 0 : this.rawValue;
+      Math.abs(this.rawValue) < this.opts.snapDetent ? 0 : this.rawValue;
 
     this.group = new THREE.Group();
     this.group.name = `slider:${options.label}`;
@@ -157,7 +158,7 @@ export class Slider {
   setValue(v: number): void {
     this.rawValue = clamp(v, this.opts.min, this.opts.max);
     this.currentValue =
-      Math.abs(this.rawValue) < ZERO_DETENT ? 0 : this.rawValue;
+      Math.abs(this.rawValue) < this.opts.snapDetent ? 0 : this.rawValue;
     if (this.grabbedBy) {
       this.lastControllerLocalX = this.controllerLocalX(this.grabbedBy);
     }
@@ -168,7 +169,7 @@ export class Slider {
    * Detent-bypassing variant of `setValue`, used by programmatic tweens
    * (#56). The detent's purpose is to let the user park *deliberately* on a
    * degeneracy boundary; during a multi-frame morph it just creates a dead
-   * window across ±ZERO_DETENT where the thumb visibly sticks at zero. The
+   * window across ±snapDetent where the thumb visibly sticks at zero. The
    * tween caller is expected to finish with a normal `setValue` so the
    * detent re-engages at rest.
    */
@@ -246,7 +247,7 @@ export class Slider {
       controller.getWorldQuaternion(new THREE.Quaternion()),
     );
     this.thumb.getWorldPosition(this.thumbWorld);
-    const r = this.opts.thumbRadius * GRAB_RADIUS_MULTIPLIER;
+    const r = this.opts.thumbRadius * this.opts.grabRadiusMultiplier;
     return raySphereHit(rayOrigin, rayDir, this.thumbWorld, r);
   }
 
@@ -272,7 +273,7 @@ export class Slider {
       this.opts.max,
     );
     this.currentValue =
-      Math.abs(this.rawValue) < ZERO_DETENT ? 0 : this.rawValue;
+      Math.abs(this.rawValue) < this.opts.snapDetent ? 0 : this.rawValue;
     this.syncThumbPosition();
   }
 
@@ -287,9 +288,10 @@ export class Slider {
   // a drag the thumb parks at zero so it stays aligned with what the equation
   // readout will display (per SPEC.md "Slider model"). The slow-drag-escape
   // behavior of #24 is preserved by `rawValue` accumulating in `update()`
-  // underneath — once raw clears ±ZERO_DETENT, currentValue tracks it again.
+  // underneath — once raw clears ±snapDetent, currentValue tracks it again.
   // Tween-time setValueRaw bypasses the detent so the thumb sweeps through
-  // zero rather than visibly sticking across the ±0.05 window mid-morph (#56).
+  // zero rather than visibly sticking across the ±snapDetent window mid-
+  // morph (#56).
   private syncThumbPosition(): void {
     const halfLen = this.opts.trackLength / 2;
     const t =
@@ -299,9 +301,9 @@ export class Slider {
 }
 
 // `sphere` matches the hit-test radius exactly. The arrow variants extend
-// past `thumbRadius` along their axis (~1.475r at the cone tip), but the
-// grab zone (`thumbRadius * GRAB_RADIUS_MULTIPLIER` = 2.75r) covers the
-// full visible arrow plus margin, so the entire shape stays grabbable.
+// past `thumbRadius` along their axis (~1.475r at the cone tip); a
+// caller-supplied `grabRadiusMultiplier` (commonly 2.75) covers the full
+// visible arrow plus margin so the entire shape stays grabbable.
 function buildThumbGeometry(
   shape: ThumbShape,
   thumbRadius: number,

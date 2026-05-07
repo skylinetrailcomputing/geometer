@@ -1,7 +1,4 @@
-// Temporary cross-import: Slider still lives in exhibits/quadrics/
-// at this commit. Step 7 of #120 moves Slider into scaffold/ui/
-// alongside Section and flips this back to a co-located './Slider'.
-import type { Slider } from '@/exhibits/quadrics/Slider';
+import type { Slider } from './Slider';
 
 // A Section is a thin container of sliders that share a single
 // active/inactive state. The slider rack is partitioned into sections so

@@ -1,5 +1,5 @@
-import type { PresetValues } from './Preset';
-import type { Slider } from './Slider';
+import type { PresetValues } from '@/scaffold/ui/Preset';
+import type { Slider } from '@/scaffold/ui/Slider';
 
 // Animated transition between canonical-pose preset values (#56). v0.2's
 // preset buttons snapped instantly; the tween makes the family transition

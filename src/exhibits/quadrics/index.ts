@@ -12,12 +12,12 @@ import { classify } from './classify';
 import { EquationReadout } from './EquationReadout';
 import { FpsOverlay } from '@/scaffold/perf/FpsOverlay';
 import { Label } from '@/scaffold/ui/Label';
-import { Preset, type LinearPresetValues, type PresetValues } from './Preset';
+import { Preset, type LinearPresetValues, type PresetValues } from '@/scaffold/ui/Preset';
 import { PresetTween } from './PresetTween';
 import { RendererInfoProbe } from '@/scaffold/perf/RendererInfoProbe';
 import { Section } from '@/scaffold/ui/Section';
-import { SectionTab } from './SectionTab';
-import { Slider, type ThumbShape } from './Slider';
+import { SectionTab } from '@/scaffold/ui/SectionTab';
+import { Slider, type ThumbShape } from '@/scaffold/ui/Slider';
 import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
 
 // Pushed back from z=-3 to z=-4 as the v0.1.x comfort buffer (#44) — gives
@@ -212,6 +212,21 @@ const CANONICAL_FORMS_LABEL_EXPANDED = 'Canonical forms ▾';
 // queued as knob 3 if more headroom is needed).
 const BOUND = 3.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
+
+// Slider snap-to-zero detent half-width, per SPEC.md "Slider model".
+// Lets the user park exactly on a degeneracy boundary (cone, single
+// plane, etc.) instead of approximating. Passed into every
+// scaffold/ui/Slider construction in this exhibit.
+const SLIDER_SNAP_DETENT = 0.05;
+
+// Ray–thumb / ray–button hit-test sphere is this multiple of each
+// primitive's visual radius. Wider than the visual makes re-grab
+// forgiving when the hand drifts off-aim during release. Used
+// consistently across this exhibit's Slider, Preset, and SectionTab
+// constructions so all three feel the same when sweeping the
+// controller across the rack. Formerly hardcoded inside each
+// primitive (#120 made it a required ctor option).
+const GRAB_RADIUS_MULTIPLIER = 2.75;
 
 // Vertical stacking pitch for the rack. SPEC pins the rack center but
 // not per-slider positions. Lower bound is set by the slider's grab
@@ -784,6 +799,8 @@ const quadricsExhibit: Exhibit = {
         min: -2,
         max: 2,
         initial: 1,
+        snapDetent: SLIDER_SNAP_DETENT,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
         baseColor: cfg.color,
         thumbShape: cfg.shape,
       });
@@ -803,7 +820,7 @@ const quadricsExhibit: Exhibit = {
     // visibility. Reading order is row-major left → right, top → bottom,
     // matching the array order in PRESETS above.
     presets = PRESETS.map((p, i) => {
-      const preset = new Preset(p);
+      const preset = new Preset({ ...p, grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER });
       const col = i % PRESET_COLS;
       const row = Math.floor(i / PRESET_COLS);
       preset.group.position.set(
@@ -837,6 +854,8 @@ const quadricsExhibit: Exhibit = {
         min: -2,
         max: 2,
         initial: 0,
+        snapDetent: SLIDER_SNAP_DETENT,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
         baseColor: cfg.color,
         thumbShape: cfg.shape,
       });
@@ -862,6 +881,8 @@ const quadricsExhibit: Exhibit = {
         min: -CROSS_SECTION_SLIDER_RANGE,
         max: CROSS_SECTION_SLIDER_RANGE,
         initial: 0,
+        snapDetent: SLIDER_SNAP_DETENT,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
         baseColor: SKY_BLUE,
         thumbShape: 'arrow-z',
       }),
@@ -907,7 +928,10 @@ const quadricsExhibit: Exhibit = {
     // SECTION_TAB_RACK_TOP_Y; section tabs follow at SECTION_TAB_RACK_PITCH
     // intervals below.
     tabs = sections.map((section, i) => {
-      const tab = new SectionTab({ name: section.name });
+      const tab = new SectionTab({
+        name: section.name,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+      });
       tab.group.position.set(
         SECTION_TAB_RACK_X,
         SECTION_TAB_RACK_TOP_Y - (i + 1) * SECTION_TAB_RACK_PITCH,
@@ -926,6 +950,7 @@ const quadricsExhibit: Exhibit = {
       name: presetsExpanded
         ? CANONICAL_FORMS_LABEL_EXPANDED
         : CANONICAL_FORMS_LABEL_COLLAPSED,
+      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
     });
     canonicalFormsHeading.group.position.set(
       SECTION_TAB_RACK_X,
