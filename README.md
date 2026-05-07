@@ -59,15 +59,33 @@ Then open the printed URL on `localhost`. WebXR sessions require either `localho
 
 ## Roadmap
 
-**Exhibits**
+The roadmap sequences exhibits around specific undergraduate courses where 3D spatial intuition is the rate-limiting step, rather than as a generic feature list. The first targeted course is [**APPM 2350**](https://www.colorado.edu/amath/media/6142): *Calculus 3 for Engineers* at CU Boulder.
 
-- **MVP exhibit:** slider-driven quadric surfaces — `ax² + by² + cz² = d` with live family classification (Ellipsoid / Hyperboloid of two sheets / Cone / etc.) as parameters morph through degenerate cases.
-- **Next:** linear algebra core — eigenvectors visualized on the unit-sphere → ellipsoid mapping, determinant as signed volume, matrix composition as physical chaining of transforms.
-- **Later:** vector fields in 3D, ODE phase portraits, parametric surfaces (Möbius, Klein bottle).
+### Now → v1.0: APPM 2350 quadrics cluster (target: fall 2026)
 
-**Reach**
+v1.0 ships a cluster of programmatically separate scenes — each focused on a distinct early-course stuck-point — that share infrastructure (camera, design language, scene navigation):
 
-- **Native pancake build** — desktop (mouse + WASD / orbit) and mobile (touch) as a first-class experience, not an emulator workaround. See [#105](https://github.com/skylinetrailcomputing/geometer/issues/105).
+- **Quadrics manipulator** *(shipped through v0.5)* — slider-driven implicit-surface explorer with live family classification, cross-sections, and linear-term translation. §10.6.
+- **Tangent planes** *(v0.6)* — moving tangent plane attached to the surface, sliding the contact point continuously. §11.4.
+- **Gradient / level surfaces** *(v0.7)* — §11.6.
+- **Saddle / extrema** *(v0.8)* — §11.7–11.8.
+- **Basic pancake build** *(v0.9)* — desktop + mobile non-VR scaffolded alongside the Quest experience.
+
+### Beyond v1.0 (still APPM 2350)
+
+Higher-impact pedagogy, but architecturally novel scene shapes; sequenced after the v1.0 cluster ships:
+
+- **Stokes' / Green's / Gauss' coalescence** — tiny curl- and divergence-integrals on surface and volume elements coalescing into the boundary path or surface integral. §13.E–G.
+- **Path integral unrolling** — bending a 1D Calc 1/2 integral into a 2D arc and back. §13.A.
+
+### Later: APPM 2360 (Differential Equations with Linear Algebra)
+
+Targeting spring or summer 2027. Eigenvectors visualized as the unit-sphere → ellipsoid mapping, determinants as signed volume, ODE phase portraits in 2D and 3D, vector fields as flow.
+
+### Reach (form factors)
+
+- **Headset** — Quest 3, 3S, 2, Pro. Current default.
+- **Native pancake build** ([#105](https://github.com/skylinetrailcomputing/geometer/issues/105)) — desktop + mobile, scaffolded in v0.9 for v1.0 and polished post-1.0.
 
 ## Contributing
 
