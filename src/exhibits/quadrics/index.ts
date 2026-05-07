@@ -18,7 +18,7 @@ import { RendererInfoProbe } from '@/scaffold/perf/RendererInfoProbe';
 import { Section } from './Section';
 import { SectionTab } from './SectionTab';
 import { Slider, type ThumbShape } from './Slider';
-import { WorldAxes, type AxisName } from './WorldAxes';
+import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
 
 // Pushed back from z=-3 to z=-4 as the v0.1.x comfort buffer (#44) — gives
 // extreme-parameter expansions ~1 m of headroom before they invade the
