@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import type { Exhibit, ExhibitContext } from '../../shell/Exhibit';
 import { registerExhibit } from '../../shell/registry';
+import {
+  BLUISH_GREEN,
+  DEFAULT_AXIS_COLORS,
+  SKY_BLUE,
+  VERMILLION,
+  YELLOW,
+} from '@/scaffold/design/tokens';
 import { classify } from './classify';
 import { EquationReadout } from './EquationReadout';
 import { FpsOverlay } from './FpsOverlay';
@@ -217,14 +224,10 @@ const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 // compact stack), but still above the disjoint-grab floor.
 const SLIDER_ROW_PITCH = 0.14;
 
-// Wong / Okabe-Ito colorblind-safe palette (#58, Q3). Distinguishable
-// across deuteranopia / protanopia / tritanopia. The fourth slot —
-// yellow on slider `d` — marks the constant term as conceptually
-// distinct from the axis coefficients (Q1).
-const SLIDER_VERMILLION = 0xd55e00;
-const SLIDER_BLUISH_GREEN = 0x009e73;
-const SLIDER_SKY_BLUE = 0x56b4e9;
-const SLIDER_YELLOW = 0xf0e442;
+// Wong / Okabe-Ito colorblind-safe palette imported from
+// @/scaffold/design/tokens (#120). The fourth slot — yellow on slider
+// `d` — marks the constant term as conceptually distinct from the axis
+// coefficients (Q1, see #58 history).
 
 // Per-slider config: name + base color + thumb shape. Color is the
 // at-a-glance identification; shape additionally maps each axis-coefficient
@@ -242,10 +245,10 @@ const SLIDER_CONFIG: readonly {
   readonly color: number;
   readonly shape: ThumbShape;
 }[] = [
-  { name: 'a', color: SLIDER_VERMILLION,   shape: 'arrow-x' },
-  { name: 'b', color: SLIDER_BLUISH_GREEN, shape: 'arrow-y' },
-  { name: 'c', color: SLIDER_SKY_BLUE,     shape: 'arrow-z' },
-  { name: 'd', color: SLIDER_YELLOW,       shape: 'sphere' },
+  { name: 'a', color: VERMILLION,   shape: 'arrow-x' },
+  { name: 'b', color: BLUISH_GREEN, shape: 'arrow-y' },
+  { name: 'c', color: SKY_BLUE,     shape: 'arrow-z' },
+  { name: 'd', color: YELLOW,       shape: 'sphere' },
 ];
 
 // Linear-terms section (#88, scoped by #85). Each slider drives the linear
@@ -263,9 +266,9 @@ const LINEAR_SLIDER_CONFIG: readonly {
   readonly color: number;
   readonly shape: ThumbShape;
 }[] = [
-  { name: 'u', color: SLIDER_VERMILLION,   shape: 'arrow-x' },
-  { name: 'v', color: SLIDER_BLUISH_GREEN, shape: 'arrow-y' },
-  { name: 'w', color: SLIDER_SKY_BLUE,     shape: 'arrow-z' },
+  { name: 'u', color: VERMILLION,   shape: 'arrow-x' },
+  { name: 'v', color: BLUISH_GREEN, shape: 'arrow-y' },
+  { name: 'w', color: SKY_BLUE,     shape: 'arrow-z' },
 ];
 
 // Cross-sections section (#84). One slider `z₀` driving a math-Z slicing
@@ -288,14 +291,11 @@ const CROSS_SECTION_SLIDER_LABEL = 'z₀';
 // focused.
 const CROSS_SECTION_SECTION_NAME = 'Cross sections';
 
-// Math-frame axis indicator colors, matched to the slider that drives
-// each axis (#58, Q2). Slider `d` is the constant term and has no axis,
-// hence only three entries.
-const AXIS_COLORS: Record<AxisName, number> = {
-  X: SLIDER_VERMILLION,    // slider 'a' (math-X)
-  Y: SLIDER_BLUISH_GREEN,  // slider 'b' (math-Y)
-  Z: SLIDER_SKY_BLUE,      // slider 'c' (math-Z)
-};
+// Math-frame axis indicator colors. Geometer's house convention
+// (matching the slider rack: slider `a` ⇔ math-X ⇔ vermillion, etc.)
+// lives in scaffold/design/tokens as DEFAULT_AXIS_COLORS; quadrics
+// passes it explicitly to WorldAxes below.
+const AXIS_COLORS: Record<AxisName, number> = DEFAULT_AXIS_COLORS;
 
 // Numeric-slot colors for the equation readout, indexed in visual reading
 // order [a, b, c, u, v, w, d] (#89). Linear-term slots (u/v/w) reuse the
@@ -305,13 +305,13 @@ const AXIS_COLORS: Record<AxisName, number> = {
 const EQUATION_COEFFICIENT_COLORS: readonly [
   number, number, number, number, number, number, number,
 ] = [
-  SLIDER_VERMILLION,    // a
-  SLIDER_BLUISH_GREEN,  // b
-  SLIDER_SKY_BLUE,      // c
-  SLIDER_VERMILLION,    // u
-  SLIDER_BLUISH_GREEN,  // v
-  SLIDER_SKY_BLUE,      // w
-  SLIDER_YELLOW,        // d
+  VERMILLION,    // a
+  BLUISH_GREEN,  // b
+  SKY_BLUE,      // c
+  VERMILLION,    // u
+  BLUISH_GREEN,  // v
+  SKY_BLUE,      // w
+  YELLOW,        // d
 ];
 
 // Debug sweep on `a`: gated off once controller sliders took over (#5).
@@ -862,7 +862,7 @@ const quadricsExhibit: Exhibit = {
         min: -CROSS_SECTION_SLIDER_RANGE,
         max: CROSS_SECTION_SLIDER_RANGE,
         initial: 0,
-        baseColor: SLIDER_SKY_BLUE,
+        baseColor: SKY_BLUE,
         thumbShape: 'arrow-z',
       }),
     ];
