@@ -68,7 +68,13 @@ export interface ImplicitSurfaceOptions {
   /** GLSL `uniform` declarations the consumer's shader chunks reference. */
   uniforms: string;
 
-  /** Optional GLSL helper functions used inside `fImplicit` / `shade`. */
+  /**
+   * Optional GLSL helper functions used by `shade` and (since helpers are
+   * injected *after* `fImplicit`) optionally by a custom `gradF` too.
+   * Helpers may call `fImplicit` themselves — useful for shader-side
+   * constraint solvers or any surface-aware helper that iterates on the
+   * implicit form.
+   */
   helpers?: string;
 
   /** GLSL: must define `float fImplicit(vec3 p)`. Surface is `f = 0`. */
@@ -110,12 +116,21 @@ export interface ImplicitSurfaceOptions {
   bisect?: number;
 
   /**
-   * Consumer-supplied uniforms, merged on top of the harness's built-ins
+   * Consumer-supplied uniforms, alongside the harness's built-ins
    * (`uSurfaceCenter`, `uBound`). Names declared in `uniforms` must match
    * keys here. Object identity is preserved so the consumer can mutate
    * `material.uniforms.uFoo.value` directly.
+   *
+   * The `?: never` slots make `uSurfaceCenter` / `uBound` a compile-time
+   * error if the consumer tries to redeclare them — silent override of
+   * the harness-seeded values would otherwise drive the ray origin or
+   * AABB clip from the wrong source. Mutate `material.uniforms.uSurfaceCenter`
+   * post-construction instead.
    */
-  extraUniforms: Record<string, THREE.IUniform>;
+  extraUniforms: Record<string, THREE.IUniform> & {
+    uSurfaceCenter?: never;
+    uBound?: never;
+  };
 }
 
 export interface ImplicitSurfaceHandles {
@@ -207,9 +222,9 @@ function buildFragmentShader(t: FragmentShaderTemplate): string {
 
     varying vec3 vWorldPos;
 
-    ${t.helpers}
-
     ${t.fImplicit}
+
+    ${t.helpers}
 
     ${t.gradF}
 
