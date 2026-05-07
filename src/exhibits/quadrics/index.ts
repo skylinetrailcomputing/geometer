@@ -13,7 +13,7 @@ import { EquationReadout } from './EquationReadout';
 import { FpsOverlay } from '@/scaffold/perf/FpsOverlay';
 import { Label } from '@/scaffold/ui/Label';
 import { Preset, type LinearPresetValues, type PresetValues } from '@/scaffold/ui/Preset';
-import { PresetTween } from './PresetTween';
+import { PresetTween } from '@/scaffold/anim/PresetTween';
 import { RendererInfoProbe } from '@/scaffold/perf/RendererInfoProbe';
 import { Section } from '@/scaffold/ui/Section';
 import { SectionTab } from '@/scaffold/ui/SectionTab';
@@ -218,6 +218,18 @@ const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 // plane, etc.) instead of approximating. Passed into every
 // scaffold/ui/Slider construction in this exhibit.
 const SLIDER_SNAP_DETENT = 0.05;
+
+// Preset → preset family-morph tween parameters (#56). 0.9 s after a
+// headset trial of the original 0.3 s — three-times slower reads as
+// deliberate enough to actually watch the family-classifier readout
+// flip across the morph, where 0.3 s was over before the eye could
+// track. Tunable; the issue defers final calibration to in-headset
+// feel. Cubic ease-in-out reads as "deliberate" rather than "snappy"
+// at this duration. Both are passed explicitly to PresetTween.
+const PRESET_TWEEN_DURATION_MS = 900;
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
 
 // Ray–thumb / ray–button hit-test sphere is this multiple of each
 // primitive's visual radius. Wider than the visual makes re-grab
@@ -1191,17 +1203,19 @@ function setupControllers(
           const linearStart = linearSliders.map((s) => s.value);
           const linearTarget: readonly number[] = p.linearValues;
           presetTween?.cancel();
-          presetTween = new PresetTween(
-            currentValues,
-            p.values,
+          presetTween = new PresetTween({
+            start: currentValues,
+            target: p.values,
             sliders,
-            performance.now(),
-            {
+            nowMs: performance.now(),
+            durationMs: PRESET_TWEEN_DURATION_MS,
+            easing: easeInOutCubic,
+            secondary: {
               start: linearStart,
               target: linearTarget,
               sliders: linearSliders,
             },
-          );
+          });
           return;
         }
       }

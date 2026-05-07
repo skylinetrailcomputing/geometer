@@ -23,19 +23,6 @@ import type { Slider } from '@/scaffold/ui/Slider';
 // Empty phases are collapsed: a transition that only changes d (e.g., cone →
 // 1-sheet) skips its empty phase rather than leaving 150 ms of dead frames.
 
-// 0.9 s after a headset trial of the original 0.3 s — three-times slower
-// reads as deliberate enough to actually watch the family-classifier
-// readout flip across the morph, where 0.3 s was over before the eye could
-// track. Tunable; the issue defers final calibration to in-headset feel.
-const DURATION_MS = 900;
-
-// Cubic ease-in-out — picked because it reads as "deliberate" rather than
-// "snappy" at this duration. Tunable in headset; the issue defers easing
-// experiments to a follow-up.
-function ease(t: number): number {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-}
-
 // Index 3 is `d` in (a,b,c,d). Phase ordering keys off it.
 const D_INDEX = 3;
 const ABC_INDICES: readonly number[] = [0, 1, 2];
@@ -60,6 +47,23 @@ export interface SecondaryRackSpec {
   readonly sliders: readonly Slider[];
 }
 
+export interface PresetTweenOptions {
+  readonly start: PresetValues;
+  readonly target: PresetValues;
+  readonly sliders: readonly Slider[];
+  readonly nowMs: number;
+  // Total tween duration in milliseconds. Required so each scene
+  // declares the design-tempo choice rather than inheriting it; the
+  // quadrics exhibit passes 900 (the post-headset-trial three-times-
+  // slower target — fast enough to feel responsive, slow enough that
+  // the family classifier readout flip is actually trackable mid-morph).
+  readonly durationMs: number;
+  // Easing function: takes normalized t ∈ [0, 1], returns eased t.
+  // Required, no default — caller declares the feel intentionally.
+  readonly easing: (t: number) => number;
+  readonly secondary?: SecondaryRackSpec;
+}
+
 export class PresetTween {
   private readonly start: PresetValues;
   private readonly target: PresetValues;
@@ -67,19 +71,18 @@ export class PresetTween {
   private readonly phases: readonly Phase[];
   private readonly secondary?: SecondaryRackSpec;
   private readonly startedAtMs: number;
+  private readonly durationMs: number;
+  private readonly easing: (t: number) => number;
   private done = false;
 
-  constructor(
-    start: PresetValues,
-    target: PresetValues,
-    sliders: readonly Slider[],
-    nowMs: number,
-    secondary?: SecondaryRackSpec,
-  ) {
+  constructor(opts: PresetTweenOptions) {
+    const { start, target, sliders, nowMs, durationMs, easing, secondary } = opts;
     this.start = start;
     this.target = target;
     this.sliders = sliders;
     this.startedAtMs = nowMs;
+    this.durationMs = durationMs;
+    this.easing = easing;
     this.secondary = secondary;
 
     // Source-at-cone (d=0) is the only signal that flips ordering: leave
@@ -132,11 +135,11 @@ export class PresetTween {
    */
   tick(nowMs: number): boolean {
     if (this.done) return false;
-    const t = Math.min((nowMs - this.startedAtMs) / DURATION_MS, 1);
+    const t = Math.min((nowMs - this.startedAtMs) / this.durationMs, 1);
 
     for (const phase of this.phases) {
       const localT = clamp01((t - phase.tStart) / (phase.tEnd - phase.tStart));
-      const eased = ease(localT);
+      const eased = this.easing(localT);
       for (const i of phase.indices) {
         const v = lerp(this.start[i], this.target[i], eased);
         this.sliders[i].setValueRaw(v);
@@ -144,7 +147,7 @@ export class PresetTween {
     }
 
     if (this.secondary) {
-      const easedFull = ease(t);
+      const easedFull = this.easing(t);
       for (let i = 0; i < this.secondary.sliders.length; i++) {
         const v = lerp(this.secondary.start[i], this.secondary.target[i], easedFull);
         this.secondary.sliders[i].setValueRaw(v);
