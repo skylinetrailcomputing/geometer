@@ -15,7 +15,7 @@ import { Label } from '@/scaffold/ui/Label';
 import { Preset, type LinearPresetValues, type PresetValues } from './Preset';
 import { PresetTween } from './PresetTween';
 import { RendererInfoProbe } from '@/scaffold/perf/RendererInfoProbe';
-import { Section } from './Section';
+import { Section } from '@/scaffold/ui/Section';
 import { SectionTab } from './SectionTab';
 import { Slider, type ThumbShape } from './Slider';
 import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
