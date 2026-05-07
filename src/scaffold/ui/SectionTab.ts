@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Text } from 'troika-three-text';
+import { raySphereHit } from '@/scaffold/ui/rayHit';
 
 // Tap button for the rack section selector (#57). Visually a sibling of
 // `Preset` — same sphere + label + ray-hit + yaw-billboard machinery —
@@ -16,11 +17,15 @@ import { Text } from 'troika-three-text';
 
 export interface SectionTabOptions {
   name: string;
+  // Ray–button hit-test sphere radius is `BUTTON_RADIUS *
+  // grabRadiusMultiplier`. Required so each scene declares the
+  // affordance scale rather than inheriting a primitive-internal
+  // default; the quadrics rack passes 2.75 so it matches Slider /
+  // Preset in the same exhibit.
+  grabRadiusMultiplier: number;
 }
 
 const BUTTON_RADIUS = 0.022;
-
-const GRAB_RADIUS_MULTIPLIER = 2.75;
 
 const HAPTIC_AMPLITUDE = 0.5;
 const HAPTIC_DURATION_MS = 10;
@@ -51,6 +56,7 @@ export class SectionTab {
   readonly group: THREE.Group;
   readonly name: string;
 
+  private readonly grabRadiusMultiplier: number;
   private readonly button: THREE.Mesh;
   private readonly label: Text;
   private readonly buttonWorld = new THREE.Vector3();
@@ -62,6 +68,7 @@ export class SectionTab {
 
   constructor(opts: SectionTabOptions) {
     this.name = opts.name;
+    this.grabRadiusMultiplier = opts.grabRadiusMultiplier;
 
     this.group = new THREE.Group();
     this.group.name = `tab:${opts.name}`;
@@ -176,26 +183,11 @@ export class SectionTab {
       controller.getWorldQuaternion(new THREE.Quaternion()),
     );
     this.button.getWorldPosition(this.buttonWorld);
-    const r = BUTTON_RADIUS * GRAB_RADIUS_MULTIPLIER;
+    const r = BUTTON_RADIUS * this.grabRadiusMultiplier;
     return raySphereHit(rayOrigin, rayDir, this.buttonWorld, r);
   }
 }
 
-function raySphereHit(
-  origin: THREE.Vector3,
-  dir: THREE.Vector3,
-  center: THREE.Vector3,
-  radius: number,
-): boolean {
-  const oc = new THREE.Vector3().subVectors(origin, center);
-  const b = oc.dot(dir);
-  const c = oc.dot(oc) - radius * radius;
-  const disc = b * b - c;
-  if (disc < 0) return false;
-  const sqrtDisc = Math.sqrt(disc);
-  const t = -b - sqrtDisc;
-  return t >= 0 || -b + sqrtDisc >= 0;
-}
 
 function pulse(controller: THREE.Object3D): void {
   const gamepad = (controller as ControllerWithGamepad).userData.gamepad;

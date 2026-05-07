@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 import type { ExhibitContext } from './Exhibit';
-import { firstExhibit } from './registry';
+import { listExhibits } from './registry';
 
 export function bootShell(): void {
   const scene = new THREE.Scene();
@@ -42,10 +42,28 @@ export function bootShell(): void {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  const exhibit = firstExhibit();
-  if (!exhibit) {
+  // URL-param exhibit selector (#120). Default = first registered.
+  // Unknown id → console-warn and fall back so the page still renders
+  // something rather than failing silently. Selection happens at boot
+  // only; there's no in-session swap path today.
+  const all = listExhibits();
+  if (all.length === 0) {
     console.warn('geometer: no exhibits registered; nothing to mount.');
     return;
+  }
+  const requestedId = new URLSearchParams(window.location.search).get('exhibit');
+  let exhibit = all[0];
+  if (requestedId !== null) {
+    const match = all.find((e) => e.id === requestedId);
+    if (match) {
+      exhibit = match;
+    } else {
+      console.warn(
+        `geometer: unknown exhibit id "${requestedId}"; ` +
+          `falling back to "${exhibit.id}". ` +
+          `Registered ids: ${all.map((e) => e.id).join(', ')}.`,
+      );
+    }
   }
 
   const ctx: ExhibitContext = { scene, renderer, camera };

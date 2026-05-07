@@ -1,17 +1,24 @@
 import * as THREE from 'three';
 import type { Exhibit, ExhibitContext } from '../../shell/Exhibit';
 import { registerExhibit } from '../../shell/registry';
+import {
+  BLUISH_GREEN,
+  DEFAULT_AXIS_COLORS,
+  SKY_BLUE,
+  VERMILLION,
+  YELLOW,
+} from '@/scaffold/design/tokens';
 import { classify } from './classify';
 import { EquationReadout } from './EquationReadout';
-import { FpsOverlay } from './FpsOverlay';
-import { Label } from './Label';
-import { Preset, type LinearPresetValues, type PresetValues } from './Preset';
-import { PresetTween } from './PresetTween';
-import { RendererInfoProbe } from './RendererInfoProbe';
-import { Section } from './Section';
-import { SectionTab } from './SectionTab';
-import { Slider, type ThumbShape } from './Slider';
-import { WorldAxes, type AxisName } from './WorldAxes';
+import { FpsOverlay } from '@/scaffold/perf/FpsOverlay';
+import { Label } from '@/scaffold/ui/Label';
+import { Preset, type LinearPresetValues, type PresetValues } from '@/scaffold/ui/Preset';
+import { PresetTween } from '@/scaffold/anim/PresetTween';
+import { RendererInfoProbe } from '@/scaffold/perf/RendererInfoProbe';
+import { Section } from '@/scaffold/ui/Section';
+import { SectionTab } from '@/scaffold/ui/SectionTab';
+import { Slider, type ThumbShape } from '@/scaffold/ui/Slider';
+import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
 
 // Pushed back from z=-3 to z=-4 as the v0.1.x comfort buffer (#44) — gives
 // extreme-parameter expansions ~1 m of headroom before they invade the
@@ -206,6 +213,33 @@ const CANONICAL_FORMS_LABEL_EXPANDED = 'Canonical forms ▾';
 const BOUND = 3.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 
+// Slider snap-to-zero detent half-width, per SPEC.md "Slider model".
+// Lets the user park exactly on a degeneracy boundary (cone, single
+// plane, etc.) instead of approximating. Passed into every
+// scaffold/ui/Slider construction in this exhibit.
+const SLIDER_SNAP_DETENT = 0.05;
+
+// Preset → preset family-morph tween parameters (#56). 0.9 s after a
+// headset trial of the original 0.3 s — three-times slower reads as
+// deliberate enough to actually watch the family-classifier readout
+// flip across the morph, where 0.3 s was over before the eye could
+// track. Tunable; the issue defers final calibration to in-headset
+// feel. Cubic ease-in-out reads as "deliberate" rather than "snappy"
+// at this duration. Both are passed explicitly to PresetTween.
+const PRESET_TWEEN_DURATION_MS = 900;
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+// Ray–thumb / ray–button hit-test sphere is this multiple of each
+// primitive's visual radius. Wider than the visual makes re-grab
+// forgiving when the hand drifts off-aim during release. Used
+// consistently across this exhibit's Slider, Preset, and SectionTab
+// constructions so all three feel the same when sweeping the
+// controller across the rack. Formerly hardcoded inside each
+// primitive (#120 made it a required ctor option).
+const GRAB_RADIUS_MULTIPLIER = 2.75;
+
 // Vertical stacking pitch for the rack. SPEC pins the rack center but
 // not per-slider positions. Lower bound is set by the slider's grab
 // region: at thumbRadius (0.025) × GRAB_RADIUS_MULTIPLIER (2.75), each
@@ -217,14 +251,10 @@ const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 // compact stack), but still above the disjoint-grab floor.
 const SLIDER_ROW_PITCH = 0.14;
 
-// Wong / Okabe-Ito colorblind-safe palette (#58, Q3). Distinguishable
-// across deuteranopia / protanopia / tritanopia. The fourth slot —
-// yellow on slider `d` — marks the constant term as conceptually
-// distinct from the axis coefficients (Q1).
-const SLIDER_VERMILLION = 0xd55e00;
-const SLIDER_BLUISH_GREEN = 0x009e73;
-const SLIDER_SKY_BLUE = 0x56b4e9;
-const SLIDER_YELLOW = 0xf0e442;
+// Wong / Okabe-Ito colorblind-safe palette imported from
+// @/scaffold/design/tokens (#120). The fourth slot — yellow on slider
+// `d` — marks the constant term as conceptually distinct from the axis
+// coefficients (Q1, see #58 history).
 
 // Per-slider config: name + base color + thumb shape. Color is the
 // at-a-glance identification; shape additionally maps each axis-coefficient
@@ -242,10 +272,10 @@ const SLIDER_CONFIG: readonly {
   readonly color: number;
   readonly shape: ThumbShape;
 }[] = [
-  { name: 'a', color: SLIDER_VERMILLION,   shape: 'arrow-x' },
-  { name: 'b', color: SLIDER_BLUISH_GREEN, shape: 'arrow-y' },
-  { name: 'c', color: SLIDER_SKY_BLUE,     shape: 'arrow-z' },
-  { name: 'd', color: SLIDER_YELLOW,       shape: 'sphere' },
+  { name: 'a', color: VERMILLION,   shape: 'arrow-x' },
+  { name: 'b', color: BLUISH_GREEN, shape: 'arrow-y' },
+  { name: 'c', color: SKY_BLUE,     shape: 'arrow-z' },
+  { name: 'd', color: YELLOW,       shape: 'sphere' },
 ];
 
 // Linear-terms section (#88, scoped by #85). Each slider drives the linear
@@ -263,9 +293,9 @@ const LINEAR_SLIDER_CONFIG: readonly {
   readonly color: number;
   readonly shape: ThumbShape;
 }[] = [
-  { name: 'u', color: SLIDER_VERMILLION,   shape: 'arrow-x' },
-  { name: 'v', color: SLIDER_BLUISH_GREEN, shape: 'arrow-y' },
-  { name: 'w', color: SLIDER_SKY_BLUE,     shape: 'arrow-z' },
+  { name: 'u', color: VERMILLION,   shape: 'arrow-x' },
+  { name: 'v', color: BLUISH_GREEN, shape: 'arrow-y' },
+  { name: 'w', color: SKY_BLUE,     shape: 'arrow-z' },
 ];
 
 // Cross-sections section (#84). One slider `z₀` driving a math-Z slicing
@@ -288,14 +318,11 @@ const CROSS_SECTION_SLIDER_LABEL = 'z₀';
 // focused.
 const CROSS_SECTION_SECTION_NAME = 'Cross sections';
 
-// Math-frame axis indicator colors, matched to the slider that drives
-// each axis (#58, Q2). Slider `d` is the constant term and has no axis,
-// hence only three entries.
-const AXIS_COLORS: Record<AxisName, number> = {
-  X: SLIDER_VERMILLION,    // slider 'a' (math-X)
-  Y: SLIDER_BLUISH_GREEN,  // slider 'b' (math-Y)
-  Z: SLIDER_SKY_BLUE,      // slider 'c' (math-Z)
-};
+// Math-frame axis indicator colors. Geometer's house convention
+// (matching the slider rack: slider `a` ⇔ math-X ⇔ vermillion, etc.)
+// lives in scaffold/design/tokens as DEFAULT_AXIS_COLORS; quadrics
+// passes it explicitly to WorldAxes below.
+const AXIS_COLORS: Record<AxisName, number> = DEFAULT_AXIS_COLORS;
 
 // Numeric-slot colors for the equation readout, indexed in visual reading
 // order [a, b, c, u, v, w, d] (#89). Linear-term slots (u/v/w) reuse the
@@ -305,13 +332,13 @@ const AXIS_COLORS: Record<AxisName, number> = {
 const EQUATION_COEFFICIENT_COLORS: readonly [
   number, number, number, number, number, number, number,
 ] = [
-  SLIDER_VERMILLION,    // a
-  SLIDER_BLUISH_GREEN,  // b
-  SLIDER_SKY_BLUE,      // c
-  SLIDER_VERMILLION,    // u
-  SLIDER_BLUISH_GREEN,  // v
-  SLIDER_SKY_BLUE,      // w
-  SLIDER_YELLOW,        // d
+  VERMILLION,    // a
+  BLUISH_GREEN,  // b
+  SKY_BLUE,      // c
+  VERMILLION,    // u
+  BLUISH_GREEN,  // v
+  SKY_BLUE,      // w
+  YELLOW,        // d
 ];
 
 // Debug sweep on `a`: gated off once controller sliders took over (#5).
@@ -784,6 +811,8 @@ const quadricsExhibit: Exhibit = {
         min: -2,
         max: 2,
         initial: 1,
+        snapDetent: SLIDER_SNAP_DETENT,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
         baseColor: cfg.color,
         thumbShape: cfg.shape,
       });
@@ -803,7 +832,7 @@ const quadricsExhibit: Exhibit = {
     // visibility. Reading order is row-major left → right, top → bottom,
     // matching the array order in PRESETS above.
     presets = PRESETS.map((p, i) => {
-      const preset = new Preset(p);
+      const preset = new Preset({ ...p, grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER });
       const col = i % PRESET_COLS;
       const row = Math.floor(i / PRESET_COLS);
       preset.group.position.set(
@@ -837,6 +866,8 @@ const quadricsExhibit: Exhibit = {
         min: -2,
         max: 2,
         initial: 0,
+        snapDetent: SLIDER_SNAP_DETENT,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
         baseColor: cfg.color,
         thumbShape: cfg.shape,
       });
@@ -862,7 +893,9 @@ const quadricsExhibit: Exhibit = {
         min: -CROSS_SECTION_SLIDER_RANGE,
         max: CROSS_SECTION_SLIDER_RANGE,
         initial: 0,
-        baseColor: SLIDER_SKY_BLUE,
+        snapDetent: SLIDER_SNAP_DETENT,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+        baseColor: SKY_BLUE,
         thumbShape: 'arrow-z',
       }),
     ];
@@ -907,7 +940,10 @@ const quadricsExhibit: Exhibit = {
     // SECTION_TAB_RACK_TOP_Y; section tabs follow at SECTION_TAB_RACK_PITCH
     // intervals below.
     tabs = sections.map((section, i) => {
-      const tab = new SectionTab({ name: section.name });
+      const tab = new SectionTab({
+        name: section.name,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+      });
       tab.group.position.set(
         SECTION_TAB_RACK_X,
         SECTION_TAB_RACK_TOP_Y - (i + 1) * SECTION_TAB_RACK_PITCH,
@@ -926,6 +962,7 @@ const quadricsExhibit: Exhibit = {
       name: presetsExpanded
         ? CANONICAL_FORMS_LABEL_EXPANDED
         : CANONICAL_FORMS_LABEL_COLLAPSED,
+      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
     });
     canonicalFormsHeading.group.position.set(
       SECTION_TAB_RACK_X,
@@ -1166,17 +1203,19 @@ function setupControllers(
           const linearStart = linearSliders.map((s) => s.value);
           const linearTarget: readonly number[] = p.linearValues;
           presetTween?.cancel();
-          presetTween = new PresetTween(
-            currentValues,
-            p.values,
+          presetTween = new PresetTween({
+            start: currentValues,
+            target: p.values,
             sliders,
-            performance.now(),
-            {
+            nowMs: performance.now(),
+            durationMs: PRESET_TWEEN_DURATION_MS,
+            easing: easeInOutCubic,
+            secondary: {
               start: linearStart,
               target: linearTarget,
               sliders: linearSliders,
             },
-          );
+          });
           return;
         }
       }

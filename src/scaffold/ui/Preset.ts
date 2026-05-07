@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Text } from 'troika-three-text';
+import { raySphereHit } from '@/scaffold/ui/rayHit';
 
 // One canonical-pose preset button (#46). A small sphere with a text label
 // below it; pressing snaps the slider rack to a named family member
@@ -23,6 +24,12 @@ export type LinearPresetValues = readonly [number, number, number];
 export interface PresetOptions {
   name: string;
   values: PresetValues;
+  // Ray–button hit-test sphere radius is `BUTTON_RADIUS *
+  // grabRadiusMultiplier`. Required so each scene declares the
+  // affordance scale rather than inheriting a primitive-internal
+  // default; the quadrics rack passes 2.75 so it matches Slider /
+  // SectionTab in the same exhibit.
+  grabRadiusMultiplier: number;
   // Optional. Defaults to (0, 0, 0). Paraboloid uses (0, 0, -1) so that
   // ax² + by² + wz = 0 with a=b=1, w=-1 reads as z = x² + y² (open along
   // +math-Z, the "up" axis under the math-frame convention).
@@ -30,10 +37,6 @@ export interface PresetOptions {
 }
 
 const BUTTON_RADIUS = 0.02;
-
-// Mirrors Slider's grab-radius multiplier so the hover/hit region feels the
-// same when sweeping the controller across the rack.
-const GRAB_RADIUS_MULTIPLIER = 2.75;
 
 const HAPTIC_AMPLITUDE = 0.5;
 const HAPTIC_DURATION_MS = 10;
@@ -70,6 +73,7 @@ export class Preset {
   readonly values: PresetValues;
   readonly linearValues: LinearPresetValues;
 
+  private readonly grabRadiusMultiplier: number;
   private readonly button: THREE.Mesh;
   private readonly label: Text;
   private readonly buttonWorld = new THREE.Vector3();
@@ -82,6 +86,7 @@ export class Preset {
     this.name = opts.name;
     this.values = opts.values;
     this.linearValues = opts.linearValues ?? [0, 0, 0];
+    this.grabRadiusMultiplier = opts.grabRadiusMultiplier;
 
     this.group = new THREE.Group();
     this.group.name = `preset:${opts.name}`;
@@ -169,25 +174,9 @@ export class Preset {
       controller.getWorldQuaternion(new THREE.Quaternion()),
     );
     this.button.getWorldPosition(this.buttonWorld);
-    const r = BUTTON_RADIUS * GRAB_RADIUS_MULTIPLIER;
+    const r = BUTTON_RADIUS * this.grabRadiusMultiplier;
     return raySphereHit(rayOrigin, rayDir, this.buttonWorld, r);
   }
-}
-
-function raySphereHit(
-  origin: THREE.Vector3,
-  dir: THREE.Vector3,
-  center: THREE.Vector3,
-  radius: number,
-): boolean {
-  const oc = new THREE.Vector3().subVectors(origin, center);
-  const b = oc.dot(dir);
-  const c = oc.dot(oc) - radius * radius;
-  const disc = b * b - c;
-  if (disc < 0) return false;
-  const sqrtDisc = Math.sqrt(disc);
-  const t = -b - sqrtDisc;
-  return t >= 0 || -b + sqrtDisc >= 0;
 }
 
 function pulse(controller: THREE.Object3D): void {

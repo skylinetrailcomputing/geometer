@@ -1,21 +1,21 @@
 import * as THREE from 'three';
 import { Text } from 'troika-three-text';
+import { mathToWorld } from '@/scaffold/math/frames';
 
-// Compact math-frame axis indicator (#43). Pinned next to the slider rack;
-// the caller positions the group. Three short lines + single-letter labels
-// in the US-undergrad textbook convention: X right, Y forward (away from
-// the user), Z up — right-handed (X × Y = Z).
+// Compact math-frame axis indicator (#43). Pinned next to wherever the
+// caller wants it; the caller positions the group. Three short lines +
+// single-letter labels in the US-undergrad textbook convention: X right,
+// Y forward (away from the user), Z up — right-handed (X × Y = Z).
 //
-// The shader still evaluates the implicit equation in the Three.js world
-// frame; the caller is responsible for routing slider values to uniforms
-// so that slider `a` drives X² (world-X), `b` drives Y² (world-Z), and
-// `c` drives Z² (world-Y). The labels here are the visible half of that
-// contract.
+// The math ↔ world frame mapping is shared across the geometer scene
+// cluster and lives in scaffold/math/frames.ts. WorldAxes uses the
+// mathToWorld helper for its three basis directions; consumers that
+// route values into shader uniforms or other math-frame quantities use
+// the same helper to stay consistent.
 //
-// Axis line + letter colors are per-axis and supplied by the caller (#58):
-// matches the slider-thumb / equation palette so the user sees one color
-// story across the whole exhibit (slider `a` red ⇔ equation `a`-numeric
-// red ⇔ X axis red, etc.).
+// Axis line + letter colors are per-axis and supplied by the caller
+// (#58); see scaffold/design/tokens.ts for the geometer house tints
+// (DEFAULT_AXIS_COLORS).
 
 export type AxisName = 'X' | 'Y' | 'Z';
 
@@ -38,14 +38,15 @@ interface AxisSpec {
   readonly dir: THREE.Vector3;
 }
 
-// Map math-frame axes to Three.js world directions:
-//   math-X (right)   = +world-X
-//   math-Y (forward) = -world-Z   (camera looks down -Z)
-//   math-Z (up)      = +world-Y
+// Math basis vectors mapped through scaffold/math/frames.ts. The
+// helper is the single source of truth for the math ↔ world routing
+// (in particular, math-Y → −world-Z because Three.js's camera looks
+// down −Z); a sign-flip regression here would now be caught by the
+// frames.ts basis-vector tests.
 const AXES: readonly AxisSpec[] = [
-  { name: 'X', dir: new THREE.Vector3(1, 0, 0) },
-  { name: 'Y', dir: new THREE.Vector3(0, 0, -1) },
-  { name: 'Z', dir: new THREE.Vector3(0, 1, 0) },
+  { name: 'X', dir: mathToWorld([1, 0, 0]) },
+  { name: 'Y', dir: mathToWorld([0, 1, 0]) },
+  { name: 'Z', dir: mathToWorld([0, 0, 1]) },
 ];
 
 /**
