@@ -10,11 +10,11 @@ import {
 } from '@/scaffold/design/tokens';
 import { classify } from './classify';
 import { EquationReadout } from './EquationReadout';
-import { FpsOverlay } from './FpsOverlay';
-import { Label } from './Label';
+import { FpsOverlay } from '@/scaffold/perf/FpsOverlay';
+import { Label } from '@/scaffold/ui/Label';
 import { Preset, type LinearPresetValues, type PresetValues } from './Preset';
 import { PresetTween } from './PresetTween';
-import { RendererInfoProbe } from './RendererInfoProbe';
+import { RendererInfoProbe } from '@/scaffold/perf/RendererInfoProbe';
 import { Section } from './Section';
 import { SectionTab } from './SectionTab';
 import { Slider, type ThumbShape } from './Slider';
