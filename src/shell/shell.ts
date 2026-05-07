@@ -51,9 +51,13 @@ export function bootShell(): void {
   const ctx: ExhibitContext = { scene, renderer, camera };
   exhibit.mount(ctx);
 
-  const clock = new THREE.Clock();
+  const timer = new THREE.Timer();
+  // Page Visibility integration: prevents huge delta spikes after the tab
+  // (or Quest headset) is backgrounded and re-focused mid-session.
+  timer.connect(document);
   renderer.setAnimationLoop(() => {
-    const delta = clock.getDelta();
+    timer.update();
+    const delta = timer.getDelta();
     exhibit.update({ delta });
     renderer.render(scene, camera);
   });
