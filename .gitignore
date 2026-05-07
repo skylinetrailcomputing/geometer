@@ -31,6 +31,9 @@ npm-debug.log*
 # Claude Code maintainer-only context (workspace @-imports etc.)
 CLAUDE.local.md
 
+# Maintainer-only strategic / planning docs (per OSS repo policy)
+_private/
+
 # Local-only screen captures: raw pre-trim sources AND the trimmed
 # MP4s used in the README. README demo videos are uploaded to GitHub
 # user-attachments (CDN) and referenced by URL, not committed — see
