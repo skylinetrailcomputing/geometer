@@ -78,8 +78,30 @@ If your PR introduces a new exhibit (typically `src/exhibits/<topic>/`):
   ranges), math contract (the function being visualized;
   classification logic and edge / boundary cases if any),
   rendering invariants, explicit scope boundaries.
-- Add the exhibit to the shared shell's exhibit registry so users
-  can navigate to it.
+- Implement the `Exhibit` interface from `src/shell/Exhibit.ts` and
+  call `registerExhibit(...)` at module top level so a side-effect
+  import lands the registration.
+- Add a side-effect `import './exhibits/<topic>'` to `src/main.ts`
+  so the registration runs at boot. The shell's URL-param selector
+  (`?exhibit=<id>`) routes to whichever exhibit's `id` matches.
+- **Lean on `src/scaffold/`** for shared infrastructure rather than
+  copying from `quadrics/`:
+  - UI primitives (`Slider`, `Preset`, `SectionTab`, `Section`,
+    `WorldAxes`, `Label`) live in `scaffold/ui/`. Their quadric-tuned
+    constants are required constructor options — declare your scene's
+    `snapDetent` / `grabRadiusMultiplier` / etc. explicitly so the
+    intent is visible at the call site.
+  - Math ↔ world frame helpers are in `scaffold/math/frames.ts`
+    (math-Y forward = −world-Z; covered by basis-vector tests).
+    Use these instead of open-coding the swap.
+  - Design tokens (Wong/Okabe-Ito palette, default axis tints) are in
+    `scaffold/design/tokens.ts`.
+  - Performance probes (`FpsOverlay`, `RendererInfoProbe`) and
+    animation helpers (`PresetTween`) plug in similarly.
+- Floor + lighting are still per-scene today (no shared
+  `mountStandardEnvironment` helper). Build your own; if a future
+  scene shares the pattern, that's the rule-of-three trigger to
+  lift it into `scaffold/`.
 
 ## Architecture decisions
 

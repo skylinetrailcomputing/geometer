@@ -11,6 +11,32 @@ TypeScript + Three.js + Vite. WebXR via the platform `navigator.xr`
 API; HTTPS or `localhost` is required for any XR session. Pages
 deployment from `main` via `.github/workflows/pages.yml`.
 
+## Source layout
+
+- `src/main.ts` — entry; imports each exhibit as a side-effect
+  registration and calls `bootShell()`.
+- `src/shell/` — the WebXR shell: scene/camera/renderer setup, the
+  `Exhibit` interface, and the registry. URL param `?exhibit=<id>`
+  picks which registered exhibit mounts at boot (defaults to first).
+- `src/scaffold/` — domain-agnostic primitives shared across
+  exhibits (#120). Subdivided by concern:
+  - `scaffold/design/tokens.ts` — Wong/Okabe-Ito palette + axis tints.
+  - `scaffold/math/frames.ts` — math ↔ world frame helpers (math-Y
+    forward maps to −world-Z; tested in `test/scaffold/math/`).
+  - `scaffold/ui/` — `Slider`, `Preset`, `SectionTab`, `Section`,
+    `WorldAxes`, `Label`, `rayHit`. Quadric-tuned constants
+    (`snapDetent`, `grabRadiusMultiplier`) are required ctor opts;
+    each scene declares the design-feel choice explicitly.
+  - `scaffold/perf/` — `FpsOverlay`, `RendererInfoProbe`.
+  - `scaffold/anim/PresetTween` — durationMs + easing required opts.
+- `src/exhibits/<topic>/` — per-exhibit code. Each exhibit owns its
+  own `index.ts` (Exhibit impl), domain math (e.g.,
+  `quadrics/classify.ts`), and `SPEC.md`. Imports from `@/scaffold/...`
+  via the path alias configured in `vite.config.ts` + `tsconfig.json`.
+
+When adding a new scene, see `CONTRIBUTING.md` → "Adding a new exhibit"
+and lean on `src/scaffold/` rather than copying from quadrics.
+
 ## Repo conventions
 
 - **Public OSS repo, MIT-licensed, copyright Skyline Trail Computing
