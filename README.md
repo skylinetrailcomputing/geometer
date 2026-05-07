@@ -6,12 +6,14 @@
 
 A free, open-source WebXR sandbox of geometry exhibits aimed at undergraduate students of calculus, linear algebra, and differential equations. The thesis: VR earns its keep on math where the bottleneck for the learner is *3D spatial intuition* — quadric surfaces, vector fields, eigenvectors and eigenspaces, ODE phase portraits in 3D.
 
-**Status:** v0.3 — `quadrics` exhibit shipped. Slider-driven
-`ax² + by² + cz² = d` explorer with live family classification, live
-equation readout, canonical-pose preset buttons with animated
-family-transition tweens, parametric / world-axis gridlines on the
-surface for depth cues, and a section-selector rack ready for
-sibling sections (level-set slicing, linear terms) in future versions.
+**Status:** v0.4 — `quadrics` exhibit shipped. Slider-driven
+`ax² + by² + cz² = d` explorer with live family classification, a
+two-line equation readout, a canonical-pose preset grid with
+animated family-transition tweens, parametric / world-axis
+gridlines for depth cues, and a section rack covering cross-sections
+(a sliding intersection plane that traces a glowing curve through
+the surface) and linear terms (`u`, `v`, `w` sliders that translate
+the surface off-center).
 
 ## Demo
 
@@ -36,14 +38,9 @@ Headset paths that work today:
 
 ### Without a headset
 
-WebXR emulator extensions (Meta's [Immersive Web Emulator](https://chromewebstore.google.com/detail/immersive-web-emulator/cgffilbpcibhmcfbgggfhfolhkfbhmik); Mozilla's WebXR API Emulator) would in theory let a desktop browser drive the exhibit without hardware. As of v0.2 neither composes cleanly with our Three.js stack:
+A first-class **native pancake build** — desktop (mouse + keyboard, WASD or orbit) and mobile (touch), designed from the ground up for non-VR rather than emulating headset controllers — is on the roadmap. Tracked in [#105](https://github.com/skylinetrailcomputing/geometer/issues/105).
 
-- Meta's emulator polyfills the WebXR API but Three.js's session setup hits an `XRWebGLBinding` type mismatch on Enter VR.
-- Mozilla's emulator was removed from the Chrome Web Store in late 2025; it remains on Firefox Add-ons, but Firefox's own WebXR support has separate quirks.
-
-Compatibility work is tracked in [#80](https://github.com/skylinetrailcomputing/geometer/issues/80). The Meta emulator's `XRWebGLBinding` mismatch is fixed upstream in Three.js [r185](https://github.com/mrdoob/three.js/issues/33414) (closed-completed, unreleased as of this writing — expected mid-2026 based on Three.js's recent ~2-month cadence); once it ships to npm we'll bump our pin and re-verify. For now, a real Quest (3 / 3S / 2 / Pro) is the reliable path.
-
-Separately, [#105](https://github.com/skylinetrailcomputing/geometer/issues/105) is exploring a first-class **desktop interaction mode** (mouse + keyboard, WASD or orbit camera) — a real production path for visitors without a headset, not a developer workaround. Design discussion is open.
+WebXR emulator extensions (Meta's Immersive Web Emulator, Mozilla's WebXR API Emulator) are **not a supported path**. As discussed in [#80](https://github.com/skylinetrailcomputing/geometer/issues/80), Meta's IWE structurally can't render Three.js content in current Chromium because it doesn't polyfill the WebXR Layers API — Chromium ≥147 forces Three.js down the `XRWebGLBinding` path regardless of the `'layers'` feature flag, and there's no three.js-side fix. Even when emulators do work mechanically, headset-controller emulation isn't an intuitive desktop UX. For now, a real Quest (3 / 3S / 2 / Pro) is the headset path.
 
 ## Run locally
 
@@ -62,9 +59,33 @@ Then open the printed URL on `localhost`. WebXR sessions require either `localho
 
 ## Roadmap
 
-- **MVP exhibit:** slider-driven quadric surfaces — `ax² + by² + cz² = d` with live family classification (Ellipsoid / Hyperboloid of two sheets / Cone / etc.) as parameters morph through degenerate cases.
-- **Next:** linear algebra core — eigenvectors visualized on the unit-sphere → ellipsoid mapping, determinant as signed volume, matrix composition as physical chaining of transforms.
-- **Later:** vector fields in 3D, ODE phase portraits, parametric surfaces (Möbius, Klein bottle).
+The roadmap sequences exhibits around specific undergraduate courses where 3D spatial intuition is the rate-limiting step, rather than as a generic feature list. The first targeted course is [**APPM 2350**](https://www.colorado.edu/amath/media/6142): *Calculus 3 for Engineers* at CU Boulder.
+
+### Now → v1.0: APPM 2350 quadrics cluster (target: fall 2026)
+
+v1.0 ships a cluster of programmatically separate scenes — each focused on a distinct early-course stuck-point — that share infrastructure (camera, design language, scene navigation):
+
+- **Quadrics manipulator** *(shipped through v0.5)* — slider-driven implicit-surface explorer with live family classification, cross-sections, and linear-term translation. §10.6.
+- **Tangent planes** *(v0.6)* — moving tangent plane attached to the surface, sliding the contact point continuously. §11.4.
+- **Gradient / level surfaces** *(v0.7)* — §11.6.
+- **Saddle / extrema** *(v0.8)* — §11.7–11.8.
+- **Basic pancake build** *(v0.9)* — desktop + mobile non-VR scaffolded alongside the Quest experience.
+
+### Beyond v1.0 (still APPM 2350)
+
+Higher-impact pedagogy, but architecturally novel scene shapes; sequenced after the v1.0 cluster ships:
+
+- **Stokes' / Green's / Gauss' coalescence** — tiny curl- and divergence-integrals on surface and volume elements coalescing into the boundary path or surface integral. §13.E–G.
+- **Path integral unrolling** — bending a 1D Calc 1/2 integral into a 2D arc and back. §13.A.
+
+### Later: APPM 2360 (Differential Equations with Linear Algebra)
+
+Targeting spring or summer 2027. Eigenvectors visualized as the unit-sphere → ellipsoid mapping, determinants as signed volume, ODE phase portraits in 2D and 3D, vector fields as flow.
+
+### Reach (form factors)
+
+- **Headset** — Quest 3, 3S, 2, Pro. Current default.
+- **Native pancake build** ([#105](https://github.com/skylinetrailcomputing/geometer/issues/105)) — desktop + mobile, scaffolded in v0.9 for v1.0 and polished post-1.0.
 
 ## Contributing
 
