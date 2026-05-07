@@ -14,6 +14,7 @@ import { FpsOverlay } from '@/scaffold/perf/FpsOverlay';
 import { Label } from '@/scaffold/ui/Label';
 import { Preset, type LinearPresetValues, type PresetValues } from '@/scaffold/ui/Preset';
 import { PresetTween } from '@/scaffold/anim/PresetTween';
+import { createImplicitSurface } from '@/scaffold/render/ImplicitSurface';
 import { RendererInfoProbe } from '@/scaffold/perf/RendererInfoProbe';
 import { Section } from '@/scaffold/ui/Section';
 import { SectionTab } from '@/scaffold/ui/SectionTab';
@@ -349,26 +350,15 @@ const EQUATION_COEFFICIENT_COLORS: readonly [
 const DEBUG_SWEEP = false;
 const SWEEP_PERIOD = 8;
 
-const VERTEX_SHADER = /* glsl */ `
-  varying vec3 vWorldPos;
+// Quadrics-side GLSL feeding `createImplicitSurface` from
+// scaffold/render/ImplicitSurface (#129). The harness owns the vertex
+// shader, ray–AABB clip, fixed-step march + bisection, surface-local
+// frame, and depth write; everything below is the surface-specific
+// remainder — uniform decls, helper functions, the implicit form
+// `f(p) = ax² + by² + cz² + ux + vy + wz − d`, and the `shadeHit` body
+// (lambert + parametric/world-axis grid switch + cross-section glow).
 
-  void main() {
-    vec4 wp = modelMatrix * vec4(position, 1.0);
-    vWorldPos = wp.xyz;
-    gl_Position = projectionMatrix * viewMatrix * wp;
-  }
-`;
-
-const FRAGMENT_SHADER = /* glsl */ `
-  precision highp float;
-
-  // Three.js auto-populates projectionMatrix on every program, but only
-  // declares it in vertex-shader prefixes — fragment shaders have to
-  // declare it explicitly to use it. (viewMatrix and cameraPosition are
-  // declared automatically.)
-  uniform mat4 projectionMatrix;
-
-  uniform vec3  uSurfaceCenter;
+const QUADRICS_UNIFORM_DECLS = /* glsl */ `
   uniform float uA;
   uniform float uB;
   uniform float uC;
@@ -376,7 +366,6 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float uU;
   uniform float uV;
   uniform float uW;
-  uniform float uBound;
   // Cross-sections section (#84): math-Z slicing plane in surface-local
   // coords. uPlaneActive is 0 when any other section is focused — the
   // glow band only renders when the user is actively viewing the slicing
@@ -389,7 +378,9 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float uPlaneActive;
   uniform vec3  uLightDir;
   uniform vec3  uBaseColor;
+`;
 
+const QUADRICS_HELPERS = /* glsl */ `
   // Sky-blue glow color for the slicing-plane intersection ring, matching
   // the slider 'c' / math-Z palette (the slicing axis). Reads as
   // continuous with the existing axis-color story.
@@ -424,26 +415,6 @@ const FRAGMENT_SHADER = /* glsl */ `
   // never appears in practice. Keeps the shader dispatch stable through
   // floating-point noise.
   const float PARAM_SIGN_EPSILON   = 1e-4;
-
-  varying vec3 vWorldPos;
-
-  float fImplicit(vec3 p) {
-    return uA * p.x * p.x + uB * p.y * p.y + uC * p.z * p.z
-         + uU * p.x + uV * p.y + uW * p.z
-         - uD;
-  }
-
-  vec3 gradF(vec3 p) {
-    float h = 0.001;
-    vec3 dx = vec3(h, 0.0, 0.0);
-    vec3 dy = vec3(0.0, h, 0.0);
-    vec3 dz = vec3(0.0, 0.0, h);
-    return vec3(
-      fImplicit(p + dx) - fImplicit(p - dx),
-      fImplicit(p + dy) - fImplicit(p - dy),
-      fImplicit(p + dz) - fImplicit(p - dz)
-    ) / (2.0 * h);
-  }
 
   // Anti-aliased fract-based line mask. Used independently for each grid
   // direction so each gets its own fwidth — avoids the near-pole smear
@@ -544,108 +515,41 @@ const FRAGMENT_SHADER = /* glsl */ `
     float mV = lineMaskAA((v + PI) / TWO_PI * float(PARAM_LON_LINES));
     return vec2(max(mU, mV), 1.0);
   }
+`;
 
-  bool rayAABB(vec3 ro, vec3 rd, float r, out float tNear, out float tFar) {
-    vec3 invD = 1.0 / rd;
-    vec3 t0 = (vec3(-r) - ro) * invD;
-    vec3 t1 = (vec3( r) - ro) * invD;
-    vec3 tMin = min(t0, t1);
-    vec3 tMax = max(t0, t1);
-    tNear = max(max(tMin.x, tMin.y), tMin.z);
-    tFar  = min(min(tMax.x, tMax.y), tMax.z);
-    return tFar >= max(tNear, 0.0);
+const QUADRICS_F_IMPLICIT = /* glsl */ `
+  float fImplicit(vec3 p) {
+    return uA * p.x * p.x + uB * p.y * p.y + uC * p.z * p.z
+         + uU * p.x + uV * p.y + uW * p.z
+         - uD;
   }
+`;
 
-  void main() {
-    vec3 ro = cameraPosition - uSurfaceCenter;
-    vec3 rd = normalize(vWorldPos - cameraPosition);
-
-    float tNear, tFar;
-    if (!rayAABB(ro, rd, uBound, tNear, tFar)) {
-      discard;
-    }
-    float tStart = max(tNear, 0.0);
-
-    // STEPS = the per-fragment uniform-march sample count across the AABB
-    // span, before the 8-iter bisection refines a sign change to a hit.
-    // Was 96 originally; lowered to 64 in #102 (knob B) — the per-fragment
-    // STEPS loop runs for every rasterized fragment in the bounding cube
-    // even when no surface is hit, so STEPS is a near-linear knob on
-    // steady-state fragment cost. Tradeoff: the AABB span at BOUND = 3.5
-    // is up to ~12 m diagonal; at 64 steps that's ~19 cm of march
-    // per-step worst case, which the bisection follow-up still resolves
-    // to sub-mm precision once a sign change is detected. Visible cost is
-    // missed-feature aliasing on geometry thinner than dt — relevant only
-    // at extreme (u, v, w) poses where the surface degenerates to a
-    // narrow sliver crossing the AABB; non-degenerate quadrics are
-    // contiguous and easily caught by 64 samples. If 48 is needed (knob B
-    // step 2), revisit.
-    const int STEPS = 64;
-    float dt = (tFar - tStart) / float(STEPS);
-    float t = tStart;
-    float fPrev = fImplicit(ro + rd * t);
-    bool hit = false;
-    float tHit = 0.0;
-
-    for (int i = 1; i <= STEPS; i++) {
-      float tNext = tStart + float(i) * dt;
-      float fNext = fImplicit(ro + rd * tNext);
-      if (fPrev * fNext < 0.0) {
-        float lo = t;
-        float hi = tNext;
-        float fLo = fPrev;
-        for (int b = 0; b < 8; b++) {
-          float mid = 0.5 * (lo + hi);
-          float fMid = fImplicit(ro + rd * mid);
-          if (fLo * fMid < 0.0) {
-            hi = mid;
-          } else {
-            lo = mid;
-            fLo = fMid;
-          }
-        }
-        tHit = 0.5 * (lo + hi);
-        hit = true;
-        break;
-      }
-      t = tNext;
-      fPrev = fNext;
-    }
-
-    if (!hit) {
-      discard;
-    }
-
-    vec3 pHit = ro + rd * tHit;
-    vec3 n = normalize(gradF(pHit));
-    if (dot(n, rd) > 0.0) {
-      n = -n;
-    }
-
+const QUADRICS_SHADE = /* glsl */ `
+  // Gridlines as a depth cue. Two systems, never co-rendered (#45
+  // headset feedback: simultaneous display read as cluttered):
+  //
+  //   * Parametric (#45) — lines of constant θ/φ (ellipsoid) or u/v
+  //     (hyperboloids) in a family-aware natural parameterization.
+  //     Lines flow with the surface as parameters morph.
+  //   * World-axis (#34) — distance to the nearest integer multiple of
+  //     (1 / GRID_FREQ) on each world axis. Anchored to world (0,0,0),
+  //     so the surface reads as carved out of a fixed 3D coordinate
+  //     frame. Used as the fallback when the family doesn't admit a
+  //     natural parametric form (cylinders / cones / planes / degenerates).
+  //
+  // Both systems share GRID_COLOR / GRID_INTENSITY so the line character
+  // stays consistent across family transitions — only the *frame* the
+  // lines align to changes, reinforcing the family-classification flip
+  // already shown in the rack readout above.
+  //
+  // fwidth-based AA keeps lines one-pixel-wide regardless of viewing
+  // angle or distance; walking around the surface gives parallax through
+  // whichever grid is currently active.
+  vec3 shadeHit(vec3 pHit, vec3 n, vec3 hitWorld, vec3 rd) {
     float lambert = max(dot(n, normalize(uLightDir)), 0.0);
     vec3 baseColor = uBaseColor * (0.2 + 0.8 * lambert);
 
-    // Gridlines as a depth cue. Two systems, never co-rendered (#45
-    // headset feedback: simultaneous display read as cluttered):
-    //
-    //   * Parametric (#45) — lines of constant θ/φ (ellipsoid) or u/v
-    //     (hyperboloids) in a family-aware natural parameterization.
-    //     Lines flow with the surface as parameters morph.
-    //   * World-axis (#34) — distance to the nearest integer multiple of
-    //     (1 / GRID_FREQ) on each world axis. Anchored to world (0,0,0),
-    //     so the surface reads as carved out of a fixed 3D coordinate
-    //     frame. Used as the fallback when the family doesn't admit a
-    //     natural parametric form (cylinders / cones / planes / degenerates).
-    //
-    // Both systems share GRID_COLOR / GRID_INTENSITY so the line character
-    // stays consistent across family transitions — only the *frame* the
-    // lines align to changes, reinforcing the family-classification flip
-    // already shown in the rack readout above.
-    //
-    // fwidth-based AA keeps lines one-pixel-wide regardless of viewing
-    // angle or distance; walking around the surface gives parallax through
-    // whichever grid is currently active.
-    vec3 hitWorld = pHit + uSurfaceCenter;
     vec2 paramGrid = parametricGrid(pHit);
     float gridMask;
     if (paramGrid.y > 0.5) {
@@ -671,15 +575,7 @@ const FRAGMENT_SHADER = /* glsl */ `
         1.0 - smoothstep(0.0, PLANE_GLOW_HALF_WIDTH, planeDist);
       color += PLANE_GLOW_COLOR * (PLANE_GLOW_INTENSITY * planeMask);
     }
-
-    gl_FragColor = vec4(color, 1.0);
-
-    // Write the implicit-surface depth, not the bounding cube's. Quest's
-    // asynchronous spacewarp reprojects per-pixel from the depth buffer; with
-    // the cube's depth (meters off from the visible surface), reprojection
-    // smears the surface into a translucent / negative-space ghost.
-    vec4 clip = projectionMatrix * viewMatrix * vec4(hitWorld, 1.0);
-    gl_FragDepth = (clip.z / clip.w) * 0.5 + 0.5;
+    return color;
   }
 `;
 
@@ -771,12 +667,14 @@ const quadricsExhibit: Exhibit = {
     directional.position.copy(LIGHT_DIR).multiplyScalar(5);
     scene.add(directional);
 
-    material = new THREE.ShaderMaterial({
-      vertexShader: VERTEX_SHADER,
-      fragmentShader: FRAGMENT_SHADER,
-      side: THREE.DoubleSide,
-      uniforms: {
-        uSurfaceCenter: { value: SURFACE_CENTER.clone() },
+    const surfaceHandles = createImplicitSurface({
+      surfaceCenter: SURFACE_CENTER,
+      bound: BOUND,
+      uniforms: QUADRICS_UNIFORM_DECLS,
+      helpers: QUADRICS_HELPERS,
+      fImplicit: QUADRICS_F_IMPLICIT,
+      shade: QUADRICS_SHADE,
+      extraUniforms: {
         uA: { value: 1.0 },
         uB: { value: 1.0 },
         uC: { value: 1.0 },
@@ -786,18 +684,12 @@ const quadricsExhibit: Exhibit = {
         uW: { value: 0.0 },
         uPlaneY: { value: 0.0 },
         uPlaneActive: { value: 0.0 },
-        uBound: { value: BOUND },
         uLightDir: { value: LIGHT_DIR.clone() },
         uBaseColor: { value: new THREE.Color(0.4, 0.7, 0.95) },
       },
     });
-
-    const surface = new THREE.Mesh(
-      new THREE.BoxGeometry(BOUND * 2, BOUND * 2, BOUND * 2),
-      material,
-    );
-    surface.position.copy(SURFACE_CENTER);
-    scene.add(surface);
+    material = surfaceHandles.material;
+    scene.add(surfaceHandles.mesh);
 
     // Top → bottom: a, b, c, d. Span centered on SLIDER_RACK_CENTER.
     // Per-slider color + shape pull from SLIDER_CONFIG (#58); the
