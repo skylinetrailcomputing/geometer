@@ -706,12 +706,38 @@ const quadricsExhibit: Exhibit = {
   mount({ scene, renderer, camera: cam }: ExhibitContext) {
     camera = cam;
 
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(10, 10),
-      new THREE.MeshStandardMaterial({ color: 0x222244 }),
-    );
-    floor.rotation.x = -Math.PI / 2;
-    scene.add(floor);
+    // #125: hole-punch the floor inside the AABB's world-XZ footprint so it
+    // doesn't occlude the lower half of the cube. Math-Z routes to world-Y;
+    // with SURFACE_CENTER.y = 1.5 and BOUND = 3.5, the cube's bottom face sits
+    // at world-Y = -2 while the floor sits at 0, cutting off math-Z ∈
+    // [-3.5, -1.5] (most visible on vertical 2-sheet hyperboloids and 1-sheet
+    // hyperboloids whose axis is math-Z). Strips outside the cube footprint
+    // preserve the ground reference; the rectangle inside is left open.
+    const FLOOR_HALF = 5;
+    const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x222244 });
+    const holeMinX = Math.max(SURFACE_CENTER.x - BOUND, -FLOOR_HALF);
+    const holeMaxX = Math.min(SURFACE_CENTER.x + BOUND, FLOOR_HALF);
+    const holeMinZ = Math.max(SURFACE_CENTER.z - BOUND, -FLOOR_HALF);
+    const holeMaxZ = Math.min(SURFACE_CENTER.z + BOUND, FLOOR_HALF);
+    const addFloorStrip = (
+      xMin: number,
+      xMax: number,
+      zMin: number,
+      zMax: number,
+    ): void => {
+      if (xMax <= xMin || zMax <= zMin) return;
+      const strip = new THREE.Mesh(
+        new THREE.PlaneGeometry(xMax - xMin, zMax - zMin),
+        floorMaterial,
+      );
+      strip.rotation.x = -Math.PI / 2;
+      strip.position.set((xMin + xMax) / 2, 0, (zMin + zMax) / 2);
+      scene.add(strip);
+    };
+    addFloorStrip(-FLOOR_HALF, FLOOR_HALF, holeMaxZ, FLOOR_HALF); // front of cube
+    addFloorStrip(-FLOOR_HALF, FLOOR_HALF, -FLOOR_HALF, holeMinZ); // behind cube
+    addFloorStrip(-FLOOR_HALF, holeMinX, holeMinZ, holeMaxZ); // left of cube
+    addFloorStrip(holeMaxX, FLOOR_HALF, holeMinZ, holeMaxZ); // right of cube
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.4));
     const directional = new THREE.DirectionalLight(0xffffff, 0.8);
