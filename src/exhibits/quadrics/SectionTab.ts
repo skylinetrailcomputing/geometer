@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Text } from 'troika-three-text';
+import { raySphereHit } from '@/scaffold/ui/rayHit';
 
 // Tap button for the rack section selector (#57). Visually a sibling of
 // `Preset` — same sphere + label + ray-hit + yaw-billboard machinery —
@@ -181,21 +182,6 @@ export class SectionTab {
   }
 }
 
-function raySphereHit(
-  origin: THREE.Vector3,
-  dir: THREE.Vector3,
-  center: THREE.Vector3,
-  radius: number,
-): boolean {
-  const oc = new THREE.Vector3().subVectors(origin, center);
-  const b = oc.dot(dir);
-  const c = oc.dot(oc) - radius * radius;
-  const disc = b * b - c;
-  if (disc < 0) return false;
-  const sqrtDisc = Math.sqrt(disc);
-  const t = -b - sqrtDisc;
-  return t >= 0 || -b + sqrtDisc >= 0;
-}
 
 function pulse(controller: THREE.Object3D): void {
   const gamepad = (controller as ControllerWithGamepad).userData.gamepad;

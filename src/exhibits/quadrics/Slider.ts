@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { raySphereHit } from '@/scaffold/ui/rayHit';
 
 // `arrow-{x,y,z}` are bidirectional 3D arrows aligned with their respective
 // world axis. The slider group has no rotation, so slider-local frame =
@@ -379,22 +380,6 @@ function buildArrowGeometry(
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(Math.max(v, lo), hi);
-}
-
-function raySphereHit(
-  origin: THREE.Vector3,
-  dir: THREE.Vector3,
-  center: THREE.Vector3,
-  radius: number,
-): boolean {
-  const oc = new THREE.Vector3().subVectors(origin, center);
-  const b = oc.dot(dir);
-  const c = oc.dot(oc) - radius * radius;
-  const disc = b * b - c;
-  if (disc < 0) return false;
-  const sqrtDisc = Math.sqrt(disc);
-  const t = -b - sqrtDisc;
-  return t >= 0 || -b + sqrtDisc >= 0;
 }
 
 function pulse(controller: THREE.Object3D): void {

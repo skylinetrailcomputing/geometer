@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Text } from 'troika-three-text';
+import { raySphereHit } from '@/scaffold/ui/rayHit';
 
 // One canonical-pose preset button (#46). A small sphere with a text label
 // below it; pressing snaps the slider rack to a named family member
@@ -172,22 +173,6 @@ export class Preset {
     const r = BUTTON_RADIUS * GRAB_RADIUS_MULTIPLIER;
     return raySphereHit(rayOrigin, rayDir, this.buttonWorld, r);
   }
-}
-
-function raySphereHit(
-  origin: THREE.Vector3,
-  dir: THREE.Vector3,
-  center: THREE.Vector3,
-  radius: number,
-): boolean {
-  const oc = new THREE.Vector3().subVectors(origin, center);
-  const b = oc.dot(dir);
-  const c = oc.dot(oc) - radius * radius;
-  const disc = b * b - c;
-  if (disc < 0) return false;
-  const sqrtDisc = Math.sqrt(disc);
-  const t = -b - sqrtDisc;
-  return t >= 0 || -b + sqrtDisc >= 0;
 }
 
 function pulse(controller: THREE.Object3D): void {
