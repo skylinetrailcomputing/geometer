@@ -1,20 +1,23 @@
 import * as THREE from 'three';
-import type { DoublePlanePose } from './classify';
+import type { PlanePose } from './classify';
 
-// Stand-in mesh for the rank-1 + d_eff = 0 tangent-zero regime (#138).
+// Stand-in mesh for axis-aligned single-plane regimes the marcher renders
+// unreliably (#138). Two cases qualify, with the same visible artifact:
 //
-// On these poses the implicit form reduces to `f(p) = α(p·k − offset)²`
-// for some axis k and offset — non-negative everywhere, vanishing only on
-// a single double plane. The marcher in `scaffold/render/ImplicitSurface`
-// detects hits via sign-change between adjacent samples, which is
-// mathematically never satisfied for a tangent zero, so the surface
-// either fails to render or — worse — renders as stochastic floating-
-// point noise where rays graze the plane closely enough that ULP-scale
-// jitter in the fragment evaluation chain occasionally squeezes a sample
-// just below zero (#116, #138).
+//   * rank-1 + d_eff = 0 (tangent zero): `f(p) = α(p·k − offset)²` is
+//     non-negative everywhere, vanishing only on the plane. Sign-change
+//     hit detection mathematically never fires, so the marcher either
+//     misses the surface or surfaces stochastic ULP-jitter noise where
+//     rays graze the plane (#116 hypothesis 1).
+//   * rank-0 + single linear nonzero: `f(p) = λ·k − d` has a real sign
+//     change, but for grazing rays at near-tangent angles the crossing
+//     can fall between discrete sample steps; adjacent fragments
+//     randomly do/don't catch it, producing the same fuzzy speckle
+//     (#116 hypothesis 2). Math-Y-only in practice — the only axis
+//     edge-on at natural Quest viewing pose.
 //
-// Rather than grow the harness to handle tangent zeros (option A in
-// #138 — a footgun for any future scaffold consumer), this module
+// Rather than grow the harness to handle either failure mode (option A
+// in #138 — a footgun for any future scaffold consumer), this module
 // renders the plane explicitly when the predicate fires. `setPose(null)`
 // hides the mesh; the caller restores the raymarched surface in the
 // same step.
@@ -133,21 +136,21 @@ export interface DoublePlaneHandles {
 
   /**
    * Drive the plane's visibility, orientation, and position from the
-   * `isDoublePlane` predicate's result. `null` hides the plane; a
+   * `getPlanePose` predicate's result. `null` hides the plane; a
    * non-null pose orients the plane along its math-frame axis and
    * positions it at the math-frame offset.
    *
    * The math→world swap (math-Y → −world-Z) lives inside this call so
    * the caller passes the predicate's result through unchanged.
    */
-  setPose(pose: DoublePlanePose | null): void;
+  setPose(pose: PlanePose | null): void;
 }
 
 /**
- * Build the double-plane stand-in mesh for the rank-1 + d_eff = 0
- * tangent-zero regime (#138). Returned hidden; the caller drives
- * visibility by polling `isDoublePlane` from the same module each
- * frame and forwarding the result.
+ * Build the axis-aligned-plane stand-in mesh for the marcher-unreliable
+ * regimes (#138). Returned hidden; the caller drives visibility by
+ * polling `getPlanePose` from the same module each frame and
+ * forwarding the result.
  */
 export function createDoublePlane(opts: DoublePlaneOptions): DoublePlaneHandles {
   const { surfaceCenter, halfExtent, baseColor, lightDir } = opts;
@@ -177,7 +180,7 @@ export function createDoublePlane(opts: DoublePlaneOptions): DoublePlaneHandles 
 
   return {
     group,
-    setPose(pose: DoublePlanePose | null): void {
+    setPose(pose: PlanePose | null): void {
       if (pose === null) {
         mesh.visible = false;
         return;

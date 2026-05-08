@@ -8,7 +8,7 @@ import {
   VERMILLION,
   YELLOW,
 } from '@/scaffold/design/tokens';
-import { classify, isDoublePlane } from './classify';
+import { classify, getPlanePose } from './classify';
 import { createDoublePlane, type DoublePlaneHandles } from './DoublePlane';
 import { EquationReadout } from './EquationReadout';
 import { FpsOverlay } from '@/scaffold/perf/FpsOverlay';
@@ -1200,17 +1200,18 @@ const quadricsExhibit: Exhibit = {
         );
       }
     }
-    // Double-plane regime swap (#138). When isDoublePlane fires we hide
-    // the raymarched mesh and surface a literal PlaneGeometry in its
-    // place — the marcher's sign-change hit detection mathematically
-    // can't catch a tangent zero, so without this the plane either
-    // fails to render or renders as stochastic FP noise (#116). The
-    // predicate uses the same `sign(...)` floor and complete-the-square
-    // d_eff calculation as classify(), so a positive predicate result
-    // and a 'Double plane' family label always agree.
-    const doublePlanePose = isDoublePlane(a, b, c, d, u, v, w);
-    if (doublePlane) doublePlane.setPose(doublePlanePose);
-    if (surfaceMesh) surfaceMesh.visible = doublePlanePose === null;
+    // Axis-aligned single-plane regime swap (#138). When getPlanePose
+    // fires we hide the raymarched mesh and surface a literal
+    // PlaneGeometry in its place. Two regimes qualify: rank-1 + d_eff =
+    // 0 (tangent zero — marcher's sign-change hit test never fires) and
+    // rank-0 + single linear nonzero (real sign change but edge-on
+    // sampling aliases at near-tangent ray angles). Both produce the
+    // same visible fuzzy artifact on math-Y at natural Quest viewing
+    // pose; both share the same fix shape. See classify.getPlanePose
+    // for the predicate's scope.
+    const planePose = getPlanePose(a, b, c, d, u, v, w);
+    if (doublePlane) doublePlane.setPose(planePose);
+    if (surfaceMesh) surfaceMesh.visible = planePose === null;
     if (DEBUG_SWEEP && material) {
       elapsed += delta;
       const sweep = Math.cos((2 * Math.PI * elapsed) / SWEEP_PERIOD);

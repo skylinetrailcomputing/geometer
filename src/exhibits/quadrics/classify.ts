@@ -158,7 +158,7 @@ function lookup(nPlus: number, nMinus: number, nZero: number, dSign: Sign): stri
 
 export type MathAxis = 'x' | 'y' | 'z';
 
-export interface DoublePlanePose {
+export interface PlanePose {
   /** Math-frame axis perpendicular to the plane. */
   axis: MathAxis;
   /** Math-frame offset along `axis`. The plane is `axis = offset`. */
@@ -166,16 +166,41 @@ export interface DoublePlanePose {
 }
 
 /**
- * Detect the rank-1, `d_eff = 0`, no-zero-axis-linear regime that classify()
- * labels 'Double plane'. Returns the math-frame plane location for callers
- * that need to actually render it (the raymarcher's sign-change hit test
- * can't catch a tangent zero — see #138). Returns null on every other pose.
+ * Detect every pose that the marcher renders unreliably as a single plane
+ * (rank-1 + d_eff = 0, OR rank-0 + a single linear nonzero) and return its
+ * math-frame axis-aligned location. Returns null on every other pose.
+ *
+ * Two regimes share the same visible artifact and the same fix shape:
+ *
+ *  1. **Tangent zero (rank 1).** `f` reduces to `α(p·k − offset)²` for
+ *     some axis k — non-negative everywhere, vanishing only on a single
+ *     double plane. The marcher's sign-change hit detection mathematically
+ *     can't catch a tangent zero, so the surface either fails to render or
+ *     surfaces as stochastic FP noise (#116, #138). classify() labels
+ *     this 'Double plane'.
+ *
+ *  2. **Edge-on linear (rank 0 + linear).** `f` reduces to `λ·k - d` for
+ *     some axis k — a real sign change, marcher *can* catch it, but only
+ *     if a sample on each side lands within the AABB intersection along
+ *     that ray. For grazing rays at near-tangent angles, the crossing
+ *     falls between discrete sample steps and adjacent fragments
+ *     randomly do/don't catch the plane — the same fuzzy speckle as
+ *     hypothesis (2) in #116. Math-Y-only in practice (the only axis
+ *     edge-on at natural Quest viewing pose). classify() labels this
+ *     'Plane'.
+ *
+ * Both regimes get the same fix: substitute an explicit `PlaneGeometry`
+ * mesh for the marcher. Truly tilted multi-linear cases (rank 0 + ≥ 2
+ * linears) aren't covered yet — they're not edge-on at natural viewing
+ * pose, so they don't fuzz, and the orientation math is heavier. Add
+ * when a real reproducer surfaces.
  *
  * Mirrors the same `sign(...) → ZERO_EPSILON` floor and the same
  * complete-the-square `d_eff` calculation as classify(), so a positive
- * predicate result and a 'Double plane' label always agree.
+ * predicate result and a 'Double plane' / 'Plane' label always agree
+ * (modulo the deferred multi-linear case).
  */
-export function isDoublePlane(
+export function getPlanePose(
   a: number,
   b: number,
   c: number,
@@ -183,7 +208,7 @@ export function isDoublePlane(
   u: number = 0,
   v: number = 0,
   w: number = 0,
-): DoublePlanePose | null {
+): PlanePose | null {
   const aS = sign(a);
   const bS = sign(b);
   const cS = sign(c);
@@ -191,13 +216,28 @@ export function isDoublePlane(
   const vS = sign(v);
   const wS = sign(w);
 
-  // Rank exactly 1: one nonzero squared coef, two zero.
   const rank = (aS !== 0 ? 1 : 0) + (bS !== 0 ? 1 : 0) + (cS !== 0 ? 1 : 0);
+
+  // Rank-0 + single linear nonzero: axis-aligned linear plane.
+  // Plane equation `λ·axis = d` ⇒ axis = d / λ. Multi-linear (≥ 2 of
+  // u, v, w nonzero) intentionally falls through; classify() still
+  // labels it 'Plane', but the marcher handles non-edge-on tilted
+  // planes adequately and we'd need the more general tilted
+  // orientation math to substitute correctly.
+  if (rank === 0) {
+    const linearCount = (uS !== 0 ? 1 : 0) + (vS !== 0 ? 1 : 0) + (wS !== 0 ? 1 : 0);
+    if (linearCount !== 1) return null;
+    if (uS !== 0) return { axis: 'x', offset: normalizeNegativeZero(d / u) };
+    if (vS !== 0) return { axis: 'y', offset: normalizeNegativeZero(d / v) };
+    return { axis: 'z', offset: normalizeNegativeZero(d / w) };
+  }
+
   if (rank !== 1) return null;
 
-  // A linear term on a *zero-squared* axis can't be folded by completing
-  // the square; it produces a parabolic cylinder, not a plane. classify()
-  // routes those poses out before the d_eff fall-through, and so do we.
+  // Rank-1: a linear term on a *zero-squared* axis can't be folded by
+  // completing the square; it produces a parabolic cylinder, not a plane.
+  // classify() routes those poses out before the d_eff fall-through, and
+  // so do we.
   if (aS === 0 && uS !== 0) return null;
   if (bS === 0 && vS !== 0) return null;
   if (cS === 0 && wS !== 0) return null;
@@ -222,9 +262,13 @@ export function isDoublePlane(
 
   if (Math.abs(dEff) >= ZERO_EPSILON) return null;
 
-  // Normalize negative zero away. `-u / (2 * a)` emits `-0` whenever
-  // `u === 0`, which is === +0 but not Object.is-equal — leaks into test
-  // assertions and any future serialization without changing any behavior
-  // that consumes the offset numerically.
-  return { axis, offset: offset === 0 ? 0 : offset };
+  return { axis, offset: normalizeNegativeZero(offset) };
+}
+
+// `-u / (2 * a)` and `d / u` emit `-0` whenever the numerator is zero —
+// === +0 but not Object.is-equal, which leaks into test assertions and
+// any future serialization without changing any behavior that consumes
+// the offset numerically.
+function normalizeNegativeZero(v: number): number {
+  return v === 0 ? 0 : v;
 }
