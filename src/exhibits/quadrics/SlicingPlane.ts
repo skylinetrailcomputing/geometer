@@ -135,6 +135,15 @@ export interface SlicingPlanesHandles {
    * call so the caller passes raw slider values.
    */
   setOffsets(x0: number, y0: number, z0: number): void;
+
+  /**
+   * Per-axis visibility (#134). When the Cross sections lens is focused,
+   * the parent group is visible and each plane's own `.visible` flag
+   * picks whether its mesh draws. The parent-group gate still wraps
+   * everything so a section switch hides the whole rack regardless of
+   * per-axis state.
+   */
+  setVisibility(x: boolean, y: boolean, z: boolean): void;
 }
 
 /**
@@ -187,6 +196,11 @@ export function createSlicingPlanes(
       xPlane.position.x = x0;
       yPlane.position.z = -y0;
       zPlane.position.y = z0;
+    },
+    setVisibility(x: boolean, y: boolean, z: boolean): void {
+      xPlane.visible = x;
+      yPlane.visible = y;
+      zPlane.visible = z;
     },
   };
 }

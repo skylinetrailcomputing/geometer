@@ -19,6 +19,7 @@ import { RendererInfoProbe } from '@/scaffold/perf/RendererInfoProbe';
 import { Section } from '@/scaffold/ui/Section';
 import { SectionTab } from '@/scaffold/ui/SectionTab';
 import { Slider, type ThumbShape } from '@/scaffold/ui/Slider';
+import { AxisToggle } from './AxisToggle';
 import { createSlicingPlanes, type SlicingPlanesHandles } from './SlicingPlane';
 import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
 
@@ -300,19 +301,24 @@ const LINEAR_SLIDER_CONFIG: readonly {
   { name: 'w', color: SKY_BLUE,     shape: 'arrow-z' },
 ];
 
-// Cross-sections section (#84, expanded #112). Three sliders x₀/y₀/z₀
-// driving math-axis-aligned slicing planes through the implicit surface.
-// The shader brightens a per-axis-colored glow band where the surface
-// meets each plane, so dragging a slider sweeps a glowing intersection
-// curve along that axis — the conic-sections-from-a-cone story made
-// manipulable, with the *axis-asymmetry* lesson restored (e.g. a 1-sheet
-// hyperboloid sliced on its axis of revolution gives ellipses; sliced
-// orthogonally gives hyperbolas — different families from the same
+// Cross-sections section (#84, expanded #112, toggles #134). Three sliders
+// x₀/y₀/z₀ driving math-axis-aligned slicing planes through the implicit
+// surface. The shader brightens a per-axis-colored glow band where the
+// surface meets each plane, so dragging a slider sweeps a glowing
+// intersection curve along that axis — the conic-sections-from-a-cone
+// story made manipulable, with the *axis-asymmetry* lesson restored (e.g.
+// a 1-sheet hyperboloid sliced on its axis of revolution gives ellipses;
+// sliced orthogonally gives hyperbolas — different families from the same
 // surface).
 //
 // All three rings co-render in their own per-axis color so the default
 // all-zeros pose draws three orthogonal cross-sections through the
 // surface center — the section's pedagogy is visible without dragging.
+// Each slider also carries an axis-colored on/off toggle (#134) at the
+// inside end of its track; toggling an axis off hides that ring + plane
+// without affecting the other two or re-zeroing its slider, so the user
+// can isolate one axis after the introductory pose ("show only the
+// z-slice while I sweep z₀").
 //
 // Range ±2.5 keeps each plane within the surface envelope: the raymarcher
 // AABB half-extent is BOUND = 3.5 in surface-local coords, but the visible
@@ -320,6 +326,28 @@ const LINEAR_SLIDER_CONFIG: readonly {
 // poses, so ±2.5 covers "sweep all the way through and a bit past" without
 // wasting slider travel on regions where the curve doesn't show.
 const CROSS_SECTION_SLIDER_RANGE = 2.5;
+// Axis-toggle position offset from the slider's group origin, in slider-
+// local coords (slider.group has no rotation, so local = world frame).
+// Slider track spans x ∈ [−trackHalfLength, +trackHalfLength] = [−0.15,
+// +0.15] at the default 0.3 m track. The toggle parks past the inside
+// (−x) end of the track — the rack-controls side of the layout sits to
+// the left (section tabs at x = −0.44, world axes indicator on the
+// right at x = +0.35), so "inside" toward the existing controls cluster
+// reads more naturally than the +x end.
+//
+// Offset −0.22: the slider thumb's hit sphere (radius 0.025 × multiplier
+// 2.75 = 0.069 m) extends past its visible thumb by ~0.044 m on each
+// side. At thumb mid-range (default value 0, thumb at x = 0), the
+// toggle's hit sphere at x ∈ [−0.253, −0.187] sits 0.118 m clear of
+// the thumb's hit sphere [−0.069, +0.069] — a comfortably disjoint
+// region for ray-aim. At the slider's leftmost extreme (−2.5, thumb
+// at x = −0.15, hit sphere [−0.219, −0.081]), the toggle's hit sphere
+// overlaps the thumb's by 0.032 m, but the toggle-first dispatch order
+// in selectstart resolves overlapping rays to the toggle — so the
+// toggle stays tappable at any slider value. Pushing the offset further
+// out (e.g. −0.26, fully disjoint at all values) would visually
+// disconnect the toggle from its slider; −0.22 keeps it clearly grouped.
+const CROSS_SECTION_TOGGLE_OFFSET_X = -0.22;
 type CrossSectionName = 'x₀' | 'y₀' | 'z₀';
 const CROSS_SECTION_SLIDER_CONFIG: readonly {
   readonly name: CrossSectionName;
@@ -383,15 +411,20 @@ const QUADRICS_UNIFORM_DECLS = /* glsl */ `
   uniform float uU;
   uniform float uV;
   uniform float uW;
-  // Cross-sections section (#84, expanded #112): math-axis slicing-plane
-  // offsets in surface-local *math* coords (x₀, y₀, z₀ direct from the
-  // sliders — the math→world swap happens in shadeHit). uPlaneActive is
-  // 0 when any other section is focused so the glow bands only render
-  // while the user is viewing the slicing lens.
+  // Cross-sections section (#84, expanded #112, toggles #134): math-axis
+  // slicing-plane offsets in surface-local *math* coords (x₀, y₀, z₀
+  // direct from the sliders — the math→world swap happens in shadeHit).
+  // uPlaneActive is 0 when any other section is focused so the glow
+  // bands only render while the user is viewing the slicing lens.
+  // uPlaneEnableX/Y/Z (1 / 0) further gate each axis individually within
+  // the section, driven by the per-slider AxisToggle (#134).
   uniform float uPlaneX;
   uniform float uPlaneY;
   uniform float uPlaneZ;
   uniform float uPlaneActive;
+  uniform float uPlaneEnableX;
+  uniform float uPlaneEnableY;
+  uniform float uPlaneEnableZ;
   uniform vec3  uLightDir;
   uniform vec3  uBaseColor;
 `;
@@ -605,9 +638,13 @@ const QUADRICS_SHADE = /* glsl */ `
       float mX = 1.0 - smoothstep(0.0, PLANE_GLOW_HALF_WIDTH, dX);
       float mY = 1.0 - smoothstep(0.0, PLANE_GLOW_HALF_WIDTH, dY);
       float mZ = 1.0 - smoothstep(0.0, PLANE_GLOW_HALF_WIDTH, dZ);
-      color += PLANE_GLOW_COLOR_X * (PLANE_GLOW_INTENSITY * mX);
-      color += PLANE_GLOW_COLOR_Y * (PLANE_GLOW_INTENSITY * mY);
-      color += PLANE_GLOW_COLOR_Z * (PLANE_GLOW_INTENSITY * mZ);
+      // Per-axis toggle gating (#134). Multiplying by uPlaneEnable*
+      // is equivalent to wrapping each band in an enable-> 0.5 branch
+      // but avoids the divergence — same shader path regardless of
+      // which axes are on.
+      color += PLANE_GLOW_COLOR_X * (PLANE_GLOW_INTENSITY * mX * uPlaneEnableX);
+      color += PLANE_GLOW_COLOR_Y * (PLANE_GLOW_INTENSITY * mY * uPlaneEnableY);
+      color += PLANE_GLOW_COLOR_Z * (PLANE_GLOW_INTENSITY * mZ * uPlaneEnableZ);
     }
     return color;
   }
@@ -633,6 +670,11 @@ let material: THREE.ShaderMaterial | undefined;
 let sliders: readonly Slider[] = [];
 let linearSliders: readonly Slider[] = [];
 let crossSectionSliders: readonly Slider[] = [];
+// One toggle per cross-section slider, ordered x / y / z. Drives both
+// the shader's per-axis glow gate (uPlaneEnableX/Y/Z, #134) and each
+// SlicingPlane's per-mesh `.visible`. Default all-on so the section
+// opens in the introductory pose from #112.
+let crossSectionToggles: readonly AxisToggle[] = [];
 let slicingPlanes: SlicingPlanesHandles | undefined;
 let presets: Preset[] = [];
 let sections: Section[] = [];
@@ -721,6 +763,9 @@ const quadricsExhibit: Exhibit = {
         uPlaneY: { value: 0.0 },
         uPlaneZ: { value: 0.0 },
         uPlaneActive: { value: 0.0 },
+        uPlaneEnableX: { value: 1.0 },
+        uPlaneEnableY: { value: 1.0 },
+        uPlaneEnableZ: { value: 1.0 },
         uLightDir: { value: LIGHT_DIR.clone() },
         uBaseColor: { value: new THREE.Color(0.4, 0.7, 0.95) },
       },
@@ -841,6 +886,27 @@ const quadricsExhibit: Exhibit = {
       },
     );
     crossSectionSliders = crossSectionTermSliders;
+
+    // Per-axis on/off toggles (#134). One small axis-colored sphere per
+    // cross-section slider, parented to that slider's group at the inside
+    // (-x) end of the track. Default all-on preserves #112's introductory
+    // pose; tapping a toggle hides that axis's ring + plane without
+    // affecting the other two or re-zeroing its slider.
+    crossSectionToggles = crossSectionTermSliders.map((slider, i) => {
+      const cfg = CROSS_SECTION_SLIDER_CONFIG[i];
+      const toggle = new AxisToggle({
+        baseColor: cfg.color,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+        initialEnabled: true,
+      });
+      toggle.group.position.set(CROSS_SECTION_TOGGLE_OFFSET_X, 0, 0);
+      // Parenting to the slider's group keeps the toggle co-located if
+      // the slider ever moves (e.g. a future per-section layout shuffle),
+      // and lets Section.setActive on the slider's section hide the
+      // toggle in lockstep with the slider via group.visible cascade.
+      slider.group.add(toggle.group);
+      return toggle;
+    });
 
     // Translucent slicing-plane meshes (#113). Layers above the on-
     // surface ring shipped in #84/#111: the ring marks the cut on the
@@ -986,6 +1052,20 @@ const quadricsExhibit: Exhibit = {
     }
     const activeSection = sections[activeSectionIndex];
     for (const s of activeSection.sliders) s.updateHover(controllers);
+    // Cross-section toggles tick / hover only while their section is
+    // focused. Their groups inherit visibility from the slider groups
+    // (Section.setActive flips slider.group.visible), so a hidden
+    // toggle still reads as inactive — but skipping hover work here
+    // saves the ray-sphere test on every controller every frame when
+    // the user isn't in the slicing lens.
+    const crossSectionsActive =
+      sections[activeSectionIndex]?.name === CROSS_SECTION_SECTION_NAME;
+    if (crossSectionsActive) {
+      for (const t of crossSectionToggles) {
+        t.updateHover(controllers);
+        t.update();
+      }
+    }
     // Tween advances its bound section's sliders before the slider→uniform
     // read below, so this frame's render reflects the morph. The tween
     // owns its slider reference (set at construction); this loop just
@@ -1041,22 +1121,36 @@ const quadricsExhibit: Exhibit = {
       material.uniforms.uPlaneX.value = x0 ?? 0;
       material.uniforms.uPlaneY.value = y0 ?? 0;
       material.uniforms.uPlaneZ.value = z0 ?? 0;
-      material.uniforms.uPlaneActive.value =
-        sections[activeSectionIndex]?.name === CROSS_SECTION_SECTION_NAME
-          ? 1
-          : 0;
+      material.uniforms.uPlaneActive.value = crossSectionsActive ? 1 : 0;
+      // Per-axis toggle gates (#134). Drive these unconditionally — the
+      // shader still skips the entire glow-band block when uPlaneActive
+      // is 0, so writing enable values while another section is focused
+      // is harmless and keeps the toggle state visible the moment the
+      // user returns to Cross sections.
+      material.uniforms.uPlaneEnableX.value =
+        crossSectionToggles[0].isEnabled ? 1 : 0;
+      material.uniforms.uPlaneEnableY.value =
+        crossSectionToggles[1].isEnabled ? 1 : 0;
+      material.uniforms.uPlaneEnableZ.value =
+        crossSectionToggles[2].isEnabled ? 1 : 0;
     }
     // Translucent slicing-plane meshes (#113). Same gate as the on-
     // surface ring's uPlaneActive — both visualizations layer in the
     // Cross sections lens and disappear together on a tab switch. The
     // math→world-axis swap (incl. math-Y → −world-Z sign flip) lives
     // inside `setOffsets`, mirroring the shader's glow-band routing.
+    // Per-axis toggles (#134) further hide individual plane meshes via
+    // setVisibility — the parent group's `.visible` still gates the
+    // whole rack on tab switch regardless.
     if (slicingPlanes) {
-      const crossSectionsActive =
-        sections[activeSectionIndex]?.name === CROSS_SECTION_SECTION_NAME;
       slicingPlanes.group.visible = crossSectionsActive;
       if (crossSectionsActive) {
         slicingPlanes.setOffsets(x0 ?? 0, y0 ?? 0, z0 ?? 0);
+        slicingPlanes.setVisibility(
+          crossSectionToggles[0].isEnabled,
+          crossSectionToggles[1].isEnabled,
+          crossSectionToggles[2].isEnabled,
+        );
       }
     }
     if (DEBUG_SWEEP && material) {
@@ -1128,6 +1222,23 @@ function setupControllers(
       // explicit ordering keeps the first-hit-wins contract well-defined
       // regardless of layout.
       const activeSection = sections[activeSectionIndex];
+      // Per-axis toggles (#134) dispatch *before* the section's sliders
+      // so the toggle stays reachable at thumb-extreme. At default and
+      // near-default thumb values the toggle's grab sphere is disjoint
+      // from the slider's, so order doesn't change behavior. At the
+      // slider's leftmost extreme the two grab spheres overlap by 0.032 m
+      // — a ray aimed at the visible thumb still hits only the slider
+      // (the toggle's sphere doesn't extend that far), but a ray aimed
+      // at the visible toggle hits both. Toggle-first dispatch picks
+      // the toggle in that overlap, preserving both intents; slider-
+      // first would silently steal toggle taps when the slider is
+      // parked at its extreme. Only fires when Cross sections is
+      // focused — toggles belong to that section.
+      if (activeSection.name === CROSS_SECTION_SECTION_NAME) {
+        for (const t of crossSectionToggles) {
+          if (t.tryToggle(controller)) return;
+        }
+      }
       for (const s of activeSection.sliders) {
         if (s.tryGrab(controller)) {
           // Cancel any in-flight preset tween — the user is taking the
