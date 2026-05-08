@@ -19,6 +19,7 @@ import { RendererInfoProbe } from '@/scaffold/perf/RendererInfoProbe';
 import { Section } from '@/scaffold/ui/Section';
 import { SectionTab } from '@/scaffold/ui/SectionTab';
 import { Slider, type ThumbShape } from '@/scaffold/ui/Slider';
+import { createSlicingPlanes, type SlicingPlanesHandles } from './SlicingPlane';
 import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
 
 // Pushed back from z=-3 to z=-4 as the v0.1.x comfort buffer (#44) — gives
@@ -632,6 +633,7 @@ let material: THREE.ShaderMaterial | undefined;
 let sliders: readonly Slider[] = [];
 let linearSliders: readonly Slider[] = [];
 let crossSectionSliders: readonly Slider[] = [];
+let slicingPlanes: SlicingPlanesHandles | undefined;
 let presets: Preset[] = [];
 let sections: Section[] = [];
 let tabs: SectionTab[] = [];
@@ -840,6 +842,18 @@ const quadricsExhibit: Exhibit = {
     );
     crossSectionSliders = crossSectionTermSliders;
 
+    // Translucent slicing-plane meshes (#113). Layers above the on-
+    // surface ring shipped in #84/#111: the ring marks the cut on the
+    // surface, the planes mark the cuts' own boundaries in free space.
+    // Hidden by default; the section-active branch in update() flips
+    // visibility on / off as the user switches lenses.
+    slicingPlanes = createSlicingPlanes({
+      surfaceCenter: SURFACE_CENTER,
+      halfExtent: BOUND,
+    });
+    slicingPlanes.group.visible = false;
+    scene.add(slicingPlanes.group);
+
     // Three sections (#88, #84). The dispatch loop below reads from
     // `sections[activeSectionIndex]` for grab dispatch and per-section
     // billboarding; the slider→uniform read in update() runs across all
@@ -1031,6 +1045,19 @@ const quadricsExhibit: Exhibit = {
         sections[activeSectionIndex]?.name === CROSS_SECTION_SECTION_NAME
           ? 1
           : 0;
+    }
+    // Translucent slicing-plane meshes (#113). Same gate as the on-
+    // surface ring's uPlaneActive — both visualizations layer in the
+    // Cross sections lens and disappear together on a tab switch. The
+    // math→world-axis swap (incl. math-Y → −world-Z sign flip) lives
+    // inside `setOffsets`, mirroring the shader's glow-band routing.
+    if (slicingPlanes) {
+      const crossSectionsActive =
+        sections[activeSectionIndex]?.name === CROSS_SECTION_SECTION_NAME;
+      slicingPlanes.group.visible = crossSectionsActive;
+      if (crossSectionsActive) {
+        slicingPlanes.setOffsets(x0 ?? 0, y0 ?? 0, z0 ?? 0);
+      }
     }
     if (DEBUG_SWEEP && material) {
       elapsed += delta;
