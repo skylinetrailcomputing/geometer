@@ -299,20 +299,36 @@ const LINEAR_SLIDER_CONFIG: readonly {
   { name: 'w', color: SKY_BLUE,     shape: 'arrow-z' },
 ];
 
-// Cross-sections section (#84). One slider `z₀` driving a math-Z slicing
-// plane through the implicit surface. The shader brightens a glow band
-// where the surface meets the plane, so dragging the slider sweeps a
-// glowing intersection curve up/down the surface — the conic-sections-from
-// -a-cone story made manipulable. Axis-aligned (math-Z only) for v1; x/y
-// planes can follow as more sliders if the lens reads as useful in headset.
+// Cross-sections section (#84, expanded #112). Three sliders x₀/y₀/z₀
+// driving math-axis-aligned slicing planes through the implicit surface.
+// The shader brightens a per-axis-colored glow band where the surface
+// meets each plane, so dragging a slider sweeps a glowing intersection
+// curve along that axis — the conic-sections-from-a-cone story made
+// manipulable, with the *axis-asymmetry* lesson restored (e.g. a 1-sheet
+// hyperboloid sliced on its axis of revolution gives ellipses; sliced
+// orthogonally gives hyperbolas — different families from the same
+// surface).
 //
-// Range ±2.5 keeps the plane within the surface envelope: the raymarcher
+// All three rings co-render in their own per-axis color so the default
+// all-zeros pose draws three orthogonal cross-sections through the
+// surface center — the section's pedagogy is visible without dragging.
+//
+// Range ±2.5 keeps each plane within the surface envelope: the raymarcher
 // AABB half-extent is BOUND = 3.5 in surface-local coords, but the visible
 // surface is concentrated in the inner ~±2 region for non-degenerate
 // poses, so ±2.5 covers "sweep all the way through and a bit past" without
 // wasting slider travel on regions where the curve doesn't show.
 const CROSS_SECTION_SLIDER_RANGE = 2.5;
-const CROSS_SECTION_SLIDER_LABEL = 'z₀';
+type CrossSectionName = 'x₀' | 'y₀' | 'z₀';
+const CROSS_SECTION_SLIDER_CONFIG: readonly {
+  readonly name: CrossSectionName;
+  readonly color: number;
+  readonly shape: ThumbShape;
+}[] = [
+  { name: 'x₀', color: VERMILLION,   shape: 'arrow-x' },
+  { name: 'y₀', color: BLUISH_GREEN, shape: 'arrow-y' },
+  { name: 'z₀', color: SKY_BLUE,     shape: 'arrow-z' },
+];
 // Section names are also the labels rendered on each tab. The cross-
 // section name doubles as the active-section identifier driving
 // uPlaneActive (#84) — the glow band only fires when this section is
@@ -366,25 +382,29 @@ const QUADRICS_UNIFORM_DECLS = /* glsl */ `
   uniform float uU;
   uniform float uV;
   uniform float uW;
-  // Cross-sections section (#84): math-Z slicing plane in surface-local
-  // coords. uPlaneActive is 0 when any other section is focused — the
-  // glow band only renders when the user is actively viewing the slicing
-  // lens. The slider→uniform routing in update() pre-converts the math-Z
-  // value to its world-axis equivalent (world-Y in the surface-local
-  // frame, per the math/world swap documented at the slider→uniform
-  // block), so this uniform is compared directly against pHit.y in the
-  // fragment shader.
+  // Cross-sections section (#84, expanded #112): math-axis slicing-plane
+  // offsets in surface-local *math* coords (x₀, y₀, z₀ direct from the
+  // sliders — the math→world swap happens in shadeHit). uPlaneActive is
+  // 0 when any other section is focused so the glow bands only render
+  // while the user is viewing the slicing lens.
+  uniform float uPlaneX;
   uniform float uPlaneY;
+  uniform float uPlaneZ;
   uniform float uPlaneActive;
   uniform vec3  uLightDir;
   uniform vec3  uBaseColor;
 `;
 
 const QUADRICS_HELPERS = /* glsl */ `
-  // Sky-blue glow color for the slicing-plane intersection ring, matching
-  // the slider 'c' / math-Z palette (the slicing axis). Reads as
-  // continuous with the existing axis-color story.
-  const vec3  PLANE_GLOW_COLOR = vec3(0.34, 0.71, 0.91);
+  // Per-axis glow colors for the slicing-plane intersection rings,
+  // matching the slider rack's vermillion/green/sky-blue math-axis
+  // palette so each ring's color identifies which plane drew it.
+  // Pedagogically critical for the all-zeros default pose where three
+  // orthogonal rings co-render through the surface center — without the
+  // color split they'd read as one curve.
+  const vec3  PLANE_GLOW_COLOR_X = vec3(0.84, 0.37, 0.00);  // vermillion
+  const vec3  PLANE_GLOW_COLOR_Y = vec3(0.00, 0.62, 0.45);  // bluish-green
+  const vec3  PLANE_GLOW_COLOR_Z = vec3(0.34, 0.71, 0.91);  // sky-blue
   // Half-width of the glow band in surface-local meters. 0.04 ≈ 4 cm at
   // SURFACE_CENTER's natural scale; wide enough that the ring is legible
   // through anti-aliasing as the plane sweeps, narrow enough that the ring
@@ -562,18 +582,31 @@ const QUADRICS_SHADE = /* glsl */ `
     }
     vec3 color = mix(baseColor, GRID_COLOR, gridMask * GRID_INTENSITY);
 
-    // Cross-sections glow band (#84). Brighten pixels on the surface
-    // whose math-Z (= surface-local world-Y) is close to the slicing
-    // plane, so the intersection curve reads as a glowing ring as the
-    // user sweeps the plane. Smooth falloff over the band width keeps
-    // anti-aliasing free and avoids a hard ring edge that would alias
-    // worse than the underlying surface. Additive (over the grid mix)
-    // so the glow stays legible against either base color or grid line.
+    // Cross-sections glow bands (#84, expanded #112). Brighten pixels on
+    // the surface whose surface-local position is close to each math-axis
+    // slicing plane, in that plane's per-axis color. Additive (over the
+    // grid mix) so the glow stays legible against either base color or
+    // grid line, and smooth falloff over the band width keeps the rings
+    // anti-aliased.
+    //
+    // Math→world axis mapping when comparing pHit (world frame) against
+    // uPlane{X,Y,Z} (math-frame offsets, slider values direct):
+    //   math-X plane offset x₀ → world-X = +x₀  ⇒ |pHit.x − uPlaneX|
+    //   math-Y plane offset y₀ → world-Z = −y₀  ⇒ |pHit.z + uPlaneY|
+    //   math-Z plane offset z₀ → world-Y = +z₀  ⇒ |pHit.y − uPlaneZ|
+    // The math-Y sign flip mirrors the linear-term routing (uW = -v)
+    // documented at the slider→uniform block, and exists because math-Y
+    // (forward) maps to −world-Z (camera-toward).
     if (uPlaneActive > 0.5) {
-      float planeDist = abs(pHit.y - uPlaneY);
-      float planeMask =
-        1.0 - smoothstep(0.0, PLANE_GLOW_HALF_WIDTH, planeDist);
-      color += PLANE_GLOW_COLOR * (PLANE_GLOW_INTENSITY * planeMask);
+      float dX = abs(pHit.x - uPlaneX);
+      float dY = abs(pHit.z + uPlaneY);
+      float dZ = abs(pHit.y - uPlaneZ);
+      float mX = 1.0 - smoothstep(0.0, PLANE_GLOW_HALF_WIDTH, dX);
+      float mY = 1.0 - smoothstep(0.0, PLANE_GLOW_HALF_WIDTH, dY);
+      float mZ = 1.0 - smoothstep(0.0, PLANE_GLOW_HALF_WIDTH, dZ);
+      color += PLANE_GLOW_COLOR_X * (PLANE_GLOW_INTENSITY * mX);
+      color += PLANE_GLOW_COLOR_Y * (PLANE_GLOW_INTENSITY * mY);
+      color += PLANE_GLOW_COLOR_Z * (PLANE_GLOW_INTENSITY * mZ);
     }
     return color;
   }
@@ -682,7 +715,9 @@ const quadricsExhibit: Exhibit = {
         uU: { value: 0.0 },
         uV: { value: 0.0 },
         uW: { value: 0.0 },
+        uPlaneX: { value: 0.0 },
         uPlaneY: { value: 0.0 },
+        uPlaneZ: { value: 0.0 },
         uPlaneActive: { value: 0.0 },
         uLightDir: { value: LIGHT_DIR.clone() },
         uBaseColor: { value: new THREE.Color(0.4, 0.7, 0.95) },
@@ -773,30 +808,36 @@ const quadricsExhibit: Exhibit = {
     });
     linearSliders = linearTermSliders;
 
-    // Cross-sections section (#84). One slider `z₀` driving the math-Z
-    // slicing plane. Sky-blue + arrow-z to keep the math-Z color/shape
-    // story consistent with slider 'c' (squared) and slider 'w' (linear)
-    // — same axis, different math role per section. Mounted at the top
-    // row of the rack (same y as 'a' and 'u') so the rack's top slot
-    // always holds the section's primary control regardless of lens.
-    const crossSectionTermSliders = [
-      new Slider({
-        label: CROSS_SECTION_SLIDER_LABEL,
-        min: -CROSS_SECTION_SLIDER_RANGE,
-        max: CROSS_SECTION_SLIDER_RANGE,
-        initial: 0,
-        snapDetent: SLIDER_SNAP_DETENT,
-        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
-        baseColor: SKY_BLUE,
-        thumbShape: 'arrow-z',
-      }),
-    ];
-    crossSectionTermSliders[0].group.position.set(
-      SLIDER_RACK_CENTER.x,
-      topY,
-      SLIDER_RACK_CENTER.z,
+    // Cross-sections section (#84, expanded #112). Three sliders x₀/y₀/z₀
+    // driving math-axis-aligned slicing planes. Vermillion / bluish-green
+    // / sky-blue + arrow-x/y/z mirrors the squared rack (a/b/c) and the
+    // linear rack (u/v/w) row-for-row — same axis, different math role
+    // per section — so "color = math axis, position = math axis" stays
+    // consistent across lenses. Default 0 each so the section opens
+    // showing three orthogonal cross-section rings through the surface
+    // center: the section's pedagogy is visible without dragging.
+    const crossSectionTopY = topY;
+    const crossSectionTermSliders = CROSS_SECTION_SLIDER_CONFIG.map(
+      (cfg, i) => {
+        const slider = new Slider({
+          label: cfg.name,
+          min: -CROSS_SECTION_SLIDER_RANGE,
+          max: CROSS_SECTION_SLIDER_RANGE,
+          initial: 0,
+          snapDetent: SLIDER_SNAP_DETENT,
+          grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+          baseColor: cfg.color,
+          thumbShape: cfg.shape,
+        });
+        slider.group.position.set(
+          SLIDER_RACK_CENTER.x,
+          crossSectionTopY - i * SLIDER_ROW_PITCH,
+          SLIDER_RACK_CENTER.z,
+        );
+        scene.add(slider.group);
+        return slider;
+      },
     );
-    scene.add(crossSectionTermSliders[0].group);
     crossSectionSliders = crossSectionTermSliders;
 
     // Three sections (#88, #84). The dispatch loop below reads from
@@ -968,7 +1009,7 @@ const quadricsExhibit: Exhibit = {
     // cylinder / plane families (rank 2 / 1 / 0).
     const [a, b, c, d] = sliders.map((s) => s.value);
     const [u, v, w] = linearSliders.map((s) => s.value);
-    const z0 = crossSectionSliders[0]?.value ?? 0;
+    const [x0, y0, z0] = crossSectionSliders.map((s) => s.value);
     if (material) {
       material.uniforms.uA.value = a;
       material.uniforms.uC.value = b;
@@ -977,11 +1018,15 @@ const quadricsExhibit: Exhibit = {
       material.uniforms.uU.value = u;
       material.uniforms.uW.value = -v;
       material.uniforms.uV.value = w;
-      // Cross-sections plane (#84). math-Z plane offset → world-Y in the
-      // surface-local frame (same swap as squared/linear math-Z routing
-      // above: slider 'c' → uB, slider 'w' → uV). Glow band gates on the
-      // section being active so the ring stays a slicing-lens-only effect.
-      material.uniforms.uPlaneY.value = z0;
+      // Cross-sections planes (#84, expanded #112). uPlane{X,Y,Z} carry
+      // the math-frame plane offsets straight through — the math→world
+      // swap (including the math-Y → −world-Z sign flip) lives in the
+      // shader's glow-band block, so this routing stays a 1:1 read of
+      // the sliders. uPlaneActive gates the bands so the rings only show
+      // while the slicing lens is focused.
+      material.uniforms.uPlaneX.value = x0 ?? 0;
+      material.uniforms.uPlaneY.value = y0 ?? 0;
+      material.uniforms.uPlaneZ.value = z0 ?? 0;
       material.uniforms.uPlaneActive.value =
         sections[activeSectionIndex]?.name === CROSS_SECTION_SECTION_NAME
           ? 1
