@@ -60,10 +60,19 @@ const TABLE: ReadonlyMap<string, string> = new Map([
   ['1,1,1|0', 'Pair of intersecting planes'],
   ['1,1,1|-1', 'Hyperbolic cylinder'],
   ['1,0,2|1', 'Pair of parallel planes'],
-  ['1,0,2|0', 'Degenerate'],
+  // Rank 1 + d_eff = 0 with no zero-axis linear: f reduces to a single
+  // squared term shifted by completing the square, vanishing on a single
+  // double plane. Was 'Degenerate' (algebraically true — the locus has
+  // measure zero in the squared-form sense), but the surface students see
+  // is unambiguously a plane, and the prior label hid the family from
+  // the readout. Refined in #138 alongside the exhibit-side mesh swap
+  // that actually renders this regime — the raymarcher's sign-change
+  // hit detection mathematically can't catch a tangent zero, so the
+  // pose was previously rendering as stochastic FP noise (cf. #116).
+  ['1,0,2|0', 'Double plane'],
   ['1,0,2|-1', 'Empty set'],
   ['0,1,2|1', 'Empty set'],
-  ['0,1,2|0', 'Degenerate'],
+  ['0,1,2|0', 'Double plane'],
   ['0,1,2|-1', 'Pair of parallel planes'],
   ['0,0,3|1', 'Empty set'],
   ['0,0,3|0', 'Degenerate'],
@@ -145,4 +154,77 @@ function lookup(nPlus: number, nMinus: number, nZero: number, dSign: Sign): stri
   // the table enumerates all 10 × 3 = 30 combinations.
   if (!family) throw new Error(`classify: missing taxonomy entry for ${key}`);
   return family;
+}
+
+export type MathAxis = 'x' | 'y' | 'z';
+
+export interface DoublePlanePose {
+  /** Math-frame axis perpendicular to the plane. */
+  axis: MathAxis;
+  /** Math-frame offset along `axis`. The plane is `axis = offset`. */
+  offset: number;
+}
+
+/**
+ * Detect the rank-1, `d_eff = 0`, no-zero-axis-linear regime that classify()
+ * labels 'Double plane'. Returns the math-frame plane location for callers
+ * that need to actually render it (the raymarcher's sign-change hit test
+ * can't catch a tangent zero — see #138). Returns null on every other pose.
+ *
+ * Mirrors the same `sign(...) → ZERO_EPSILON` floor and the same
+ * complete-the-square `d_eff` calculation as classify(), so a positive
+ * predicate result and a 'Double plane' label always agree.
+ */
+export function isDoublePlane(
+  a: number,
+  b: number,
+  c: number,
+  d: number,
+  u: number = 0,
+  v: number = 0,
+  w: number = 0,
+): DoublePlanePose | null {
+  const aS = sign(a);
+  const bS = sign(b);
+  const cS = sign(c);
+  const uS = sign(u);
+  const vS = sign(v);
+  const wS = sign(w);
+
+  // Rank exactly 1: one nonzero squared coef, two zero.
+  const rank = (aS !== 0 ? 1 : 0) + (bS !== 0 ? 1 : 0) + (cS !== 0 ? 1 : 0);
+  if (rank !== 1) return null;
+
+  // A linear term on a *zero-squared* axis can't be folded by completing
+  // the square; it produces a parabolic cylinder, not a plane. classify()
+  // routes those poses out before the d_eff fall-through, and so do we.
+  if (aS === 0 && uS !== 0) return null;
+  if (bS === 0 && vS !== 0) return null;
+  if (cS === 0 && wS !== 0) return null;
+
+  let dEff: number;
+  let axis: MathAxis;
+  let offset: number;
+  if (aS !== 0) {
+    dEff = d + (u * u) / (4 * a);
+    axis = 'x';
+    offset = -u / (2 * a);
+  } else if (bS !== 0) {
+    dEff = d + (v * v) / (4 * b);
+    axis = 'y';
+    offset = -v / (2 * b);
+  } else {
+    // cS !== 0 by rank check above.
+    dEff = d + (w * w) / (4 * c);
+    axis = 'z';
+    offset = -w / (2 * c);
+  }
+
+  if (Math.abs(dEff) >= ZERO_EPSILON) return null;
+
+  // Normalize negative zero away. `-u / (2 * a)` emits `-0` whenever
+  // `u === 0`, which is === +0 but not Object.is-equal — leaks into test
+  // assertions and any future serialization without changing any behavior
+  // that consumes the offset numerically.
+  return { axis, offset: offset === 0 ? 0 : offset };
 }

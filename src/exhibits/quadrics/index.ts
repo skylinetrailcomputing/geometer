@@ -8,7 +8,8 @@ import {
   VERMILLION,
   YELLOW,
 } from '@/scaffold/design/tokens';
-import { classify } from './classify';
+import { classify, isDoublePlane } from './classify';
+import { createDoublePlane, type DoublePlaneHandles } from './DoublePlane';
 import { EquationReadout } from './EquationReadout';
 import { FpsOverlay } from '@/scaffold/perf/FpsOverlay';
 import { Label } from '@/scaffold/ui/Label';
@@ -691,6 +692,12 @@ let crossSectionSliders: readonly Slider[] = [];
 // opens in the introductory pose from #112.
 let crossSectionToggles: readonly AxisToggle[] = [];
 let slicingPlanes: SlicingPlanesHandles | undefined;
+// Stand-in mesh for the rank-1 + d_eff = 0 tangent-zero regime (#138).
+// The raymarcher's sign-change hit detection mathematically can't catch
+// a tangent zero, so we render the plane explicitly when the predicate
+// fires and hide the raymarched mesh in the same step. See DoublePlane.ts.
+let doublePlane: DoublePlaneHandles | undefined;
+let surfaceMesh: THREE.Mesh | undefined;
 let presets: Preset[] = [];
 let sections: Section[] = [];
 let tabs: SectionTab[] = [];
@@ -787,7 +794,22 @@ const quadricsExhibit: Exhibit = {
       },
     });
     material = surfaceHandles.material;
+    surfaceMesh = surfaceHandles.mesh;
     scene.add(surfaceHandles.mesh);
+
+    // Double-plane stand-in mesh (#138). Hidden by default; update()
+    // toggles visibility against the raymarched mesh based on the
+    // isDoublePlane predicate. Base color + light direction match the
+    // raymarched surface so the regime transition reads as the same
+    // family of object — only the geometry the user is looking at
+    // changes, not the visual style.
+    doublePlane = createDoublePlane({
+      surfaceCenter: SURFACE_CENTER,
+      halfExtent: BOUND,
+      baseColor: new THREE.Color(0.4, 0.7, 0.95),
+      lightDir: LIGHT_DIR,
+    });
+    scene.add(doublePlane.group);
 
     // Top → bottom: a, b, c, d. Span centered on SLIDER_RACK_CENTER.
     // Per-slider color + shape pull from SLIDER_CONFIG (#58); the
@@ -1169,6 +1191,17 @@ const quadricsExhibit: Exhibit = {
         );
       }
     }
+    // Double-plane regime swap (#138). When isDoublePlane fires we hide
+    // the raymarched mesh and surface a literal PlaneGeometry in its
+    // place — the marcher's sign-change hit detection mathematically
+    // can't catch a tangent zero, so without this the plane either
+    // fails to render or renders as stochastic FP noise (#116). The
+    // predicate uses the same `sign(...)` floor and complete-the-square
+    // d_eff calculation as classify(), so a positive predicate result
+    // and a 'Double plane' family label always agree.
+    const doublePlanePose = isDoublePlane(a, b, c, d, u, v, w);
+    if (doublePlane) doublePlane.setPose(doublePlanePose);
+    if (surfaceMesh) surfaceMesh.visible = doublePlanePose === null;
     if (DEBUG_SWEEP && material) {
       elapsed += delta;
       const sweep = Math.cos((2 * Math.PI * elapsed) / SWEEP_PERIOD);
