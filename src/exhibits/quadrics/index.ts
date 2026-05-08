@@ -579,6 +579,21 @@ const QUADRICS_F_IMPLICIT = /* glsl */ `
   }
 `;
 
+// Analytic gradient of QUADRICS_F_IMPLICIT, opting out of the harness's
+// central-difference default (#131). Closed-form for a quadratic polynomial,
+// so no extra `fImplicit` calls per fragment, and — more important —
+// constant on flat poses where central differences amplify floating-point
+// noise into the math-Y = 0 fuzzy artifact tracked in #116.
+const QUADRICS_GRAD_F = /* glsl */ `
+  vec3 gradF(vec3 p) {
+    return vec3(
+      2.0 * uA * p.x + uU,
+      2.0 * uB * p.y + uV,
+      2.0 * uC * p.z + uW
+    );
+  }
+`;
+
 const QUADRICS_SHADE = /* glsl */ `
   // Gridlines as a depth cue. Two systems, never co-rendered (#45
   // headset feedback: simultaneous display read as cluttered):
@@ -750,6 +765,7 @@ const quadricsExhibit: Exhibit = {
       uniforms: QUADRICS_UNIFORM_DECLS,
       helpers: QUADRICS_HELPERS,
       fImplicit: QUADRICS_F_IMPLICIT,
+      gradF: QUADRICS_GRAD_F,
       shade: QUADRICS_SHADE,
       extraUniforms: {
         uA: { value: 1.0 },
