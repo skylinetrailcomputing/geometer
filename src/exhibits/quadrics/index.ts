@@ -133,25 +133,32 @@ const SECTION_TAB_RACK_PITCH = 0.23;
 // with their new position above the section boundary rather than inside
 // one tab.
 //
-// 2 × 4 layout (#110): the original 1 × 7 row reached too far rightward
-// to comfortably scan; reshaping into 2 rows × 4 cols keeps the same
-// horizontal pitch (0.13 m, sized to the longest label "H 2-sheets") but
-// halves the rightward reach. Drop "Sphere" — Reset is identical (both
-// (1,1,1,1)) and "Reset" carries the wider UX meaning, with Ellipsoid
-// adjacent for the closest related pose. Add Paraboloid + Saddle to fill
-// out the bottom row, completing the rank-2 quadric tour the v0.1 row
-// was missing.
+// 3 × 3 layout (#138): expanded from 2 × 4 to cover the rank-1 double-
+// plane regime alongside the rank-3 / rank-2 family tour. Wider pitch
+// (0.16 m vs. 0.13 m) accommodates the longer "Double plane" label
+// while keeping cell-to-cell breathing room comparable to the prior
+// 0.13 m pitch's gap-to-label ratio. Earlier history: 1 × 7 row in
+// v0.1, condensed to 2 × 4 in #110 (drop "Sphere" — Reset is identical
+// (1,1,1,1) and "Reset" carries the wider UX meaning; add Paraboloid +
+// Saddle to fill out the rank-2-with-linear column).
 //
 // Reading order is row-major left → right, top → bottom:
-//   Row 0: Reset, Ellipsoid, Cone, H 1-sheet
-//   Row 1: H 2-sheets, Cylinder, Paraboloid, Saddle
+//   Row 0: Reset, Ellipsoid, Cone
+//   Row 1: H 1-sheet, H 2-sheets, Cylinder
+//   Row 2: Paraboloid, Saddle, Double plane
 //
 // Values are slider-frame (a, b, c, d) per the math convention from #43:
 // X right, Y forward, Z up. So Cylinder (1, 1, 0, 1) is `X² + Y² = 1`, a
 // vertical (math-Z-aligned) cylinder; Cone (1, 1, -1, 0) opens along
 // math-Z (vertical); Paraboloid (1, 1, 0, 0) with linearValues (0, 0, -1)
 // reads as Z = X² + Y² (open upward along math-Z); Saddle (1, -1, 0, 0)
-// with the same linearValues reads as Z = X² - Y².
+// with the same linearValues reads as Z = X² - Y²; Double plane
+// (0, 1, 0, 0) is `Y² = 0` — the math-Y plane, the canonical rank-1 +
+// d_eff = 0 tangent-zero pose (#116, #138). The preset lands the rack
+// directly on that regime so the readout flips to "Double plane" and
+// the explicit plane mesh (DoublePlane.ts) renders in place of the
+// raymarched surface — verifies the fix in one click instead of three
+// sliders' worth of in-headset coordination.
 const PRESETS: readonly {
   readonly name: string;
   readonly values: PresetValues;
@@ -161,18 +168,20 @@ const PRESETS: readonly {
   { name: 'Reset', values: [1, 1, 1, 1] },
   { name: 'Ellipsoid', values: [2, 0.5, 1, 1] },
   { name: 'Cone', values: [1, 1, -1, 0] },
-  { name: 'H 1-sheet', values: [1, 1, -1, 1] },
   // Row 1
+  { name: 'H 1-sheet', values: [1, 1, -1, 1] },
   { name: 'H 2-sheets', values: [1, 1, -1, -1] },
   { name: 'Cylinder', values: [1, 1, 0, 1] },
+  // Row 2
   { name: 'Paraboloid', values: [1, 1, 0, 0], linearValues: [0, 0, -1] },
   { name: 'Saddle', values: [1, -1, 0, 0], linearValues: [0, 0, -1] },
+  { name: 'Double plane', values: [0, 1, 0, 0] },
 ];
 
-// Preset grid expansion (#93, 2 × 4 in #110, decoupled in #110 follow-up).
-// 8 preset buttons in a 2-row × 4-col grid, centered horizontally on x = 0
-// directly above the family-classifier readout. Hidden by default; the
-// heading's chevron toggle makes the grid visible.
+// Preset grid expansion (#93, 2 × 4 in #110, 3 × 3 in #138, decoupled
+// in #110 follow-up). 9 preset buttons in a 3-row × 3-col grid, centered
+// horizontally on x = 0 directly above the family-classifier readout.
+// Hidden by default; the heading's chevron toggle makes the grid visible.
 //
 // First pass in #110 anchored the grid at the heading's (x, y) and
 // extended rightward, putting the grid's center off to the left and
@@ -184,21 +193,21 @@ const PRESETS: readonly {
 // The chevron on the heading still affords expand/collapse; spatial
 // adjacency isn't the only legible signal.
 //
-// 4 buttons × 0.13 m horizontal pitch span 0.39 m, centered on x = 0
-// (cols at -0.195, -0.065, 0.065, 0.195) — fits within arm's reach and
-// stays clear of the family-classifier label's horizontal extent.
-// Vertical pitch matches the horizontal so cells read as roughly square,
-// and so row 1 lands above the classifier with comfortable clearance.
-// First-iteration trial in #93 used 0.08 horizontal pitch and was
-// reported as "smooshed" in headset: labels (down to "H 2-sheets") need
-// ~0.11 m of horizontal real estate at the chosen 0.022 m font, so 0.08
-// had labels overlapping into adjacent buttons.
-const PRESET_COLS = 4;
+// 3 buttons × 0.16 m horizontal pitch span 0.32 m, centered on x = 0
+// (cols at -0.16, 0, +0.16) — fits within arm's reach and stays clear
+// of the family-classifier label's horizontal extent. Pitch bumped from
+// 0.13 m (the 4-col layout's pitch, sized to "H 2-sheets" at ~0.11 m of
+// label width) to 0.16 m to fit "Double plane" at ~0.13 m comfortably
+// while keeping the cell-to-label gap proportional. Vertical pitch
+// stays 0.13 m (matches the 4-col pitch — row count is unbounded by
+// label width). First-iteration trial in #93 used 0.08 horizontal pitch
+// and was reported as "smooshed" in headset.
+const PRESET_COLS = 3;
 const PRESET_ROW_TOP_Y = 1.72;
-const PRESET_HORIZONTAL_PITCH = 0.13;
+const PRESET_HORIZONTAL_PITCH = 0.16;
 const PRESET_VERTICAL_PITCH = 0.13;
-// Centers the 4-col span on x = 0: leftmost col at -1.5 × pitch.
-const PRESET_ROW_START_X = -1.5 * PRESET_HORIZONTAL_PITCH;
+// Centers the 3-col span on x = 0: leftmost col at -1 × pitch.
+const PRESET_ROW_START_X = -1 * PRESET_HORIZONTAL_PITCH;
 
 // Canonical-forms heading label text. Includes a chevron that flips on
 // expand/collapse so the affordance is unambiguous even at a glance:
