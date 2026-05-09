@@ -16,13 +16,25 @@ export interface SliderOptions {
   min: number;
   max: number;
   initial: number;
-  // Snap-to-zero detent half-width. When the slider's continuous
-  // position satisfies |v| < snapDetent, the emitted value clamps to
-  // exactly 0. 0 disables the detent. The quadrics exhibit passes
-  // 0.05 (per its SPEC.md "Slider model") so the user can park
-  // precisely on degeneracy boundaries. Required so each scene
-  // declares the design choice rather than inheriting it implicitly.
+  // Snap-detent half-width. When the slider's continuous position
+  // satisfies `|v - p| < snapDetent` for any `p` in `snapPoints`, the
+  // emitted value clamps to exactly `p`. 0 disables snapping (or pass
+  // an empty `snapPoints`). The quadrics exhibit passes 0.05 (per its
+  // SPEC.md "Slider model") so the user can park precisely on
+  // degeneracy boundaries and canonical-form coordinates. Required so
+  // each scene declares the design choice rather than inheriting it
+  // implicitly.
   snapDetent: number;
+  // Detent target positions, paired with `snapDetent`. Common values:
+  // `[0]` for a single zero detent (degeneracy boundary parking);
+  // `[-1, 0, 1]` adds the canonical unit-form coefficients (#139) so
+  // textbook poses like the unit sphere park exactly at integer 1.
+  // Adjacent points must be at least `2 * snapDetent` apart or their
+  // capture windows will overlap. Required for the same reason as
+  // `snapDetent`: detent placement is a design-feel choice that varies
+  // by scene and slider role (e.g., cross-section sliders span ±2.5
+  // and don't hit canonical poses at ±1, so they pass `[0]` only).
+  snapPoints: readonly number[];
   // Ray–thumb hit-test sphere radius is `thumbRadius *
   // grabRadiusMultiplier`. Wider than the visual thumb makes re-grab
   // forgiving when the hand drifts off-aim during release; especially
@@ -78,11 +90,12 @@ export class Slider {
   private readonly hoverEmissive: THREE.Color;
   private readonly grabEmissive: THREE.Color;
 
-  // `rawValue` integrates hand motion every frame, untouched by the detent.
-  // `currentValue` is the emitted value — snapped to exactly 0 inside the
-  // detent — and is what `get value()` returns to the shader. Splitting the
-  // two lets slow drags accumulate underneath the detent instead of being
-  // re-pinned to 0 each frame (#24).
+  // `rawValue` integrates hand motion every frame, untouched by detents.
+  // `currentValue` is the emitted value — snapped to the nearest
+  // `snapPoints` entry inside its detent half-width — and is what
+  // `get value()` returns to the shader. Splitting the two lets slow
+  // drags accumulate underneath the detent instead of being re-pinned
+  // each frame (#24).
   private rawValue: number;
   private currentValue: number;
   private grabbedBy: THREE.Object3D | null = null;
@@ -99,8 +112,11 @@ export class Slider {
       ...options,
     };
     this.rawValue = clamp(options.initial, options.min, options.max);
-    this.currentValue =
-      Math.abs(this.rawValue) < this.opts.snapDetent ? 0 : this.rawValue;
+    this.currentValue = applySnap(
+      this.rawValue,
+      this.opts.snapPoints,
+      this.opts.snapDetent,
+    );
 
     this.group = new THREE.Group();
     this.group.name = `slider:${options.label}`;
@@ -157,8 +173,11 @@ export class Slider {
    */
   setValue(v: number): void {
     this.rawValue = clamp(v, this.opts.min, this.opts.max);
-    this.currentValue =
-      Math.abs(this.rawValue) < this.opts.snapDetent ? 0 : this.rawValue;
+    this.currentValue = applySnap(
+      this.rawValue,
+      this.opts.snapPoints,
+      this.opts.snapDetent,
+    );
     if (this.grabbedBy) {
       this.lastControllerLocalX = this.controllerLocalX(this.grabbedBy);
     }
@@ -167,11 +186,12 @@ export class Slider {
 
   /**
    * Detent-bypassing variant of `setValue`, used by programmatic tweens
-   * (#56). The detent's purpose is to let the user park *deliberately* on a
-   * degeneracy boundary; during a multi-frame morph it just creates a dead
-   * window across ±snapDetent where the thumb visibly sticks at zero. The
-   * tween caller is expected to finish with a normal `setValue` so the
-   * detent re-engages at rest.
+   * (#56). The detents' purpose is to let the user park *deliberately* on a
+   * canonical pose (degeneracy boundary, unit-form coefficient); during a
+   * multi-frame morph each detent just creates a dead window across
+   * ±snapDetent where the thumb visibly sticks. The tween caller is
+   * expected to finish with a normal `setValue` so the detents re-engage
+   * at rest.
    */
   setValueRaw(v: number): void {
     this.rawValue = clamp(v, this.opts.min, this.opts.max);
@@ -272,8 +292,11 @@ export class Slider {
       this.opts.min,
       this.opts.max,
     );
-    this.currentValue =
-      Math.abs(this.rawValue) < this.opts.snapDetent ? 0 : this.rawValue;
+    this.currentValue = applySnap(
+      this.rawValue,
+      this.opts.snapPoints,
+      this.opts.snapDetent,
+    );
     this.syncThumbPosition();
   }
 
@@ -283,15 +306,16 @@ export class Slider {
     return this.localPoint.x;
   }
 
-  // Thumb tracks `currentValue` — the emitted/shader value with the detent
-  // already applied (or bypassed, for setValueRaw). Inside the detent during
-  // a drag the thumb parks at zero so it stays aligned with what the equation
-  // readout will display (per SPEC.md "Slider model"). The slow-drag-escape
-  // behavior of #24 is preserved by `rawValue` accumulating in `update()`
-  // underneath — once raw clears ±snapDetent, currentValue tracks it again.
-  // Tween-time setValueRaw bypasses the detent so the thumb sweeps through
-  // zero rather than visibly sticking across the ±snapDetent window mid-
-  // morph (#56).
+  // Thumb tracks `currentValue` — the emitted/shader value with detents
+  // already applied (or bypassed, for setValueRaw). Inside any detent
+  // during a drag the thumb parks at that detent's snap point so it stays
+  // aligned with what the equation readout will display (per SPEC.md
+  // "Slider model"). The slow-drag-escape behavior of #24 is preserved
+  // by `rawValue` accumulating in `update()` underneath — once raw clears
+  // the ±snapDetent window around a snap point, currentValue tracks it
+  // again. Tween-time setValueRaw bypasses the detents so the thumb
+  // sweeps through them rather than visibly sticking at each one across
+  // their ±snapDetent windows mid-morph (#56).
   private syncThumbPosition(): void {
     const halfLen = this.opts.trackLength / 2;
     const t =
@@ -382,6 +406,23 @@ function buildArrowGeometry(
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(Math.max(v, lo), hi);
+}
+
+// Snap `v` to the first `snapPoints` entry whose distance to `v` is
+// strictly less than `halfWidth`; otherwise pass `v` through. Strict `<`
+// matches the pre-#139 single-zero detent contract. Detent windows must
+// not overlap (callers space points by at least `2 * halfWidth`); if
+// they did, the *first* matching point wins, which keeps behavior
+// deterministic but rewards keeping snap points well-separated.
+function applySnap(
+  v: number,
+  snapPoints: readonly number[],
+  halfWidth: number,
+): number {
+  for (const p of snapPoints) {
+    if (Math.abs(v - p) < halfWidth) return p;
+  }
+  return v;
 }
 
 function pulse(controller: THREE.Object3D): void {

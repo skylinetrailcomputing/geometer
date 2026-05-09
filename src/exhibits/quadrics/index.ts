@@ -217,11 +217,30 @@ const CANONICAL_FORMS_LABEL_EXPANDED = 'Canonical forms ▾';
 const BOUND = 3.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 
-// Slider snap-to-zero detent half-width, per SPEC.md "Slider model".
-// Lets the user park exactly on a degeneracy boundary (cone, single
-// plane, etc.) instead of approximating. Passed into every
+// Slider detent half-width, per SPEC.md "Slider model". Lets the user
+// park exactly on a snap point (degeneracy boundary or canonical-form
+// coordinate) instead of approximating. Passed into every
 // scaffold/ui/Slider construction in this exhibit.
 const SLIDER_SNAP_DETENT = 0.05;
+
+// Detent positions for the squared coefficients (a/b/c/d) and the
+// linear-term sliders (u/v/w). 0 keeps every degeneracy boundary
+// reachable (cone at c = 0, cylinder at one squared coef = 0, double
+// plane at two squared coefs = 0, etc.). ±1 (#139) lets the textbook
+// unit poses — unit sphere x² + y² + z² = 1, unit cone, unit
+// hyperboloids — park on integer coefficients exactly, where without
+// the detent dragging "to roughly 1" actually parks at 0.97 / 1.04
+// and the equation readout reads as near-canonical-but-not. Spaced
+// 1.0 apart, well past 2 × SLIDER_SNAP_DETENT, so the windows don't
+// overlap.
+const SLIDER_SNAP_POINTS_CANONICAL: readonly number[] = [-1, 0, 1];
+
+// Cross-section sliders (x₀/y₀/z₀) span ±CROSS_SECTION_SLIDER_RANGE
+// (currently ±2.5) and don't hit canonical poses at ±1, so they keep
+// the single zero detent only — there's nothing pedagogically special
+// about parking the slicing plane at x₀ = 1. Pending headset feel
+// (#139), revisit if a wider integer-grid detent set earns its weight.
+const SLIDER_SNAP_POINTS_ZERO_ONLY: readonly number[] = [0];
 
 // Preset → preset family-morph tween parameters (#56). 0.9 s after a
 // headset trial of the original 0.3 s — three-times slower reads as
@@ -841,6 +860,7 @@ const quadricsExhibit: Exhibit = {
         max: 2,
         initial: 1,
         snapDetent: SLIDER_SNAP_DETENT,
+        snapPoints: SLIDER_SNAP_POINTS_CANONICAL,
         grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
         baseColor: cfg.color,
         thumbShape: cfg.shape,
@@ -904,6 +924,7 @@ const quadricsExhibit: Exhibit = {
         max: 2,
         initial: 0,
         snapDetent: SLIDER_SNAP_DETENT,
+        snapPoints: SLIDER_SNAP_POINTS_CANONICAL,
         grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
         baseColor: cfg.color,
         thumbShape: cfg.shape,
@@ -935,6 +956,7 @@ const quadricsExhibit: Exhibit = {
           max: CROSS_SECTION_SLIDER_RANGE,
           initial: 0,
           snapDetent: SLIDER_SNAP_DETENT,
+          snapPoints: SLIDER_SNAP_POINTS_ZERO_ONLY,
           grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
           baseColor: cfg.color,
           thumbShape: cfg.shape,
