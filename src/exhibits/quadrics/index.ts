@@ -1110,6 +1110,10 @@ const quadricsExhibit: Exhibit = {
     for (const section of sections) {
       for (const s of section.sliders) s.update();
     }
+    // `d` lives outside the Section abstraction (#140), so it needs its
+    // own update() call — without this the slider integrates no controller
+    // motion even after a successful tryGrab.
+    dSlider?.update();
     // Presets are global (#93): always tick so any in-flight press flash
     // expires cleanly even after the row collapses. Hover / billboard
     // only when expanded — collapsed presets are hidden and shouldn't
@@ -1122,6 +1126,15 @@ const quadricsExhibit: Exhibit = {
     }
     const activeSection = sections[activeSectionIndex];
     for (const s of activeSection.sliders) s.updateHover(controllers);
+    // `d` lives outside the Section abstraction (#140); hover-light it
+    // whenever it's currently visible (i.e. not in Cross sections) so
+    // the user gets the same "you can grab now" affordance as a/b/c.
+    if (
+      dSlider !== undefined &&
+      activeSection.name !== CROSS_SECTION_SECTION_NAME
+    ) {
+      dSlider.updateHover(controllers);
+    }
     // Cross-section toggles tick / hover only while their section is
     // focused. Their groups inherit visibility from the slider groups
     // (Section.setActive flips slider.group.visible), so a hidden
