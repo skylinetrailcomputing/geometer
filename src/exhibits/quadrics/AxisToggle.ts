@@ -102,6 +102,11 @@ export class AxisToggle {
     return this.enabled;
   }
 
+  dispose(): void {
+    this.mesh.geometry.dispose();
+    (this.mesh.material as THREE.Material).dispose();
+  }
+
   /**
    * Test whether `controller`'s forward ray hits the toggle. On hit, flip
    * enabled, fire haptics + press flash, and return true. The caller

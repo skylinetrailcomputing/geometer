@@ -155,6 +155,13 @@ export interface DoublePlaneHandles {
    * the caller passes the predicate's result through unchanged.
    */
   setPose(pose: PlanePose | null): void;
+
+  /**
+   * Dispose the shared plane geometry + shader material. Call once
+   * when the owning exhibit is unmounted; the two sibling meshes share
+   * a single geometry/material pair, so each is disposed exactly once.
+   */
+  dispose(): void;
 }
 
 /**
@@ -236,6 +243,10 @@ export function createDoublePlane(opts: DoublePlaneOptions): DoublePlaneHandles 
           meshes[i].visible = false;
         }
       }
+    },
+    dispose(): void {
+      geometry.dispose();
+      material.dispose();
     },
   };
 }

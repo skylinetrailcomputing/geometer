@@ -47,4 +47,12 @@ export class Section {
     this.active = active;
     for (const s of this.sliders) s.group.visible = active;
   }
+
+  // Section is a pure container — the exhibit owns the underlying
+  // Slider instances and disposes them directly. Implemented for
+  // contract parity with the rest of `scaffold/ui/` so callers can
+  // treat any owned primitive uniformly during exhibit unmount.
+  dispose(): void {
+    // intentionally empty
+  }
 }

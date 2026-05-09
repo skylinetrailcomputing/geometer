@@ -144,6 +144,13 @@ export interface SlicingPlanesHandles {
    * per-axis state.
    */
   setVisibility(x: boolean, y: boolean, z: boolean): void;
+
+  /**
+   * Dispose each per-axis plane's PlaneGeometry + ShaderMaterial.
+   * Geometries and materials are not shared across axes (each plane is
+   * built by its own `buildPlaneMesh` call), so iterate all three.
+   */
+  dispose(): void;
 }
 
 /**
@@ -201,6 +208,12 @@ export function createSlicingPlanes(
       xPlane.visible = x;
       yPlane.visible = y;
       zPlane.visible = z;
+    },
+    dispose(): void {
+      for (const mesh of [xPlane, yPlane, zPlane]) {
+        mesh.geometry.dispose();
+        (mesh.material as THREE.Material).dispose();
+      }
     },
   };
 }
