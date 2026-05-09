@@ -102,10 +102,21 @@ export class SceneRack {
    * the event to the current exhibit's `onSelectStart` if the rack
    * passed. On hit, fires the matched tab's press flash + haptics
    * and invokes `onSelect(id)`.
+   *
+   * **Immediate active-state update (#150 plan v4 §3.2 / DeepSeek #4).**
+   * The tapped tab's visual active state is promoted *before*
+   * invoking `onSelect`, so the highlight switches in the same
+   * render frame as the tap rather than waiting on the deferred
+   * `switchExhibitNow` (one-frame defer + the unmount/mount cost).
+   * The shell's later `setActiveExhibit(resolvedId)` is idempotent
+   * if already active and re-syncs the rack if the deferred switch
+   * resolved to a different id (e.g., bogus or non-cluster id that
+   * fell back to the cluster default).
    */
   tryActivate(controller: THREE.Object3D): boolean {
     for (let i = 0; i < this.tabs.length; i++) {
       if (this.tabs[i].tryActivate(controller)) {
+        this.setActiveExhibit(this.exhibitIds[i]);
         this.onSelect(this.exhibitIds[i]);
         return true;
       }
