@@ -1,7 +1,15 @@
 import * as THREE from 'three';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
+import { CLUSTER_CALCULUS3 } from './clusters';
 import type { Exhibit, ExhibitContext } from './Exhibit';
 import { listExhibits } from './registry';
+import { SceneRack } from './SceneRack';
+import { createSwitchScheduler } from './switch-scheduler';
+import {
+  planUrlSync,
+  resolveExhibitId,
+  type HistoryMode,
+} from './url-routing';
 
 // Vite HMR can re-execute module-level code in dev. `bootShell` is
 // idempotent against double-invocation: subsequent calls early-return
@@ -50,13 +58,32 @@ export function bootShell(): void {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  // Shell-owned XR controllers (#150 step 4). Listeners are registered
-  // once at boot; controller events dispatch to the currently-mounted
-  // exhibit via `currentExhibit.onSelectStart` / `onSelectEnd`. Step 5
-  // will add rack-first-refusal arbitration before the dispatch line —
-  // the SceneRack instance is constructed in step 5, so step 4's
-  // selectstart body is a direct dispatch with no rack reference.
+  // Cluster filter (#150 step 5). The SceneRack and the URL-param
+  // resolver both operate over cluster members only; non-cluster
+  // exhibits (today: `hello`) stay registered so they're reachable
+  // via direct dev import, but are excluded from the rack and from
+  // `?exhibit=` resolution. An unknown / non-cluster / empty id at
+  // boot console-warns and falls back to `clusterExhibits[0]` — see
+  // `resolveExhibitId` semantics in `url-routing.ts`.
+  const clusterExhibits = listExhibits().filter(
+    (e) => e.cluster === CLUSTER_CALCULUS3,
+  );
+  if (clusterExhibits.length === 0) {
+    console.warn('geometer: no cluster exhibits registered; nothing to mount.');
+    return;
+  }
+  const defaultId = clusterExhibits[0].id;
+
+  // Shell-owned XR controllers (#150 step 4). Listeners are
+  // registered once at boot; controller events route through
+  // rack-first-refusal (step 5) and then dispatch to the
+  // currently-mounted exhibit. The `selectstart` listener checks
+  // `rack.tryActivate(c)` first — if the rack consumed the event
+  // (a tab was tapped), the exhibit's `onSelectStart` is skipped
+  // for that frame, preventing a slider grab from also firing the
+  // navigation switch.
   let currentExhibit: Exhibit | null = null;
+  let currentCtx: ExhibitContext | null = null;
   // Iterate over the literal tuple so each `c` keeps its
   // `renderer.xr.getController` return type — the XR event overload
   // (`'connected'` / `'disconnected'` / `'selectstart'` / `'selectend'`)
@@ -89,6 +116,14 @@ export function bootShell(): void {
       delete c.userData.gamepad;
     });
     c.addEventListener('selectstart', () => {
+      // Rack first refusal (#150 step 5): the rack consumes a tap
+      // when it lands on a SceneTab; otherwise the event flows to
+      // the current exhibit. SceneRack.tryActivate fires the
+      // tapped tab's immediate active-state update before
+      // returning, so the highlight switches in the same render
+      // frame even though the actual mount swap is deferred to
+      // the next animation frame by the scheduler.
+      if (rack.tryActivate(c)) return;
       currentExhibit?.onSelectStart(c);
     });
     c.addEventListener('selectend', () => {
@@ -97,58 +132,140 @@ export function bootShell(): void {
   }
   const controllers: readonly THREE.Object3D[] = [controller0, controller1];
 
-  // URL-param exhibit selector (#120). Default = first registered.
-  // Unknown id → console-warn and fall back so the page still renders
-  // something rather than failing silently. Selection happens at boot
-  // only; there's no in-session swap path today — step 5 (#150) adds the
-  // SceneRack-driven swap and a cluster-only URL resolver. For step 4 the
-  // existing single-exhibit boot routing is retained verbatim, so
-  // `?exhibit=hello` still mounts hello (cluster filter lands in step 5).
-  const all = listExhibits();
-  if (all.length === 0) {
-    console.warn('geometer: no exhibits registered; nothing to mount.');
-    return;
+  // SceneRack (#150 step 5): one tab per cluster member, tap →
+  // `requestSwitch(id, 'push')` so a SceneTab tap pushes a new
+  // history entry the user can back-button out of. The rack's
+  // `onSelect` runs at tap time; the actual mount swap happens
+  // on the next animation-loop tick via the scheduler.
+  const rack = new SceneRack({
+    exhibits: clusterExhibits,
+    grabRadiusMultiplier: 2.75,
+    onSelect: (id) => scheduler.requestSwitch(id, 'push'),
+  });
+  scene.add(rack.group);
+
+  function applyUrlSync(id: string, mode: HistoryMode): void {
+    const plan = planUrlSync(id, mode, defaultId, window.location.href);
+    if (plan.write === 'push') history.pushState(null, '', plan.href);
+    else if (plan.write === 'replace') history.replaceState(null, '', plan.href);
   }
-  const requestedId = new URLSearchParams(window.location.search).get('exhibit');
-  let exhibit = all[0];
-  if (requestedId !== null) {
-    const match = all.find((e) => e.id === requestedId);
-    if (match) {
-      exhibit = match;
-    } else {
+
+  function switchExhibitNow(
+    requestedId: string | null,
+    mode: HistoryMode,
+  ): void {
+    // 1. Resolve to a definite cluster-member id. `requestedId`
+    //    rides through as `null` for the bare-URL boot path
+    //    (silent fallback) and as `''` for an empty `?exhibit=`
+    //    (warn + fall back) — see `resolveExhibitId` semantics.
+    const { id: targetId, fellBack } = resolveExhibitId(
+      requestedId,
+      clusterExhibits,
+    );
+    if (fellBack) {
       console.warn(
         `geometer: unknown exhibit id "${requestedId}"; ` +
-          `falling back to "${exhibit.id}". ` +
-          `Registered ids: ${all.map((e) => e.id).join(', ')}.`,
+          `falling back to "${targetId}". ` +
+          `Cluster ids: ${clusterExhibits.map((e) => e.id).join(', ')}.`,
       );
     }
+
+    // 2. Sync rack + URL on the resolved target id, UNCONDITIONALLY.
+    //    Even when the mount swap is skipped (already on this
+    //    exhibit), this normalizes a stale `?exhibit=bogus` URL or
+    //    out-of-date rack highlight (Sonnet #2 + GPT #6).
+    rack.setActiveExhibit(targetId);
+    applyUrlSync(targetId, mode);
+
+    // 3. Skip the mount swap if already there.
+    if (currentExhibit?.id === targetId) return;
+
+    const target = clusterExhibits.find((e) => e.id === targetId)!;
+    if (currentExhibit && currentCtx) {
+      currentExhibit.unmount(currentCtx);
+      scene.remove(currentCtx.group);
+    }
+    const group = new THREE.Group();
+    group.name = `exhibit:${targetId}`;
+    scene.add(group);
+    const ctx: ExhibitContext = { group, renderer, camera, controllers };
+    target.mount(ctx);
+    currentExhibit = target;
+    currentCtx = ctx;
   }
 
-  // Per-exhibit root group (#150). The shell owns scene-graph parenting;
-  // exhibits add their content to `ctx.group`, not to the scene root.
-  // Step 5 will replace this with an in-session swap path that drops the
-  // current exhibit's group + mounts the next one.
-  const group = new THREE.Group();
-  group.name = `exhibit:${exhibit.id}`;
-  scene.add(group);
+  const scheduler = createSwitchScheduler({ commit: switchExhibitNow });
 
-  const ctx: ExhibitContext = { group, renderer, camera, controllers };
-  exhibit.mount(ctx);
-  currentExhibit = exhibit;
+  // `popstate` fires when the user uses the browser back/forward
+  // button. Read the param off the URL the browser has already
+  // committed to; pass `'none'` so we don't push another entry
+  // (which would loop). The raw value (which may be null for a
+  // bare URL or '' for `?exhibit=` with no value) rides through
+  // to the resolver, which distinguishes the two: bare URL is
+  // silent, empty value warns.
+  window.addEventListener('popstate', () => {
+    const id = new URLSearchParams(window.location.search).get('exhibit');
+    scheduler.requestSwitch(id, 'none');
+  });
+
+  // Best-effort shader pre-warm (#150 plan §4.4). Walks the
+  // non-default cluster exhibits at boot and runs a mount → compile
+  // → unmount cycle so the first in-session switch into a
+  // not-yet-mounted exhibit has a chance of skipping the cold
+  // ShaderMaterial compile. **Two known limitations make this an
+  // experiment, not a guarantee:** (1) `unmount` disposes owned
+  // materials, which may release the renderer-side compiled
+  // program; (2) `renderer.compile(scene, camera)` runs against
+  // the desktop `PerspectiveCamera`, but in-XR rendering uses an
+  // `ArrayCamera` whose program-cache key may differ. The cost is
+  // small (handful of allocations at boot); efficacy is measured
+  // in headset smoke (§7) and we file a follow-up if first-switch
+  // visibly stalls.
+  const requestedParam = new URLSearchParams(window.location.search).get(
+    'exhibit',
+  );
+  const { id: initialId } = resolveExhibitId(requestedParam, clusterExhibits);
+  for (const e of clusterExhibits) {
+    if (e.id === initialId) continue;
+    const warmGroup = new THREE.Group();
+    warmGroup.name = `warm:${e.id}`;
+    scene.add(warmGroup);
+    const warmCtx: ExhibitContext = {
+      group: warmGroup,
+      renderer,
+      camera,
+      controllers,
+    };
+    e.mount(warmCtx);
+    renderer.compile(scene, camera);
+    e.unmount(warmCtx);
+    scene.remove(warmGroup);
+  }
+
+  // Initial-boot mount: route through the same scheduler so the
+  // `'replace'` history mode normalizes a bogus / non-cluster /
+  // empty `?exhibit=` without leaving a forward history entry the
+  // user has to back through. The raw `requestedParam` (which may
+  // be null for a bare URL) rides through unchanged so the
+  // resolver can keep the bare-URL boot silent.
+  scheduler.requestSwitch(requestedParam, 'replace');
 
   const timer = new THREE.Timer();
   // Page Visibility integration: prevents huge delta spikes after the tab
   // (or Quest headset) is backgrounded and re-focused mid-session.
   timer.connect(document);
   renderer.setAnimationLoop(() => {
+    // Drain a pending switch at frame start, before update / render,
+    // so a controller event never unmounts the exhibit currently
+    // dispatching. Coalescing means two `requestSwitch` calls in
+    // the same tick mount only the latest target.
+    scheduler.drain();
     timer.update();
     const delta = timer.getDelta();
-    // Dispatch through `currentExhibit` (matching `selectstart` / `selectend`
-    // dispatch above) so step 5's swap path only needs to reassign
-    // `currentExhibit` — the animation loop picks up the new exhibit
-    // automatically. Equivalent to `exhibit.update` in step 4 (single
-    // exhibit, no swap), but stays correct when step 5 lands.
     currentExhibit?.update({ delta });
+    rack.faceCamera(camera);
+    rack.updateHover(controllers);
+    rack.update();
     renderer.render(scene, camera);
   });
 }

@@ -80,17 +80,42 @@ If your PR introduces a new exhibit (typically `src/exhibits/<topic>/`):
   rendering invariants, explicit scope boundaries.
 - Implement the `Exhibit` interface from `src/shell/Exhibit.ts` and
   call `registerExhibit(...)` at module top level so a side-effect
-  import lands the registration.
+  import lands the registration. The interface requires:
+  - `mount(ctx)` / `update(frame)` / `unmount(ctx)` — `unmount` is
+    required (no `?`) and must dispose every owned GPU resource
+    (geometries, materials, troika text instances, primitives that
+    expose `dispose()`) and unregister any side-effects (timers,
+    RAFs, listeners). The shell removes the per-exhibit `group`
+    afterwards; you don't need to clear its children manually. Each
+    re-mount must allocate fresh — keep module-scoped handles, reset
+    them in `unmount`, and guard double-dispose with
+    `if (handle) { handle.dispose(); handle = undefined; }`.
+  - `onSelectStart(controller)` / `onSelectEnd(controller)` — the
+    shell owns the XR controllers and dispatches `selectstart` /
+    `selectend` here after a rack-first-refusal check. Exhibits
+    never call `addEventListener` on controllers themselves and
+    never own the visual aim ray. A no-interaction exhibit can
+    leave both methods as `() => {}`.
 - Add a side-effect `import './exhibits/<topic>'` to `src/main.ts`
-  so the registration runs at boot. The shell's URL-param selector
-  (`?exhibit=<id>`) routes to whichever exhibit's `id` matches.
+  so the registration runs at boot. To appear in the SceneRack
+  navigation row and be reachable via `?exhibit=<id>`, set
+  `cluster: CLUSTER_CALCULUS3` (or your future cluster's `ClusterId`)
+  on the exhibit. Without a `cluster`, the exhibit is filtered out
+  of the rack and the URL resolver — useful for toolchain smoke
+  tests like `hello`, which is reachable only via direct dev import.
+- The SceneRack lives at worldspace anchors `Y = 1.73`, `X = -0.44`,
+  `Z = -0.7` with horizontal `SCENE_TAB_PITCH = 0.20` (see
+  `src/shell/SceneRack.ts`). For the calculus3 cluster the existing
+  quadrics layout has free space above `Y = 1.50`; if your scene's
+  rack stacks bring elements above `Y = 1.65`, lay them out beside
+  the SectionTab column instead so the navigation row stays readable.
 - **Lean on `src/scaffold/`** for shared infrastructure rather than
   copying from `quadrics/`:
-  - UI primitives (`Slider`, `Preset`, `SectionTab`, `Section`,
-    `WorldAxes`, `Label`) live in `scaffold/ui/`. Their quadric-tuned
-    constants are required constructor options — declare your scene's
-    `snapDetent` / `grabRadiusMultiplier` / etc. explicitly so the
-    intent is visible at the call site.
+  - UI primitives (`Slider`, `Preset`, `SectionTab`, `SceneTab`,
+    `Section`, `WorldAxes`, `Label`) live in `scaffold/ui/`. Their
+    quadric-tuned constants are required constructor options —
+    declare your scene's `snapDetent` / `grabRadiusMultiplier` /
+    etc. explicitly so the intent is visible at the call site.
   - Math ↔ world frame helpers are in `scaffold/math/frames.ts`
     (math-Y forward = −world-Z; covered by basis-vector tests).
     Use these instead of open-coding the swap.
