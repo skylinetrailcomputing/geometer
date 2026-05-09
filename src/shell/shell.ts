@@ -3,23 +3,15 @@ import { VRButton } from 'three/addons/webxr/VRButton.js';
 import type { Exhibit, ExhibitContext } from './Exhibit';
 import { listExhibits } from './registry';
 
-// Visible 1 m laser line along controller −Z, so the user can see where
-// they're aiming before pressing the trigger. Owned by the shell as of
-// #150 step 4 — was previously per-exhibit in `quadrics/setupControllers`.
-function buildAimRayLine(): THREE.Line {
-  const rayGeom = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(0, 0, -1),
-  ]);
-  const rayMat = new THREE.LineBasicMaterial({
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0.6,
-  });
-  return new THREE.Line(rayGeom, rayMat);
-}
+// Vite HMR can re-execute module-level code in dev. `bootShell` is
+// idempotent against double-invocation: subsequent calls early-return
+// rather than registering a second set of controllers / listeners /
+// exhibit groups, which would leak GPU resources and double-fire events.
+let booted = false;
 
 export function bootShell(): void {
+  if (booted) return;
+  booted = true;
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x111122);
 
@@ -74,8 +66,21 @@ export function bootShell(): void {
   const controller1 = renderer.xr.getController(1);
   scene.add(controller0);
   scene.add(controller1);
+  // Visible 1 m laser line along controller −Z. One geometry + material
+  // shared across both controllers (matches the pre-#150 quadrics setup,
+  // which also shared the rayGeom + rayMat instances rather than
+  // allocating per controller).
+  const aimRayGeom = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 0, -1),
+  ]);
+  const aimRayMat = new THREE.LineBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.6,
+  });
   for (const c of [controller0, controller1] as const) {
-    c.add(buildAimRayLine());
+    c.add(new THREE.Line(aimRayGeom, aimRayMat));
     c.addEventListener('connected', (event: { data: XRInputSource }) => {
       const inputSource = event.data;
       if (inputSource.gamepad) c.userData.gamepad = inputSource.gamepad;
@@ -138,7 +143,12 @@ export function bootShell(): void {
   renderer.setAnimationLoop(() => {
     timer.update();
     const delta = timer.getDelta();
-    exhibit.update({ delta });
+    // Dispatch through `currentExhibit` (matching `selectstart` / `selectend`
+    // dispatch above) so step 5's swap path only needs to reassign
+    // `currentExhibit` — the animation loop picks up the new exhibit
+    // automatically. Equivalent to `exhibit.update` in step 4 (single
+    // exhibit, no swap), but stays correct when step 5 lands.
+    currentExhibit?.update({ delta });
     renderer.render(scene, camera);
   });
 }

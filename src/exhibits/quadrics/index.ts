@@ -1379,7 +1379,13 @@ const quadricsExhibit: Exhibit = {
       material.dispose();
       material = undefined;
     }
-    if (surfaceMesh?.geometry) surfaceMesh.geometry.dispose();
+    if (surfaceMesh) {
+      // Match the guard pattern of every other named handle (DeepSeek #5
+      // / v3-roundtable): dispose-then-null inline so a double-unmount
+      // can't dispose the geometry twice.
+      surfaceMesh.geometry.dispose();
+      surfaceMesh = undefined;
+    }
     if (doublePlane) {
       doublePlane.dispose();
       doublePlane = undefined;
@@ -1396,7 +1402,8 @@ const quadricsExhibit: Exhibit = {
     linearSliders = [];
     crossSectionSliders = [];
     crossSectionToggles = [];
-    surfaceMesh = undefined;
+    // surfaceMesh is reset inline in the named-handle block above so the
+    // dispose guard stays inside one branch.
     presets = [];
     sections = [];
     tabs = [];
