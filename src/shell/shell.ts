@@ -1,7 +1,23 @@
 import * as THREE from 'three';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
-import type { ExhibitContext } from './Exhibit';
+import type { Exhibit, ExhibitContext } from './Exhibit';
 import { listExhibits } from './registry';
+
+// Visible 1 m laser line along controller −Z, so the user can see where
+// they're aiming before pressing the trigger. Owned by the shell as of
+// #150 step 4 — was previously per-exhibit in `quadrics/setupControllers`.
+function buildAimRayLine(): THREE.Line {
+  const rayGeom = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 0, -1),
+  ]);
+  const rayMat = new THREE.LineBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.6,
+  });
+  return new THREE.Line(rayGeom, rayMat);
+}
 
 export function bootShell(): void {
   const scene = new THREE.Scene();
@@ -42,10 +58,47 @@ export function bootShell(): void {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
+  // Shell-owned XR controllers (#150 step 4). Listeners are registered
+  // once at boot; controller events dispatch to the currently-mounted
+  // exhibit via `currentExhibit.onSelectStart` / `onSelectEnd`. Step 5
+  // will add rack-first-refusal arbitration before the dispatch line —
+  // the SceneRack instance is constructed in step 5, so step 4's
+  // selectstart body is a direct dispatch with no rack reference.
+  let currentExhibit: Exhibit | null = null;
+  // Iterate over the literal tuple so each `c` keeps its
+  // `renderer.xr.getController` return type — the XR event overload
+  // (`'connected'` / `'disconnected'` / `'selectstart'` / `'selectend'`)
+  // lives on that type, not on the wider `Object3D`. The widening to
+  // `readonly Object3D[]` for the ctx happens after listeners are set up.
+  const controller0 = renderer.xr.getController(0);
+  const controller1 = renderer.xr.getController(1);
+  scene.add(controller0);
+  scene.add(controller1);
+  for (const c of [controller0, controller1] as const) {
+    c.add(buildAimRayLine());
+    c.addEventListener('connected', (event: { data: XRInputSource }) => {
+      const inputSource = event.data;
+      if (inputSource.gamepad) c.userData.gamepad = inputSource.gamepad;
+    });
+    c.addEventListener('disconnected', () => {
+      delete c.userData.gamepad;
+    });
+    c.addEventListener('selectstart', () => {
+      currentExhibit?.onSelectStart(c);
+    });
+    c.addEventListener('selectend', () => {
+      currentExhibit?.onSelectEnd(c);
+    });
+  }
+  const controllers: readonly THREE.Object3D[] = [controller0, controller1];
+
   // URL-param exhibit selector (#120). Default = first registered.
   // Unknown id → console-warn and fall back so the page still renders
   // something rather than failing silently. Selection happens at boot
-  // only; there's no in-session swap path today.
+  // only; there's no in-session swap path today — step 5 (#150) adds the
+  // SceneRack-driven swap and a cluster-only URL resolver. For step 4 the
+  // existing single-exhibit boot routing is retained verbatim, so
+  // `?exhibit=hello` still mounts hello (cluster filter lands in step 5).
   const all = listExhibits();
   if (all.length === 0) {
     console.warn('geometer: no exhibits registered; nothing to mount.');
@@ -66,8 +119,17 @@ export function bootShell(): void {
     }
   }
 
-  const ctx: ExhibitContext = { scene, renderer, camera };
+  // Per-exhibit root group (#150). The shell owns scene-graph parenting;
+  // exhibits add their content to `ctx.group`, not to the scene root.
+  // Step 5 will replace this with an in-session swap path that drops the
+  // current exhibit's group + mounts the next one.
+  const group = new THREE.Group();
+  group.name = `exhibit:${exhibit.id}`;
+  scene.add(group);
+
+  const ctx: ExhibitContext = { group, renderer, camera, controllers };
   exhibit.mount(ctx);
+  currentExhibit = exhibit;
 
   const timer = new THREE.Timer();
   // Page Visibility integration: prevents huge delta spikes after the tab

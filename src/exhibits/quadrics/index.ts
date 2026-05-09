@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Exhibit, ExhibitContext } from '../../shell/Exhibit';
+import { CLUSTER_CALCULUS3 } from '../../shell/clusters';
 import { registerExhibit } from '../../shell/registry';
 import {
   BLUISH_GREEN,
@@ -737,7 +738,11 @@ let activeSectionIndex = 0;
 // flips the flag and shows / hides the row.
 let canonicalFormsHeading: SectionTab | undefined;
 let presetsExpanded = false;
-let controllers: THREE.Object3D[] = [];
+// Cached reference to the shell-owned controllers (#150). Repopulated on
+// each `mount` from `ctx.controllers`; cleared on `unmount`. The shell
+// registers the controller event listeners; this exhibit only reads the
+// array for hover ticking and during `onSelectStart` / `onSelectEnd`.
+let controllers: readonly THREE.Object3D[] = [];
 let rackLabel: Label | undefined;
 let equationReadout: EquationReadout | undefined;
 let fpsOverlay: FpsOverlay | undefined;
@@ -750,12 +755,38 @@ let elapsed = 0;
 // the thumb. Module-scoped so update() can tick it.
 let presetTween: PresetTween | undefined;
 
+// Resource-tracking arrays + named handles for `unmount` (#150 step 4 per
+// `_private/plans/150-cluster-navigation.md` §3.5). The audit table in §3.5
+// names every let in this module and its disposal owner.
+//
+// Ownership rule: each resource has exactly one disposal owner. Named
+// handles (`material`, `surfaceMesh.geometry`, `doublePlane`, `slicingPlanes`,
+// `floorMaterial`) are NEVER pushed into the generic `ownedDisposables` /
+// `ownedGeometries` / `ownedMaterials` arrays — they're disposed via the
+// dedicated named-handle block in `unmount`. The generic arrays are
+// reserved for resources whose lifecycle is otherwise unmanaged: scaffold
+// primitives that expose `dispose()` (Sliders, Presets, Sections, etc.)
+// flow through `ownedDisposables`; anonymous geometries or materials
+// allocated inline flow through the corresponding `*Geometries` /
+// `*Materials` arrays. `floorMaterial` + `floorGeometries` have their own
+// dedicated handles (one shared material across all strips, one geometry
+// per strip) and are disposed by the named-handle block, not via
+// `ownedMaterials` / `ownedGeometries`.
+let ownedDisposables: Array<{ dispose(): void }> = [];
+let ownedGeometries: THREE.BufferGeometry[] = [];
+let ownedMaterials: THREE.Material[] = [];
+let cleanupCallbacks: Array<() => void> = [];
+let floorMaterial: THREE.MeshStandardMaterial | undefined;
+let floorGeometries: THREE.PlaneGeometry[] = [];
+
 const quadricsExhibit: Exhibit = {
   id: 'quadrics',
   title: 'Quadric surfaces',
+  cluster: CLUSTER_CALCULUS3,
 
-  mount({ scene, renderer, camera: cam }: ExhibitContext) {
+  mount({ group, renderer, camera: cam, controllers: shellControllers }: ExhibitContext) {
     camera = cam;
+    controllers = shellControllers;
 
     // #125: hole-punch the floor inside the AABB's world-XZ footprint so it
     // doesn't occlude the lower half of the cube. Math-Z routes to world-Y;
@@ -765,7 +796,7 @@ const quadricsExhibit: Exhibit = {
     // hyperboloids whose axis is math-Z). Strips outside the cube footprint
     // preserve the ground reference; the rectangle inside is left open.
     const FLOOR_HALF = 5;
-    const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x222244 });
+    floorMaterial = new THREE.MeshStandardMaterial({ color: 0x222244 });
     const holeMinX = Math.max(SURFACE_CENTER.x - BOUND, -FLOOR_HALF);
     const holeMaxX = Math.min(SURFACE_CENTER.x + BOUND, FLOOR_HALF);
     const holeMinZ = Math.max(SURFACE_CENTER.z - BOUND, -FLOOR_HALF);
@@ -777,23 +808,25 @@ const quadricsExhibit: Exhibit = {
       zMax: number,
     ): void => {
       if (xMax <= xMin || zMax <= zMin) return;
-      const strip = new THREE.Mesh(
-        new THREE.PlaneGeometry(xMax - xMin, zMax - zMin),
-        floorMaterial,
-      );
+      const stripGeometry = new THREE.PlaneGeometry(xMax - xMin, zMax - zMin);
+      // Push to module-scoped `floorGeometries` so unmount can dispose
+      // each strip's geometry. The shared `floorMaterial` is the named
+      // handle — disposed once, regardless of strip count (#150 §3.5).
+      floorGeometries.push(stripGeometry);
+      const strip = new THREE.Mesh(stripGeometry, floorMaterial!);
       strip.rotation.x = -Math.PI / 2;
       strip.position.set((xMin + xMax) / 2, 0, (zMin + zMax) / 2);
-      scene.add(strip);
+      group.add(strip);
     };
     addFloorStrip(-FLOOR_HALF, FLOOR_HALF, holeMaxZ, FLOOR_HALF); // front of cube
     addFloorStrip(-FLOOR_HALF, FLOOR_HALF, -FLOOR_HALF, holeMinZ); // behind cube
     addFloorStrip(-FLOOR_HALF, holeMinX, holeMinZ, holeMaxZ); // left of cube
     addFloorStrip(holeMaxX, FLOOR_HALF, holeMinZ, holeMaxZ); // right of cube
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    group.add(new THREE.AmbientLight(0xffffff, 0.4));
     const directional = new THREE.DirectionalLight(0xffffff, 0.8);
     directional.position.copy(LIGHT_DIR).multiplyScalar(5);
-    scene.add(directional);
+    group.add(directional);
 
     const surfaceHandles = createImplicitSurface({
       surfaceCenter: SURFACE_CENTER,
@@ -824,7 +857,7 @@ const quadricsExhibit: Exhibit = {
     });
     material = surfaceHandles.material;
     surfaceMesh = surfaceHandles.mesh;
-    scene.add(surfaceHandles.mesh);
+    group.add(surfaceHandles.mesh);
 
     // Double-plane stand-in mesh (#138). Hidden by default; update()
     // toggles visibility against the raymarched mesh based on the
@@ -838,7 +871,7 @@ const quadricsExhibit: Exhibit = {
       baseColor: new THREE.Color(0.4, 0.7, 0.95),
       lightDir: LIGHT_DIR,
     });
-    scene.add(doublePlane.group);
+    group.add(doublePlane.group);
 
     // Top → bottom: a, b, c, d. Span centered on SLIDER_RACK_CENTER.
     // Per-slider color + shape pull from SLIDER_CONFIG (#58); the
@@ -870,7 +903,7 @@ const quadricsExhibit: Exhibit = {
         topY - i * SLIDER_ROW_PITCH,
         SLIDER_RACK_CENTER.z,
       );
-      scene.add(slider.group);
+      group.add(slider.group);
       return slider;
     });
     // `sliders` is the math-routing array [a, b, c, d] and feeds the
@@ -896,7 +929,7 @@ const quadricsExhibit: Exhibit = {
         SLIDER_RACK_CENTER.z,
       );
       preset.group.visible = false;
-      scene.add(preset.group);
+      group.add(preset.group);
       return preset;
     });
 
@@ -934,7 +967,7 @@ const quadricsExhibit: Exhibit = {
         linearTopY - i * SLIDER_ROW_PITCH,
         SLIDER_RACK_CENTER.z,
       );
-      scene.add(slider.group);
+      group.add(slider.group);
       return slider;
     });
     linearSliders = linearTermSliders;
@@ -966,7 +999,7 @@ const quadricsExhibit: Exhibit = {
           crossSectionTopY - i * SLIDER_ROW_PITCH,
           SLIDER_RACK_CENTER.z,
         );
-        scene.add(slider.group);
+        group.add(slider.group);
         return slider;
       },
     );
@@ -1003,7 +1036,7 @@ const quadricsExhibit: Exhibit = {
       halfExtent: BOUND,
     });
     slicingPlanes.group.visible = false;
-    scene.add(slicingPlanes.group);
+    group.add(slicingPlanes.group);
 
     // Three sections (#88, #84). The dispatch loop below reads from
     // `sections[activeSectionIndex]` for grab dispatch and per-section
@@ -1054,7 +1087,7 @@ const quadricsExhibit: Exhibit = {
         SECTION_TAB_RACK_TOP_Y - (i + 1) * SECTION_TAB_RACK_PITCH,
         SLIDER_RACK_CENTER.z,
       );
-      scene.add(tab.group);
+      group.add(tab.group);
       return tab;
     });
     tabs[activeSectionIndex].setActive(true);
@@ -1075,9 +1108,7 @@ const quadricsExhibit: Exhibit = {
       SLIDER_RACK_CENTER.z,
     );
     canonicalFormsHeading.setActive(presetsExpanded);
-    scene.add(canonicalFormsHeading.group);
-
-    controllers = setupControllers(scene, renderer);
+    group.add(canonicalFormsHeading.group);
 
     // Family classifier readout sits at the top of the stack above the
     // rack. The live equation readout (#58) carries the four coefficient
@@ -1085,17 +1116,17 @@ const quadricsExhibit: Exhibit = {
     // used to live left of each track.
     rackLabel = new Label({ primaryFontSize: RACK_LABEL_PRIMARY_FONT_SIZE });
     rackLabel.group.position.copy(RACK_LABEL_POSITION);
-    scene.add(rackLabel.group);
+    group.add(rackLabel.group);
 
     equationReadout = new EquationReadout({
       coefficientColors: EQUATION_COEFFICIENT_COLORS,
     });
     equationReadout.group.position.copy(EQUATION_READOUT_POSITION);
-    scene.add(equationReadout.group);
+    group.add(equationReadout.group);
 
     worldAxes = new WorldAxes({ axisColors: AXIS_COLORS });
     worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
-    scene.add(worldAxes.group);
+    group.add(worldAxes.group);
 
     // Optional in-VR FPS readout (#99) + console renderer.info dump
     // (#102). Both off by default; opt-in via a `?fps=1` query string
@@ -1105,9 +1136,30 @@ const quadricsExhibit: Exhibit = {
     if (isFpsOverlayEnabled()) {
       fpsOverlay = new FpsOverlay();
       fpsOverlay.group.position.copy(FPS_OVERLAY_POSITION);
-      scene.add(fpsOverlay.group);
+      group.add(fpsOverlay.group);
       rendererInfoProbe = new RendererInfoProbe(renderer);
     }
+
+    // Register owned scaffold primitives for unmount disposal (#150 §3.5).
+    // Per the ownership rule: only primitives go into `ownedDisposables`;
+    // the named handles (material, surfaceMesh.geometry, doublePlane,
+    // slicingPlanes, floorMaterial, floorGeometries) are disposed by the
+    // dedicated named-handle block in `unmount`. dSlider aliases sliders[3],
+    // so it's already covered by `...sliders`.
+    ownedDisposables.push(
+      ...sliders,
+      ...linearSliders,
+      ...crossSectionSliders,
+      ...crossSectionToggles,
+      ...presets,
+      ...sections,
+      ...tabs,
+    );
+    if (canonicalFormsHeading) ownedDisposables.push(canonicalFormsHeading);
+    if (rackLabel) ownedDisposables.push(rackLabel);
+    if (equationReadout) ownedDisposables.push(equationReadout);
+    if (worldAxes) ownedDisposables.push(worldAxes);
+    if (fpsOverlay) ownedDisposables.push(fpsOverlay);
   },
 
   update({ delta }) {
@@ -1291,164 +1343,205 @@ const quadricsExhibit: Exhibit = {
     }
     if (rendererInfoProbe) rendererInfoProbe.update(performance.now());
   },
+
+  unmount({}: ExhibitContext): void {
+    // Resource teardown audit: see `_private/plans/150-cluster-navigation.md`
+    // §3.5. Each module-scoped `let` declared above appears here, either
+    // disposed via the generic-array drain or the named-handle block, then
+    // reset to its initial value so a future re-mount allocates fresh.
+
+    // 1. Run any deferred cleanup callbacks. None today; the array is
+    // populated by features that need to register listeners / timers /
+    // RAFs against external surfaces (none of which quadrics has after
+    // step 4 — the shell owns the controllers, the window resize listener
+    // is shell-lifetime).
+    for (const cb of cleanupCallbacks) cb();
+    cleanupCallbacks = [];
+
+    // 2. Generic disposable arrays (per §3.5 ownership rule: anonymous
+    // resources only — named handles are NOT in here).
+    for (const d of ownedDisposables) d.dispose();
+    ownedDisposables = [];
+    for (const g of ownedGeometries) g.dispose();
+    ownedGeometries = [];
+    for (const m of ownedMaterials) m.dispose();
+    ownedMaterials = [];
+
+    // 3. Named handles — disposed directly, each guarded so a double
+    // unmount is safe (DeepSeek #5 / v3-roundtable).
+    if (floorMaterial) {
+      floorMaterial.dispose();
+      floorMaterial = undefined;
+    }
+    for (const g of floorGeometries) g.dispose();
+    floorGeometries = [];
+    if (material) {
+      material.dispose();
+      material = undefined;
+    }
+    if (surfaceMesh?.geometry) surfaceMesh.geometry.dispose();
+    if (doublePlane) {
+      doublePlane.dispose();
+      doublePlane = undefined;
+    }
+    if (slicingPlanes) {
+      slicingPlanes.dispose();
+      slicingPlanes = undefined;
+    }
+
+    // 4. Reset every other module-scoped `let` so re-mount allocates
+    // fresh. Order mirrors the declaration order at the top of this file.
+    sliders = [];
+    dSlider = undefined;
+    linearSliders = [];
+    crossSectionSliders = [];
+    crossSectionToggles = [];
+    surfaceMesh = undefined;
+    presets = [];
+    sections = [];
+    tabs = [];
+    activeSectionIndex = 0;
+    canonicalFormsHeading = undefined;
+    presetsExpanded = false;
+    // The shell owns the actual controllers; we just clear the local
+    // cache. Re-mount populates from `ctx.controllers`.
+    controllers = [];
+    rackLabel = undefined;
+    equationReadout = undefined;
+    fpsOverlay = undefined;
+    // RendererInfoProbe holds a renderer reference for read-only stats —
+    // no GPU resources to dispose. Reset to undefined so re-mount's
+    // `if (isFpsOverlayEnabled())` conditional allocates fresh.
+    rendererInfoProbe = undefined;
+    worldAxes = undefined;
+    camera = undefined;
+    elapsed = 0;
+    presetTween = undefined;
+  },
+
+  onSelectStart(controller: THREE.Object3D): void {
+    // Dispatch in z-order from rack-local outward: active section's
+    // sliders first (the warm drag affordance), then the global preset
+    // row (only when expanded), then the section tabs and canonical-
+    // forms heading. These regions are spatially disjoint but the
+    // explicit ordering keeps the first-hit-wins contract well-defined
+    // regardless of layout.
+    const activeSection = sections[activeSectionIndex];
+    if (!activeSection) return;
+    // Per-axis toggles (#134) dispatch *before* the section's sliders
+    // so the toggle stays reachable at thumb-extreme. At default and
+    // near-default thumb values the toggle's grab sphere is disjoint
+    // from the slider's, so order doesn't change behavior. At the
+    // slider's leftmost extreme the two grab spheres overlap by 0.032 m
+    // — a ray aimed at the visible thumb still hits only the slider
+    // (the toggle's sphere doesn't extend that far), but a ray aimed
+    // at the visible toggle hits both. Toggle-first dispatch picks
+    // the toggle in that overlap, preserving both intents; slider-
+    // first would silently steal toggle taps when the slider is
+    // parked at its extreme. Only fires when Cross sections is
+    // focused — toggles belong to that section.
+    if (activeSection.name === CROSS_SECTION_SECTION_NAME) {
+      for (const t of crossSectionToggles) {
+        if (t.tryToggle(controller)) return;
+      }
+    }
+    for (const s of activeSection.sliders) {
+      if (s.tryGrab(controller)) {
+        // Cancel any in-flight preset tween — the user is taking the
+        // wheel, and a still-ticking tween would fight the drag (#56,
+        // "interrupt" interaction policy).
+        presetTween?.cancel();
+        presetTween = undefined;
+        return;
+      }
+    }
+    // Slider `d` is shared across Squared and Linear (#140) and lives
+    // outside the active section's sliders array, so it gets its own
+    // grab pass after the section's sliders. Skipped in Cross sections
+    // — `d` is hidden there and shouldn't be silently grabbable.
+    if (
+      dSlider !== undefined &&
+      activeSection.name !== CROSS_SECTION_SECTION_NAME &&
+      dSlider.tryGrab(controller)
+    ) {
+      presetTween?.cancel();
+      presetTween = undefined;
+      return;
+    }
+    if (presetsExpanded) for (const p of presets) {
+      if (p.tryActivate(controller)) {
+        // Preset values are coefficient-frame [a, b, c, d] regardless
+        // of the active section (#93): the preset row is global, so
+        // pressing a preset always drives the coefficient rack toward
+        // the named canonical pose. Animate from the rack's current
+        // values to the preset (#56) instead of snapping — makes the
+        // family transition itself visible. The previous tween, if
+        // any, is replaced; its ticked-state on the sliders is the
+        // new tween's start.
+        //
+        // Presets also drive the linear-terms rack (#92): for centered
+        // canonical poses (Sphere / Reset / Cone / cylinders / hyperb-
+        // oloids …) the target is (0, 0, 0) because the surface is
+        // only canonical if it's centered. Paraboloid / Saddle break
+        // that pattern: their canonical form *requires* a linear
+        // coefficient (z = x² + y² needs w = -1), so the preset
+        // declares a non-zero linearValues target which the tween
+        // honors verbatim. Either way, both racks tween together —
+        // a single cancel() on mid-drag interrupt drops both at once.
+        const currentValues: PresetValues = [
+          sliders[0].value,
+          sliders[1].value,
+          sliders[2].value,
+          sliders[3].value,
+        ];
+        const linearStart = linearSliders.map((s) => s.value);
+        const linearTarget: readonly number[] = p.linearValues;
+        presetTween?.cancel();
+        presetTween = new PresetTween({
+          start: currentValues,
+          target: p.values,
+          sliders,
+          nowMs: performance.now(),
+          durationMs: PRESET_TWEEN_DURATION_MS,
+          easing: easeInOutCubic,
+          secondary: {
+            start: linearStart,
+            target: linearTarget,
+            sliders: linearSliders,
+          },
+        });
+        return;
+      }
+    }
+    for (let i = 0; i < tabs.length; i++) {
+      if (tabs[i].tryActivate(controller)) {
+        switchToSection(i);
+        return;
+      }
+    }
+    if (canonicalFormsHeading?.tryActivate(controller)) {
+      togglePresetsExpanded();
+      return;
+    }
+  },
+
+  onSelectEnd(controller: THREE.Object3D): void {
+    // Release sliders across all sections — releasing a slider that
+    // isn't grabbed is a no-op, and an active grab can only ever live
+    // in the section that was active at grab time, so a switch
+    // mid-drag (which the dispatch above prevents anyway) wouldn't
+    // strand a held slider.
+    for (const section of sections) {
+      for (const s of section.sliders) s.releaseFromController(controller);
+    }
+    // `d` lives outside any section (#140); release it explicitly.
+    dSlider?.releaseFromController(controller);
+  },
 };
 
 function isFpsOverlayEnabled(): boolean {
   if (typeof window === 'undefined') return false;
   return new URLSearchParams(window.location.search).get('fps') === '1';
-}
-
-function setupControllers(
-  scene: THREE.Scene,
-  renderer: THREE.WebGLRenderer,
-): THREE.Object3D[] {
-  // Visible 1 m laser line along controller −Z, so the user can see where
-  // they're aiming before pressing the trigger.
-  const rayGeom = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(0, 0, -1),
-  ]);
-  const rayMat = new THREE.LineBasicMaterial({
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0.6,
-  });
-
-  const out: THREE.Object3D[] = [];
-  for (const i of [0, 1] as const) {
-    const controller = renderer.xr.getController(i);
-    controller.add(new THREE.Line(rayGeom, rayMat));
-    scene.add(controller);
-    out.push(controller);
-
-    controller.addEventListener('connected', (event: { data: XRInputSource }) => {
-      const inputSource = event.data;
-      if (inputSource.gamepad) {
-        controller.userData.gamepad = inputSource.gamepad;
-      }
-    });
-    controller.addEventListener('disconnected', () => {
-      delete controller.userData.gamepad;
-    });
-
-    controller.addEventListener('selectstart', () => {
-      // Dispatch in z-order from rack-local outward: active section's
-      // sliders first (the warm drag affordance), then the global preset
-      // row (only when expanded), then the section tabs and canonical-
-      // forms heading. These regions are spatially disjoint but the
-      // explicit ordering keeps the first-hit-wins contract well-defined
-      // regardless of layout.
-      const activeSection = sections[activeSectionIndex];
-      // Per-axis toggles (#134) dispatch *before* the section's sliders
-      // so the toggle stays reachable at thumb-extreme. At default and
-      // near-default thumb values the toggle's grab sphere is disjoint
-      // from the slider's, so order doesn't change behavior. At the
-      // slider's leftmost extreme the two grab spheres overlap by 0.032 m
-      // — a ray aimed at the visible thumb still hits only the slider
-      // (the toggle's sphere doesn't extend that far), but a ray aimed
-      // at the visible toggle hits both. Toggle-first dispatch picks
-      // the toggle in that overlap, preserving both intents; slider-
-      // first would silently steal toggle taps when the slider is
-      // parked at its extreme. Only fires when Cross sections is
-      // focused — toggles belong to that section.
-      if (activeSection.name === CROSS_SECTION_SECTION_NAME) {
-        for (const t of crossSectionToggles) {
-          if (t.tryToggle(controller)) return;
-        }
-      }
-      for (const s of activeSection.sliders) {
-        if (s.tryGrab(controller)) {
-          // Cancel any in-flight preset tween — the user is taking the
-          // wheel, and a still-ticking tween would fight the drag (#56,
-          // "interrupt" interaction policy).
-          presetTween?.cancel();
-          presetTween = undefined;
-          return;
-        }
-      }
-      // Slider `d` is shared across Squared and Linear (#140) and lives
-      // outside the active section's sliders array, so it gets its own
-      // grab pass after the section's sliders. Skipped in Cross sections
-      // — `d` is hidden there and shouldn't be silently grabbable.
-      if (
-        dSlider !== undefined &&
-        activeSection.name !== CROSS_SECTION_SECTION_NAME &&
-        dSlider.tryGrab(controller)
-      ) {
-        presetTween?.cancel();
-        presetTween = undefined;
-        return;
-      }
-      if (presetsExpanded) for (const p of presets) {
-        if (p.tryActivate(controller)) {
-          // Preset values are coefficient-frame [a, b, c, d] regardless
-          // of the active section (#93): the preset row is global, so
-          // pressing a preset always drives the coefficient rack toward
-          // the named canonical pose. Animate from the rack's current
-          // values to the preset (#56) instead of snapping — makes the
-          // family transition itself visible. The previous tween, if
-          // any, is replaced; its ticked-state on the sliders is the
-          // new tween's start.
-          //
-          // Presets also drive the linear-terms rack (#92): for centered
-          // canonical poses (Sphere / Reset / Cone / cylinders / hyperb-
-          // oloids …) the target is (0, 0, 0) because the surface is
-          // only canonical if it's centered. Paraboloid / Saddle break
-          // that pattern: their canonical form *requires* a linear
-          // coefficient (z = x² + y² needs w = -1), so the preset
-          // declares a non-zero linearValues target which the tween
-          // honors verbatim. Either way, both racks tween together —
-          // a single cancel() on mid-drag interrupt drops both at once.
-          const currentValues: PresetValues = [
-            sliders[0].value,
-            sliders[1].value,
-            sliders[2].value,
-            sliders[3].value,
-          ];
-          const linearStart = linearSliders.map((s) => s.value);
-          const linearTarget: readonly number[] = p.linearValues;
-          presetTween?.cancel();
-          presetTween = new PresetTween({
-            start: currentValues,
-            target: p.values,
-            sliders,
-            nowMs: performance.now(),
-            durationMs: PRESET_TWEEN_DURATION_MS,
-            easing: easeInOutCubic,
-            secondary: {
-              start: linearStart,
-              target: linearTarget,
-              sliders: linearSliders,
-            },
-          });
-          return;
-        }
-      }
-      for (let i = 0; i < tabs.length; i++) {
-        if (tabs[i].tryActivate(controller)) {
-          switchToSection(i);
-          return;
-        }
-      }
-      if (canonicalFormsHeading?.tryActivate(controller)) {
-        togglePresetsExpanded();
-        return;
-      }
-    });
-    controller.addEventListener('selectend', () => {
-      // Release sliders across all sections — releasing a slider that
-      // isn't grabbed is a no-op, and an active grab can only ever live
-      // in the section that was active at grab time, so a switch
-      // mid-drag (which the dispatch above prevents anyway) wouldn't
-      // strand a held slider.
-      for (const section of sections) {
-        for (const s of section.sliders) s.releaseFromController(controller);
-      }
-      // `d` lives outside any section (#140); release it explicitly.
-      dSlider?.releaseFromController(controller);
-    });
-  }
-  return out;
 }
 
 function switchToSection(index: number): void {
