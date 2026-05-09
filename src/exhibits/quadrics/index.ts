@@ -667,23 +667,33 @@ const QUADRICS_SHADE = /* glsl */ `
 `;
 
 let material: THREE.ShaderMaterial | undefined;
-// Sections own their sliders (#57). `sliders`, `linearSliders`, and
-// `crossSectionSliders` alias each section's slider array — they always
-// drive the shader uniforms regardless of which section is currently
-// active, so stable references are convenient for the slider→uniform
-// routing block in update(). The active section gates *grab dispatch*
-// (so hidden sliders aren't accidentally grabbable), not the slider-value
-// -to-uniform read — that runs unconditionally for every section so e.g.
-// a value mid-tween from another section keeps driving the surface even
-// after a tab switch. The one exception is `uPlaneActive`, which gates the
-// cross-section glow band on the active section so the ring only appears
-// while the user is in the slicing lens (#84).
+// Sections own their sliders (#57), with one exception: slider `d` (#140).
+// `sliders`, `linearSliders`, and `crossSectionSliders` keep stable
+// references to every slider so the slider→uniform routing in update()
+// can read them every frame regardless of which section is currently
+// active. The active section gates *grab dispatch* (so hidden sliders
+// aren't accidentally grabbable), not the slider-value-to-uniform read —
+// that runs unconditionally for every section so e.g. a value mid-tween
+// from another section keeps driving the surface even after a tab switch.
+// The one exception is `uPlaneActive`, which gates the cross-section glow
+// band on the active section so the ring only appears while the user is
+// in the slicing lens (#84).
+//
+// `sliders` is the math-routing array [a, b, c, d] of coefficient sliders,
+// but only [a, b, c] live inside the Squared section's sliders array —
+// `d` is shared across Squared and Linear (#140) and managed separately
+// via the `dSlider` reference below.
 //
 // Presets live outside the Section abstraction (#93): they're a global
 // "snap to canonical pose" row that drives the coefficient rack and zeros
 // the linear-term rack regardless of which section is focused. Always
 // rendered, always grabbable.
 let sliders: readonly Slider[] = [];
+// Constant-term slider `d`. Aliases sliders[3] for math routing + preset
+// tween, but lives outside any Section's sliders array (#140) so it stays
+// visible across the Squared ↔ Linear toggle. Hidden in the Cross sections
+// lens — see switchToSection below.
+let dSlider: Slider | undefined;
 let linearSliders: readonly Slider[] = [];
 let crossSectionSliders: readonly Slider[] = [];
 // One toggle per cross-section slider, ordered x / y / z. Drives both
@@ -815,6 +825,13 @@ const quadricsExhibit: Exhibit = {
     // Per-slider color + shape pull from SLIDER_CONFIG (#58); the
     // equation readout above the rack now carries the live coefficient
     // values, so per-slider numeric labels are gone in this version.
+    //
+    // `d` is the constant term, conceptually orthogonal to whether the
+    // user is in the Squared or Linear lens (#140). It's constructed
+    // alongside a/b/c here so vertical layout stays uniform, then split
+    // out below: only a/b/c go into the Squared section's sliders array,
+    // while `d` lives outside any Section and persists across the Squared
+    // ↔ Linear toggle.
     const topY =
       SLIDER_RACK_CENTER.y + ((SLIDER_CONFIG.length - 1) / 2) * SLIDER_ROW_PITCH;
     const coefficientSliders = SLIDER_CONFIG.map((cfg, i) => {
@@ -836,7 +853,13 @@ const quadricsExhibit: Exhibit = {
       scene.add(slider.group);
       return slider;
     });
+    // `sliders` is the math-routing array [a, b, c, d] and feeds the
+    // slider→uniform read in update() plus the preset tween's coefficient
+    // target. `axisCoefficientSliders` is the [a, b, c] subset that goes
+    // into the Squared section — `d` lives outside any section (#140).
     sliders = coefficientSliders;
+    const axisCoefficientSliders = coefficientSliders.slice(0, 3);
+    dSlider = coefficientSliders[3];
 
     // Preset 2 × 4 grid, anchored to the canonical-forms heading on the
     // left rack and extending rightward + downward (#93, restructured
@@ -869,8 +892,10 @@ const quadricsExhibit: Exhibit = {
     // sections never co-render, so there's no need to physically separate
     // their vertical centers — aligning the same-axis sliders keeps the
     // mental model "color = math axis" continuous when toggling between
-    // sections, with the slider 'd' slot left empty in the linear section
-    // (no constant-term linear analogue).
+    // sections. The bottom slot stays anchored to slider `d`, which is
+    // shared across both lenses (#140) — `d` is the equation's constant
+    // term, orthogonal to the squared-vs-linear distinction, so it lives
+    // outside the Section abstraction and stays visible across the toggle.
     const linearTopY = topY;
     const linearTermSliders = LINEAR_SLIDER_CONFIG.map((cfg, i) => {
       const slider = new Slider({
@@ -966,7 +991,7 @@ const quadricsExhibit: Exhibit = {
     sections = [
       new Section({
         name: 'Squared terms',
-        sliders: coefficientSliders,
+        sliders: axisCoefficientSliders,
       }),
       new Section({
         name: 'Linear terms',
@@ -984,6 +1009,13 @@ const quadricsExhibit: Exhibit = {
     for (let i = 0; i < sections.length; i++) {
       sections[i].setActive(i === activeSectionIndex);
     }
+    // `d` lives outside any section (#140), so its visibility isn't toggled
+    // by Section.setActive — Squared ↔ Linear leaves it alone, and Cross
+    // sections needs an explicit hide. Initial pose follows the same rule
+    // as switchToSection below: visible iff the active section isn't Cross
+    // sections.
+    dSlider.group.visible =
+      sections[activeSectionIndex].name !== CROSS_SECTION_SECTION_NAME;
 
     // Vertical tab rack on the left (#93). Top → bottom: canonical-forms
     // heading (built below the section tabs but positioned above them in
@@ -1299,6 +1331,19 @@ function setupControllers(
           return;
         }
       }
+      // Slider `d` is shared across Squared and Linear (#140) and lives
+      // outside the active section's sliders array, so it gets its own
+      // grab pass after the section's sliders. Skipped in Cross sections
+      // — `d` is hidden there and shouldn't be silently grabbable.
+      if (
+        dSlider !== undefined &&
+        activeSection.name !== CROSS_SECTION_SECTION_NAME &&
+        dSlider.tryGrab(controller)
+      ) {
+        presetTween?.cancel();
+        presetTween = undefined;
+        return;
+      }
       if (presetsExpanded) for (const p of presets) {
         if (p.tryActivate(controller)) {
           // Preset values are coefficient-frame [a, b, c, d] regardless
@@ -1364,6 +1409,8 @@ function setupControllers(
       for (const section of sections) {
         for (const s of section.sliders) s.releaseFromController(controller);
       }
+      // `d` lives outside any section (#140); release it explicitly.
+      dSlider?.releaseFromController(controller);
     });
   }
   return out;
@@ -1376,6 +1423,14 @@ function switchToSection(index: number): void {
   activeSectionIndex = index;
   sections[activeSectionIndex].setActive(true);
   tabs[activeSectionIndex].setActive(true);
+  // `d` lives outside the Section abstraction (#140), so its visibility
+  // is keyed to the active section's name rather than driven by
+  // Section.setActive. Visible across Squared ↔ Linear; hidden in Cross
+  // sections (the constant term has no role in that lens).
+  if (dSlider) {
+    dSlider.group.visible =
+      sections[activeSectionIndex].name !== CROSS_SECTION_SECTION_NAME;
+  }
 }
 
 function togglePresetsExpanded(): void {
