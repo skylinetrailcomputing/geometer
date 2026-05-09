@@ -103,11 +103,21 @@ drags through a degeneracy.
   sphere, an ellipsoid.
 - **Continuity:** continuous (no integer snapping). Slider value is a real
   in `[−2, 2]`.
-- **Snap-to-zero detent:** when a slider's continuous position satisfies
-  `|v| < 0.05`, its reported value clamps to exactly `0`. This makes the
-  degeneracy boundary cases (cone, intersecting planes, single plane)
-  reachable precisely instead of by approximation. The detent applies only
-  at zero — no other snapping in v0.1.
+- **Snap detents:** when a slider's continuous position satisfies
+  `|v − p| < 0.05` for any detent target `p`, its reported value clamps
+  to exactly `p`. The detent set is per-slider:
+  - **Squared coefficients (`a` / `b` / `c` / `d`)** and **linear-term
+    sliders (`u` / `v` / `w`)**: `{−1, 0, +1}`. Zero makes the
+    degeneracy boundary cases (cone, intersecting planes, single
+    plane) reachable precisely; ±1 (#139) makes the textbook unit
+    poses (unit sphere, unit cone, unit hyperboloids) park on integer
+    coefficients exactly instead of approximating.
+  - **Cross-section sliders (`x₀` / `y₀` / `z₀`)**: `{0}` only. Their
+    range is wider (±2.5) and there's no canonical pose at ±1; ±1 is
+    deferred pending headset feel (#139).
+  Detents apply at rest (drag/release and constructor); programmatic
+  preset tweens use `setValueRaw` to bypass them so the thumb sweeps
+  through cleanly mid-morph.
 - **Per-slider visual:** horizontal track with a draggable thumb. Each
   slider in the rack is identified by **color** (Wong / Okabe-Ito
   colorblind-safe palette: vermillion / bluish-green / sky-blue / yellow
