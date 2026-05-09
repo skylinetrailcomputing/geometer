@@ -53,6 +53,32 @@ describe('classify — v0.1 regression (linear terms = 0)', () => {
   ]);
 });
 
+describe('classify — Double plane (#138, rank 1 + d_eff = 0, no zero-axis linear)', () => {
+  check([
+    // Pure tangent-zero poses on each math axis, no linear term. These
+    // are the exact poses #116 reported as fuzzy edge-on noise — the
+    // raymarcher couldn't catch the tangent zero and the readout only
+    // had 'Degenerate' to describe what the user was seeing.
+    [1, 0, 0, 0, 0, 0, 0, 'Double plane', 'a-axis, no shift'],
+    [0, 1, 0, 0, 0, 0, 0, 'Double plane', 'b-axis, no shift'],
+    [0, 0, 1, 0, 0, 0, 0, 'Double plane', 'c-axis, no shift'],
+    // Sign-flipped halves of each pair (negative squared coef, d = 0).
+    [-1, 0, 0, 0, 0, 0, 0, 'Double plane', 'a-axis, negative coef'],
+    [0, -1, 0, 0, 0, 0, 0, 'Double plane', 'b-axis, negative coef'],
+    [0, 0, -1, 0, 0, 0, 0, 'Double plane', 'c-axis, negative coef'],
+    // Linear term on the *nonzero-squared* axis, with d chosen so
+    // completing-the-square lands d_eff exactly at zero. e.g. on a:
+    //   x² + x − (−¼) = (x + ½)²  ⇒  zero only at x = −½.
+    [1, 0, 0, -0.25, 1, 0, 0, 'Double plane', 'a-axis, shifted'],
+    [0, 1, 0, -0.25, 0, 1, 0, 'Double plane', 'b-axis, shifted'],
+    [0, 0, 1, -0.25, 0, 0, 1, 'Double plane', 'c-axis, shifted'],
+    // Boundary: d_eff slightly off zero is *not* a double plane — it's
+    // a Pair of parallel planes (positive d_eff) or Empty set (negative).
+    [1, 0, 0, 0.01, 0, 0, 0, 'Pair of parallel planes', 'd_eff > 0 — two planes'],
+    [1, 0, 0, -0.01, 0, 0, 0, 'Empty set', 'd_eff < 0 — no real solutions'],
+  ]);
+});
+
 describe('classify — rank-3 d_eff via completing-the-square (#97 scope expansion)', () => {
   // (1, 1, 1, 0) with u = 1: x² + y² + z² + x = 0 ⇔ (x + ½)² + y² + z² = ¼
   // → sphere of radius ½ centered at (−½, 0, 0). Was "Degenerate" pre-#97.
