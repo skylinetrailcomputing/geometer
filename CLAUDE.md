@@ -37,6 +37,19 @@ deployment from `main` via `.github/workflows/pages.yml`.
 When adding a new scene, see `CONTRIBUTING.md` → "Adding a new exhibit"
 and lean on `src/scaffold/` rather than copying from quadrics.
 
+## Headset smoke-testing
+
+Every PR gets an auto-deployed Cloudflare Worker preview URL
+(commented on the PR ~1 min after push). **Headset smoke-testing
+happens there, not against `npm run dev` / localhost** — a Quest
+on the network can't reach a laptop's dev server without extra
+tunneling setup. So when a change needs in-headset eyes, the
+Cloudflare PR preview is the surface; don't suggest "open
+localhost in the Quest browser." Full details — fork-PR caveat,
+production URL, network setup pointer — in
+[`CONTRIBUTING.md`](CONTRIBUTING.md) → "Previewing changes in a
+headset."
+
 ## Repo conventions
 
 - **Public OSS repo, MIT-licensed, copyright Skyline Trail Computing
