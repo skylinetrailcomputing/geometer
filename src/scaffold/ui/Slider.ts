@@ -164,6 +164,13 @@ export class Slider {
     return this.grabbedBy !== null;
   }
 
+  dispose(): void {
+    this.track.geometry.dispose();
+    (this.track.material as THREE.Material).dispose();
+    this.thumb.geometry.dispose();
+    (this.thumb.material as THREE.Material).dispose();
+  }
+
   /**
    * Programmatically set the value (e.g. from a preset, #46). Snaps the raw
    * accumulator and applies the zero detent identically to a drag tick, then
