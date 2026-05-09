@@ -1,26 +1,35 @@
 import * as THREE from 'three';
 import type { PlanePose } from './classify';
 
-// Stand-in mesh for axis-aligned single-plane regimes the marcher renders
-// unreliably (#138). Two cases qualify, with the same visible artifact:
+// Stand-in mesh for axis-aligned plane regimes the marcher renders
+// unreliably (#138, #142). Three cases qualify, all sharing the same
+// edge-on fuzziness artifact at near-tangent ray angles:
 //
 //   * rank-1 + d_eff = 0 (tangent zero): `f(p) = α(p·k − offset)²` is
 //     non-negative everywhere, vanishing only on the plane. Sign-change
 //     hit detection mathematically never fires, so the marcher either
 //     misses the surface or surfaces stochastic ULP-jitter noise where
-//     rays graze the plane (#116 hypothesis 1).
+//     rays graze the plane (#116 hypothesis 1, #138 regime 1).
 //   * rank-0 + single linear nonzero: `f(p) = λ·k − d` has a real sign
 //     change, but for grazing rays at near-tangent angles the crossing
 //     can fall between discrete sample steps; adjacent fragments
 //     randomly do/don't catch it, producing the same fuzzy speckle
-//     (#116 hypothesis 2). Math-Y-only in practice — the only axis
-//     edge-on at natural Quest viewing pose.
+//     (#116 hypothesis 2, #138 regime 2). Math-Y-only in practice.
+//   * rank-1 + sgn(d_eff) = sgn(coef) (pair of parallel planes):
+//     `f` factors to `α((p·k − center)² − r²)`, two parallel planes
+//     at center ± √(d_eff / coef). The marcher catches the front plane
+//     cleanly via the first sign change but the back plane aliases
+//     through it as fragment-depth noise — the same per-fragment ULP-
+//     jitter pattern, modulated by the front plane's depth write
+//     (#142 regime 3).
 //
-// Rather than grow the harness to handle either failure mode (option A
-// in #138 — a footgun for any future scaffold consumer), this module
-// renders the plane explicitly when the predicate fires. `setPose(null)`
-// hides the mesh; the caller restores the raymarched surface in the
-// same step.
+// Rather than grow the harness to handle the failure modes (a footgun
+// for any future scaffold consumer), this module renders the plane(s)
+// explicitly when the predicate fires. The two-plane regime uses two
+// sibling meshes that share material + geometry semantics; the
+// single-plane regimes only show the first. `setPose(null)` hides
+// everything; the caller restores the raymarched surface in the same
+// step.
 //
 // Visual style mirrors the raymarched surface's world-axis-grid path
 // (`shadeHit` in `quadrics/index.ts`) so the transition into and out of
@@ -128,17 +137,19 @@ export interface DoublePlaneOptions {
 
 export interface DoublePlaneHandles {
   /**
-   * Parent group holding the single plane mesh. Caller adds it to the
-   * scene; the mesh's own `.visible` is the active toggle and is driven
-   * exclusively by `setPose`.
+   * Parent group holding the two sibling plane meshes. Caller adds it
+   * to the scene; per-mesh `.visible` is the active toggle, driven
+   * exclusively by `setPose`. Single-plane regimes only show the first
+   * mesh; the parallel-pair regime shows both.
    */
   group: THREE.Group;
 
   /**
-   * Drive the plane's visibility, orientation, and position from the
-   * `getPlanePose` predicate's result. `null` hides the plane; a
-   * non-null pose orients the plane along its math-frame axis and
-   * positions it at the math-frame offset.
+   * Drive plane visibility, orientation, and position from the
+   * `getPlanePose` predicate's result. `null` hides everything; a
+   * non-null pose with `offsets.length === 1` orients/positions the
+   * first mesh and hides the second; `offsets.length === 2` drives
+   * both meshes in parallel.
    *
    * The math→world swap (math-Y → −world-Z) lives inside this call so
    * the caller passes the predicate's result through unchanged.
@@ -147,8 +158,8 @@ export interface DoublePlaneHandles {
 }
 
 /**
- * Build the axis-aligned-plane stand-in mesh for the marcher-unreliable
- * regimes (#138). Returned hidden; the caller drives visibility by
+ * Build the axis-aligned-plane stand-in meshes for the marcher-unreliable
+ * regimes (#138, #142). Returned hidden; the caller drives visibility by
  * polling `getPlanePose` from the same module each frame and
  * forwarding the result.
  */
@@ -171,49 +182,59 @@ export function createDoublePlane(opts: DoublePlaneOptions): DoublePlaneHandles 
     },
   });
 
-  const mesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(halfExtent * 2, halfExtent * 2),
-    material,
-  );
-  mesh.visible = false;
-  group.add(mesh);
+  const geometry = new THREE.PlaneGeometry(halfExtent * 2, halfExtent * 2);
+  const meshes = [new THREE.Mesh(geometry, material), new THREE.Mesh(geometry, material)];
+  for (const mesh of meshes) {
+    mesh.visible = false;
+    group.add(mesh);
+  }
+
+  function placeMesh(mesh: THREE.Mesh, axis: PlanePose['axis'], offset: number): void {
+    // Past the AABB, the raymarched surface would also miss this plane
+    // (it's outside the bounding cube). Hide rather than render a plane
+    // the user wouldn't see in the equivalent non-degenerate pose.
+    // Reachable in practice via small squared coefs paired with larger
+    // linear shifts (center ± √(d_eff / coef) blows up as the squared
+    // coef approaches zero).
+    if (Math.abs(offset) > halfExtent) {
+      mesh.visible = false;
+      return;
+    }
+    mesh.visible = true;
+    switch (axis) {
+      case 'x':
+        // Math-X ⇒ world-X (no flip). Normal +world-X.
+        mesh.quaternion.copy(ROT_X);
+        mesh.position.set(offset, 0, 0);
+        break;
+      case 'y':
+        // Math-Y ⇒ −world-Z. Normal +world-Z (default orientation),
+        // and the offset flips sign on the way to world coords —
+        // mirrors SlicingPlane's `yPlane.position.z = -y0`.
+        mesh.quaternion.copy(ROT_Y);
+        mesh.position.set(0, 0, -offset);
+        break;
+      case 'z':
+        // Math-Z ⇒ world-Y. Normal +world-Y.
+        mesh.quaternion.copy(ROT_Z);
+        mesh.position.set(0, offset, 0);
+        break;
+    }
+  }
 
   return {
     group,
     setPose(pose: PlanePose | null): void {
       if (pose === null) {
-        mesh.visible = false;
+        for (const mesh of meshes) mesh.visible = false;
         return;
       }
-      // Past the AABB, the raymarched surface would also miss this
-      // plane (it's outside the bounding cube). Hide rather than render
-      // a plane the user wouldn't see in the equivalent non-degenerate
-      // pose. Reachable in practice via small squared coefs paired with
-      // larger linear shifts (offset = −linear / 2·squared blows up as
-      // the squared coef approaches zero).
-      if (Math.abs(pose.offset) > halfExtent) {
-        mesh.visible = false;
-        return;
-      }
-      mesh.visible = true;
-      switch (pose.axis) {
-        case 'x':
-          // Math-X ⇒ world-X (no flip). Normal +world-X.
-          mesh.quaternion.copy(ROT_X);
-          mesh.position.set(pose.offset, 0, 0);
-          break;
-        case 'y':
-          // Math-Y ⇒ −world-Z. Normal +world-Z (default orientation),
-          // and the offset flips sign on the way to world coords —
-          // mirrors SlicingPlane's `yPlane.position.z = -y0`.
-          mesh.quaternion.copy(ROT_Y);
-          mesh.position.set(0, 0, -pose.offset);
-          break;
-        case 'z':
-          // Math-Z ⇒ world-Y. Normal +world-Y.
-          mesh.quaternion.copy(ROT_Z);
-          mesh.position.set(0, pose.offset, 0);
-          break;
+      for (let i = 0; i < meshes.length; i++) {
+        if (i < pose.offsets.length) {
+          placeMesh(meshes[i], pose.axis, pose.offsets[i]);
+        } else {
+          meshes[i].visible = false;
+        }
       }
     },
   };

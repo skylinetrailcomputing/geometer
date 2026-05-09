@@ -159,46 +159,62 @@ function lookup(nPlus: number, nMinus: number, nZero: number, dSign: Sign): stri
 export type MathAxis = 'x' | 'y' | 'z';
 
 export interface PlanePose {
-  /** Math-frame axis perpendicular to the plane. */
+  /** Math-frame axis perpendicular to the plane(s). */
   axis: MathAxis;
-  /** Math-frame offset along `axis`. The plane is `axis = offset`. */
-  offset: number;
+  /**
+   * Math-frame offsets along `axis`. One entry for the single-plane
+   * regimes ('Double plane', 'Plane'); two entries (sorted ascending)
+   * for the 'Pair of parallel planes' regime.
+   */
+  offsets: readonly number[];
 }
 
 /**
- * Detect every pose that the marcher renders unreliably as a single plane
- * (rank-1 + d_eff = 0, OR rank-0 + a single linear nonzero) and return its
- * math-frame axis-aligned location. Returns null on every other pose.
+ * Detect every pose that the marcher renders unreliably as one or two
+ * axis-aligned planes and return the math-frame axis + plane offset(s).
+ * Returns null on every other pose.
  *
- * Two regimes share the same visible artifact and the same fix shape:
+ * Three regimes share the same family of visible artifact (edge-on
+ * fuzziness on math-Y at natural Quest viewing pose, cf. #116) and the
+ * same fix shape — substitute explicit `PlaneGeometry` meshes for the
+ * marcher:
  *
- *  1. **Tangent zero (rank 1).** `f` reduces to `α(p·k − offset)²` for
- *     some axis k — non-negative everywhere, vanishing only on a single
- *     double plane. The marcher's sign-change hit detection mathematically
- *     can't catch a tangent zero, so the surface either fails to render or
- *     surfaces as stochastic FP noise (#116, #138). classify() labels
- *     this 'Double plane'.
+ *  1. **Tangent zero (rank 1, d_eff = 0).** `f` reduces to
+ *     `α(p·k − offset)²` for some axis k — non-negative everywhere,
+ *     vanishing only on a single double plane. The marcher's
+ *     sign-change hit detection mathematically can't catch a tangent
+ *     zero, so the surface either fails to render or surfaces as
+ *     stochastic FP noise (#116, #138). classify() labels this
+ *     'Double plane'. Returned as a single offset.
  *
- *  2. **Edge-on linear (rank 0 + linear).** `f` reduces to `λ·k - d` for
- *     some axis k — a real sign change, marcher *can* catch it, but only
- *     if a sample on each side lands within the AABB intersection along
- *     that ray. For grazing rays at near-tangent angles, the crossing
- *     falls between discrete sample steps and adjacent fragments
- *     randomly do/don't catch the plane — the same fuzzy speckle as
- *     hypothesis (2) in #116. Math-Y-only in practice (the only axis
- *     edge-on at natural Quest viewing pose). classify() labels this
- *     'Plane'.
+ *  2. **Edge-on linear (rank 0 + single linear).** `f` reduces to
+ *     `λ·k − d` for some axis k — a real sign change, marcher *can*
+ *     catch it, but only if a sample on each side lands within the
+ *     AABB intersection along that ray. For grazing rays at near-
+ *     tangent angles, the crossing falls between discrete sample
+ *     steps and adjacent fragments randomly do/don't catch the plane
+ *     — the same fuzzy speckle as hypothesis (2) in #116. Math-Y-only
+ *     in practice. classify() labels this 'Plane'. Returned as a
+ *     single offset.
  *
- * Both regimes get the same fix: substitute an explicit `PlaneGeometry`
- * mesh for the marcher. Truly tilted multi-linear cases (rank 0 + ≥ 2
- * linears) aren't covered yet — they're not edge-on at natural viewing
- * pose, so they don't fuzz, and the orientation math is heavier. Add
- * when a real reproducer surfaces.
+ *  3. **Pair of parallel planes (rank 1, sgn(d_eff) = sgn(squared
+ *     coef)).** `f` reduces to `α((p·k − center)² − r²)` with
+ *     `r = √(d_eff / coef)` — two parallel planes at `center ± r`.
+ *     The marcher catches whichever plane it hits first along each ray
+ *     (always the front one) but the second plane aliases through the
+ *     first as parallax-correct fragment-depth noise (#142). classify()
+ *     labels this 'Pair of parallel planes'. Returned as two offsets,
+ *     sorted ascending.
+ *
+ * Truly tilted multi-linear cases (rank 0 + ≥ 2 linears) aren't
+ * covered yet — they're not edge-on at natural viewing pose, so they
+ * don't fuzz, and the orientation math is heavier. Add when a real
+ * reproducer surfaces.
  *
  * Mirrors the same `sign(...) → ZERO_EPSILON` floor and the same
  * complete-the-square `d_eff` calculation as classify(), so a positive
- * predicate result and a 'Double plane' / 'Plane' label always agree
- * (modulo the deferred multi-linear case).
+ * predicate result and a 'Double plane' / 'Plane' / 'Pair of parallel
+ * planes' label always agree (modulo the deferred multi-linear case).
  */
 export function getPlanePose(
   a: number,
@@ -227,9 +243,9 @@ export function getPlanePose(
   if (rank === 0) {
     const linearCount = (uS !== 0 ? 1 : 0) + (vS !== 0 ? 1 : 0) + (wS !== 0 ? 1 : 0);
     if (linearCount !== 1) return null;
-    if (uS !== 0) return { axis: 'x', offset: normalizeNegativeZero(d / u) };
-    if (vS !== 0) return { axis: 'y', offset: normalizeNegativeZero(d / v) };
-    return { axis: 'z', offset: normalizeNegativeZero(d / w) };
+    if (uS !== 0) return { axis: 'x', offsets: [normalizeNegativeZero(d / u)] };
+    if (vS !== 0) return { axis: 'y', offsets: [normalizeNegativeZero(d / v)] };
+    return { axis: 'z', offsets: [normalizeNegativeZero(d / w)] };
   }
 
   if (rank !== 1) return null;
@@ -244,25 +260,46 @@ export function getPlanePose(
 
   let dEff: number;
   let axis: MathAxis;
-  let offset: number;
+  let center: number;
+  let coef: number;
   if (aS !== 0) {
     dEff = d + (u * u) / (4 * a);
     axis = 'x';
-    offset = -u / (2 * a);
+    center = -u / (2 * a);
+    coef = a;
   } else if (bS !== 0) {
     dEff = d + (v * v) / (4 * b);
     axis = 'y';
-    offset = -v / (2 * b);
+    center = -v / (2 * b);
+    coef = b;
   } else {
     // cS !== 0 by rank check above.
     dEff = d + (w * w) / (4 * c);
     axis = 'z';
-    offset = -w / (2 * c);
+    center = -w / (2 * c);
+    coef = c;
   }
 
-  if (Math.abs(dEff) >= ZERO_EPSILON) return null;
+  // Tangent-zero regime ('Double plane'): single offset at the
+  // completing-the-square center. ZERO_EPSILON floor matches classify()'s
+  // sgn(d_eff) = 0 dispatch — the same epsilon decides 'Double plane' vs.
+  // 'Pair of parallel planes' on either side of the boundary.
+  if (Math.abs(dEff) < ZERO_EPSILON) {
+    return { axis, offsets: [normalizeNegativeZero(center)] };
+  }
 
-  return { axis, offset: normalizeNegativeZero(offset) };
+  // Pair-of-parallel-planes regime: same-sign d_eff and squared coef.
+  // Opposite signs land in 'Empty set' (the lookup table's
+  // '1,0,2|-1' / '0,1,2|1' rows) — the marcher renders those correctly
+  // (no surface to draw), so no stand-in needed.
+  if (sign(dEff) !== sign(coef)) return null;
+
+  const root = Math.sqrt(dEff / coef);
+  const offsets = [
+    normalizeNegativeZero(center - root),
+    normalizeNegativeZero(center + root),
+  ];
+  return { axis, offsets };
 }
 
 // `-u / (2 * a)` and `d / u` emit `-0` whenever the numerator is zero —
