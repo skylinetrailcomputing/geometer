@@ -3,8 +3,9 @@
 > Math + UX contract for the gradient + level-surfaces scene. v0.7 cuts:
 > #163 registered the third cluster member with a single k slider
 > sweeping { f(x, y, z) = k } across the canonical hyperboloid family;
-> #164 adds θ/φ point selection on the active level surface; #165 the
-> gradient arrow, #166 the live readout, #167 the numeric k label.
+> #164 added θ/φ point selection on the active level surface; #165 adds
+> the gradient arrow at the selected point; #166 the live readout, #167
+> the numeric k label.
 
 ## Goal
 
@@ -179,6 +180,48 @@ All three sliders share `SLIDER_BASE_COLOR = 0xaaaaaa` (neutral
 gray) and `thumbShape: 'sphere'`. None of θ/φ/k carries axis
 meaning — distinct from quadrics' axis-tinted coefficient sliders.
 
+## Gradient arrow (#165)
+
+A 3D arrow primitive (merged cylinder shaft + cone tip,
+`MeshStandardMaterial`, color `YELLOW = 0xf0e442` from the Wong/
+Okabe-Ito palette) anchored at the selected surface point with its
+tail on the point and its tip pointing along ∇f at that point. Total
+length 0.40 m (shaft 0.30 m + cone 0.10 m), shaft radius 0.018 m,
+cone radius 0.04 m, 32 radial segments — tunable in headset; this is
+the v0.7 lock.
+
+**Length convention: unit-length, fixed.** ∇f's *direction* is the
+§11.6 punch line; |∇f|'s magnitude story is told via the numeric
+readout (#166), not by varying-length arrows. |∇f| varies three-fold
+across the selectable surface domain for `f = x² + y² − z²` (≈ 1.94
+at the boot pose, ≈ 6 near the AABB shell at k = +2) — wide enough
+that a magnitude-proportional arrow would oscillate between
+near-invisible and dominating.
+
+**Orientation convention: ∇f as-is, no inversion.** The arrow points
+in the direction of *increasing f*. For k > 0 (1-sheet hyperboloid)
+that's outward from the math-Z axis; for k < 0 (2-sheet hyperboloid)
+that's inward, toward the cone apex. The flip is the §11.6 content,
+not a sign-flip bug — students see ∇f swing through the topology
+transition as k crosses zero.
+
+**Visibility: overlay rendering.** The arrow is constructed with
+`depthTest: false`, `depthWrite: false`, `renderOrder = 2`, so it
+draws on top of the surface regardless of camera angle. The arrow's
+pedagogical role is "always-visible UI element at the contact point"
+— students manipulating θ/φ/k need uninterrupted visual feedback,
+especially in the k < 0 inward-pointing case where physical
+depth-testing would occlude the arrow body behind the surface from
+some viewing angles.
+
+Pose drives off `result.point` + `result.normal` from the same
+per-frame raymarch that drives the indicator; positioning math (math →
+world + surfaceCenter offset) lives in `poseGradientArrow.ts` so it's
+testable without a renderer. Hides when the indicator hides (same
+`result.hit` gate). Color picked from `tokens.ts`'s `YELLOW` —
+distinct from the math-X / Y / Z axis tints (vermillion / bluish-green
+/ sky-blue) so the arrow doesn't read as carrying axis identity.
+
 ## Render
 
 Minimal lambert: `uBaseColor * (0.2 + 0.8 * max(dot(n, normalize(uLightDir)), 0))`.
@@ -222,11 +265,8 @@ at the apex. Three concerns:
    at the origin during a successful raycast. No JS-side cone-apex
    guard needed.
 
-## Out of scope (v0.7 #164 and beyond)
+## Out of scope (v0.7 beyond #165)
 
-- **Gradient arrow** — 3D arrow at the selected point, oriented along
-  ∇f. #165. Reuses the `result.point` + `result.normal` returned by
-  `raycastImplicit` in this scene's per-frame update.
 - **Live readout** — numeric ∇f and |∇f|. #166. Same source.
 - **Numeric k value display** — #167.
 - **Option B-lite (closed-form θ clamp).** Documented v0.7-polish
