@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import {
+  createTranslucentRect,
+  type TranslucentRectHandles,
+} from '@/scaffold/render/TranslucentRect';
 
 // Translucent slicing-plane meshes for the Cross sections section
 // (#113). Layers above the on-surface intersection ring shipped in
@@ -7,18 +11,22 @@ import * as THREE from 'three';
 // cross-section reads as "a sheet of light passing through the surface"
 // rather than just a curve drawn on the surface.
 //
-// One mesh per math axis (x₀, y₀, z₀), parented to a single group so
-// the slicing rack moves with the surface center. Each mesh shares the
-// same shader — body sky-blue at low alpha plus a brighter rim along
-// the four boundary edges — and only differs by orientation. Rim color
-// is intentionally one tone lighter than the on-surface ring color from
-// the shipped shader (`PLANE_GLOW_COLOR = vec3(0.34, 0.71, 0.91)`) so
-// the two glow tiers read as separate elements at a glance.
+// One translucent rect per math axis (x₀, y₀, z₀), parented to a single
+// group so the slicing rack moves with the surface center. Each rect
+// shares the same shader (the locked #113 recipe, now in
+// `scaffold/render/TranslucentRect.ts` since #148) — body sky-blue at
+// low alpha plus a brighter rim along the four boundary edges — and
+// only differs by orientation. Rim color is intentionally one tone
+// lighter than the on-surface ring color from the shipped shader
+// (`PLANE_GLOW_COLOR = vec3(0.34, 0.71, 0.91)`) so the two glow tiers
+// read as separate elements at a glance.
 //
 // Per-axis rim color differentiation is explicitly out of scope per
 // #113 — the slider thumbs and per-axis on-surface ring colors already
 // carry the per-axis identity.
 
+// Locked #113 visual recipe — keep in sync with
+// src/exhibits/tangent-planes/TangentPlane.ts.
 const PLANE_BODY_COLOR = new THREE.Color(0.34, 0.71, 0.91);
 const PLANE_BODY_ALPHA = 0.10;
 // One step lighter than PLANE_BODY_COLOR / the on-surface ring color
@@ -29,80 +37,21 @@ const PLANE_RIM_COLOR = new THREE.Color(0.70, 0.90, 0.99);
 const PLANE_RIM_ALPHA = 0.65;
 // Rim band width in plane-local meters (#113: "outer ~5 cm").
 const PLANE_RIM_WIDTH = 0.05;
-// Surface-mesh has the default renderOrder of 0; bumping to 1 puts the
-// transparent planes after it so depth-tested blending Just Works (the
-// raymarcher writes per-fragment depth via gl_FragDepth from #67).
-const PLANE_RENDER_ORDER = 1;
 
-const VERTEX_SHADER = /* glsl */ `
-  varying vec2 vLocal;
-
-  void main() {
-    // PlaneGeometry's local position spans [-halfExtent, +halfExtent]
-    // on x and y, with normal +Z. Pass the local (x, y) so the rim
-    // distance computes in plane-local meters regardless of the mesh's
-    // world orientation.
-    vLocal = position.xy;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-
-const FRAGMENT_SHADER = /* glsl */ `
-  precision highp float;
-
-  uniform float uHalfExtent;
-  uniform float uRimWidth;
-  uniform vec3  uBodyColor;
-  uniform float uBodyAlpha;
-  uniform vec3  uRimColor;
-  uniform float uRimAlpha;
-
-  varying vec2 vLocal;
-
-  void main() {
-    // Distance from the nearest edge in plane-local meters: 0 at the
-    // edge, uHalfExtent at the plane center. smoothstep gives an
-    // anti-aliased band over the outer uRimWidth, with rim = 1 at the
-    // edge falling smoothly to 0 inside the body.
-    float distFromEdge = uHalfExtent - max(abs(vLocal.x), abs(vLocal.y));
-    float rim = 1.0 - smoothstep(0.0, uRimWidth, distFromEdge);
-    vec3 color = mix(uBodyColor, uRimColor, rim);
-    float alpha = mix(uBodyAlpha, uRimAlpha, rim);
-    gl_FragColor = vec4(color, alpha);
-  }
-`;
-
-function buildPlaneMaterial(halfExtent: number): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    vertexShader: VERTEX_SHADER,
-    fragmentShader: FRAGMENT_SHADER,
-    transparent: true,
-    // Surface raymarcher writes correct per-fragment depth, so depth
-    // testing against the slicing plane occludes the half of the plane
-    // behind the surface. Disabling depth *write* keeps the planes
-    // from blocking each other in their mutual intersections.
-    depthWrite: false,
-    side: THREE.DoubleSide,
-    uniforms: {
-      uHalfExtent: { value: halfExtent },
-      uRimWidth:   { value: PLANE_RIM_WIDTH },
-      uBodyColor:  { value: PLANE_BODY_COLOR.clone() },
-      uBodyAlpha:  { value: PLANE_BODY_ALPHA },
-      uRimColor:   { value: PLANE_RIM_COLOR.clone() },
-      uRimAlpha:   { value: PLANE_RIM_ALPHA },
-    },
-  });
-}
-
-function buildPlaneMesh(
+function buildPlaneHandle(
   halfExtent: number,
   orient: (mesh: THREE.Mesh) => void,
-): THREE.Mesh {
-  const geometry = new THREE.PlaneGeometry(halfExtent * 2, halfExtent * 2);
-  const mesh = new THREE.Mesh(geometry, buildPlaneMaterial(halfExtent));
-  mesh.renderOrder = PLANE_RENDER_ORDER;
-  orient(mesh);
-  return mesh;
+): TranslucentRectHandles {
+  const handle = createTranslucentRect({
+    halfExtent,
+    bodyColor: PLANE_BODY_COLOR,
+    bodyAlpha: PLANE_BODY_ALPHA,
+    rimColor: PLANE_RIM_COLOR,
+    rimAlpha: PLANE_RIM_ALPHA,
+    rimWidth: PLANE_RIM_WIDTH,
+  });
+  orient(handle.mesh);
+  return handle;
 }
 
 export interface SlicingPlanesOptions {
@@ -174,19 +123,19 @@ export function createSlicingPlanes(
   //   math-Z plane → normal +world-Y (rotate -90° around X)
   // This matches the math→world axis routing already documented at
   // the slider→uniform block in quadrics/index.ts.
-  const xPlane = buildPlaneMesh(halfExtent, (m) => {
+  const xPlane = buildPlaneHandle(halfExtent, (m) => {
     m.rotation.y = Math.PI / 2;
   });
-  const yPlane = buildPlaneMesh(halfExtent, () => {
+  const yPlane = buildPlaneHandle(halfExtent, () => {
     /* default orientation: normal +Z */
   });
-  const zPlane = buildPlaneMesh(halfExtent, (m) => {
+  const zPlane = buildPlaneHandle(halfExtent, (m) => {
     m.rotation.x = -Math.PI / 2;
   });
 
-  group.add(xPlane);
-  group.add(yPlane);
-  group.add(zPlane);
+  group.add(xPlane.mesh);
+  group.add(yPlane.mesh);
+  group.add(zPlane.mesh);
 
   return {
     group,
@@ -200,19 +149,22 @@ export function createSlicingPlanes(
       // Each mesh slides along its own normal axis only; the other
       // two coords stay zero so the plane always passes through the
       // surface center along its non-slicing dimensions.
-      xPlane.position.x = x0;
-      yPlane.position.z = -y0;
-      zPlane.position.y = z0;
+      xPlane.mesh.position.x = x0;
+      yPlane.mesh.position.z = -y0;
+      zPlane.mesh.position.y = z0;
     },
     setVisibility(x: boolean, y: boolean, z: boolean): void {
-      xPlane.visible = x;
-      yPlane.visible = y;
-      zPlane.visible = z;
+      xPlane.mesh.visible = x;
+      yPlane.mesh.visible = y;
+      zPlane.mesh.visible = z;
     },
     dispose(): void {
-      for (const mesh of [xPlane, yPlane, zPlane]) {
-        mesh.geometry.dispose();
-        (mesh.material as THREE.Material).dispose();
+      // TranslucentRectHandles.dispose() is the single GPU-resource
+      // owner per the #150 step-1 disposal contract — it disposes
+      // both geometry and material together. Don't also call
+      // mesh.geometry.dispose() / mesh.material.dispose() here.
+      for (const handle of [xPlane, yPlane, zPlane]) {
+        handle.dispose();
       }
     },
   };
