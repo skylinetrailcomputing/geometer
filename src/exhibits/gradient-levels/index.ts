@@ -9,6 +9,7 @@ import { raycastImplicit } from '@/scaffold/render/raycastImplicit';
 import { Slider } from '@/scaffold/ui/Slider';
 import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
 import { DEFAULT_AXIS_COLORS } from '@/scaffold/design/tokens';
+import { createGradientArrow, type GradientArrowHandles } from './GradientArrow';
 import { BOUND, fJsRaw, gradJs } from './surfaceModel';
 
 // Gradient + level-surfaces scene (#162 epic). Third member of the
@@ -24,10 +25,11 @@ import { BOUND, fJsRaw, gradJs } from './surfaceModel';
 // (k < 0) — inside one slider range, with a topology change in the middle.
 //
 // Sub-issue progression: #163 established the surface + k slider; #164
-// adds θ/φ point selection (this PR); #165 the gradient arrow; #166 the
-// readout. f is intentionally non-editable in v0.7 — the quadrics
-// manipulator already covers surface-family morphing, and this scene's
-// story is k as a parameter, not (a, b, c). Recorded in SPEC.md.
+// added θ/φ point selection; #165 the gradient arrow (this PR); #166 the
+// readout; #167 the numeric k label. f is intentionally non-editable in
+// v0.7 — the quadrics manipulator already covers surface-family
+// morphing, and this scene's story is k as a parameter, not (a, b, c).
+// Recorded in SPEC.md.
 
 // ────────────────────────────────────────────────────────────────────
 // Constants
@@ -186,6 +188,7 @@ let kSlider: Slider | undefined;
 let thetaSlider: Slider | undefined;
 let phiSlider: Slider | undefined;
 let indicator: THREE.Mesh | undefined;
+let gradientArrow: GradientArrowHandles | undefined;
 let worldAxes: WorldAxes | undefined;
 let controllers: readonly THREE.Object3D[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
@@ -301,6 +304,17 @@ const gradientLevelsExhibit: Exhibit = {
     );
     group.add(indicator);
 
+    // Gradient-vector arrow at the selected point (#165). Constructed
+    // with `group.visible = false` so the renderer can't paint a stale
+    // pose between mount and the first update tick — the first hit
+    // frame in update calls setPose then setVisible(true) to uncloak.
+    // Renders as overlay (depthTest: false, renderOrder: 2) so the
+    // §11.6 punch line stays visible regardless of camera angle, even
+    // for k<0 inward orientations where the surface body would
+    // otherwise occlude the arrow.
+    gradientArrow = createGradientArrow({ surfaceCenter: SURFACE_CENTER });
+    group.add(gradientArrow.group);
+
     // Math-frame axis indicator — same anchor as cluster siblings.
     worldAxes = new WorldAxes({ axisColors: AXIS_COLORS });
     worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
@@ -308,7 +322,7 @@ const gradientLevelsExhibit: Exhibit = {
   },
 
   update() {
-    if (!kSlider || !thetaSlider || !phiSlider || !indicator) return;
+    if (!kSlider || !thetaSlider || !phiSlider || !indicator || !gradientArrow) return;
 
     // 1. Slider hover + drag tick. Order doesn't matter across the
     //    three sliders (each tracks its own grab/hover state).
@@ -342,15 +356,21 @@ const gradientLevelsExhibit: Exhibit = {
       bound: BOUND,
     });
 
-    // 5. Indicator pose. Surface-local math → world.
+    // 5. Indicator + gradient-arrow pose. Surface-local math → world.
+    //    Arrow consumes `result.normal` (already unit-normalized by
+    //    raycastImplicit); pose is set BEFORE setVisible(true) so the
+    //    first uncloak frame paints at the correct pose, not the
+    //    stale construction-time identity.
     if (result.hit) {
       indicator.visible = true;
       writeMathToWorld(result.point, indicatorWorld);
       indicator.position.copy(indicatorWorld).add(SURFACE_CENTER);
-      // result.normal is unused in this PR; #165 can reuse the same
-      // raycast-result pattern to orient the gradient arrow.
+
+      gradientArrow.setPose(result.point, result.normal);
+      gradientArrow.setVisible(true);
     } else {
       indicator.visible = false;
+      gradientArrow.setVisible(false);
     }
 
     // 6. Yaw-only billboard on the WorldAxes letter labels so they
@@ -386,6 +406,11 @@ const gradientLevelsExhibit: Exhibit = {
       (indicator.material as THREE.Material).dispose();
       indicator = undefined;
     }
+    // Arrow disposes its merged geometry + material via its own handle;
+    // shell removes ctx.group + descendants automatically per the
+    // existing convention (mirrors tangent-planes/index.ts:340-380).
+    gradientArrow?.dispose();
+    gradientArrow = undefined;
     kSlider?.dispose();
     kSlider = undefined;
     thetaSlider?.dispose();
