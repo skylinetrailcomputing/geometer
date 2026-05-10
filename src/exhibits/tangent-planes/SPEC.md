@@ -1,17 +1,17 @@
 # `tangent-planes` exhibit — SPEC
 
-> Math + UX contract for the tangent-planes scene. v0.6 first cut: point
-> selection on a fixed unit sphere (#147). Tangent plane mesh (#148) and
-> live readout (#149) extend this in subsequent PRs.
+> Math + UX contract for the tangent-planes scene. v0.6 cuts: point
+> selection on a fixed unit sphere (#147) + tangent-plane mesh anchored
+> at the selected point (#148). Live readout (#149) extends this in a
+> subsequent PR.
 
 ## Goal
 
 An interactive WebXR scene where the learner drags two angular sliders to
 walk a point continuously across an implicit quadric surface, watching
-the contact point move while the same surface stays put. Anchors the
+the tangent plane reorient as the contact point moves. Anchors the
 "tangent plane reorients as the contact point moves" intuition for APPM
-2350 §11.4 (Tangent Planes and Linear Approximations) — without yet
-showing the plane (which lands in #148).
+2350 §11.4 (Tangent Planes and Linear Approximations).
 
 Sibling of `quadrics` in the `calculus3` cluster; the SceneRack swaps
 between them at runtime.
@@ -96,12 +96,38 @@ the origin hits at distance 1), but the path is in place for future
 coefficient editing where ray-origin choice may not enclose the
 surface.
 
+## Tangent plane mesh
+
+A translucent rectangular mesh, 0.9 m × 0.9 m, anchored at the
+selected surface point with normal aligned to ∇f at that point.
+Visual treatment matches the cross-section slicing-plane recipe locked
+in #113: sky-blue translucent body (alpha 0.10), one-tone-lighter rim
+(alpha 0.65) along the outer ~5 cm, double-sided so the back face is
+visible from inside the surface, depth-tested against the surface's
+`gl_FragDepth` write.
+
+Pose drives off `result.point` + `result.normal` from the same per-frame
+raymarch that drives the indicator; positioning math (math → world +
+surfaceCenter offset) lives in `poseTangentPlaneMesh.ts` so it's
+testable without a renderer. Hides when the indicator hides (same
+`result.hit` gate). For v0.6's unit sphere the hide branch never fires,
+but the path stays in place for future surfaces.
+
+Plane size (`TANGENT_PLANE_HALF_EXTENT = 0.45 m`) is the v0.6 lock,
+tunable in headset. Reads as "a flat patch tangent to the surface"
+rather than "a sheet that swallows the surface."
+
+The shader + geometry primitive (`scaffold/render/TranslucentRect.ts`)
+is shared with `quadrics`'s slicing planes — the locked #113 visual
+recipe lives in one shader. Color/alpha/width *constants* are
+intentionally per-scene so the design language can drift in v0.7+
+without coupling the two scenes.
+
 ## Render
 
 Minimal lambert: `uBaseColor * (0.2 + 0.8 * max(dot(n, normalize(uLightDir)), 0))`.
 No grid, no parametric grid, no cross-section glow. The visual focus
-belongs on the indicator + (later) the tangent plane; a busy surface
-competes.
+belongs on the indicator + tangent plane; a busy surface competes.
 
 Same `SURFACE_CENTER`, `LIGHT_DIR`, and `uBaseColor` as quadrics so the
 surface reads as a sibling. World-axis grid deferred to a later cut if
@@ -110,10 +136,9 @@ indicator.
 
 ## Out of scope (v0.6)
 
-- **Tangent plane mesh** (#148) — consumes `result.point` + `result.normal`
-  from `raycastImplicit`'s return type. No new entry points needed in
-  `raycastSurface.ts`.
-- **Live readout of plane equation / normal** (#149) — same.
+- **Live readout of plane equation / normal** (#149) — consumes
+  `result.normal` directly from `raycastImplicit`'s return type. No new
+  entry points needed in `raycastSurface.ts` or in `TangentPlane.ts`.
 - **Coefficient editing** — see "Equation form" above.
 - **Controller-aim point picking** — natural in headset, unusable on
   the pancake build (#105) and Cloudflare PR previews. Deferred to v0.9.

@@ -9,6 +9,7 @@ import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
 import { DEFAULT_AXIS_COLORS } from '@/scaffold/design/tokens';
 import { directionFromAngles } from './directionFromAngles';
 import { raycastImplicit } from './raycastSurface';
+import { createTangentPlane, type TangentPlaneHandles } from './TangentPlane';
 
 // Tangent-planes scene (#147). First sub-issue of the #121 epic — sets up
 // the v0.6 scene's surface + θ/φ point selection so #148 (tangent-plane
@@ -81,6 +82,11 @@ const SLIDER_BASE_COLOR = 0xaaaaaa;
 const INDICATOR_RADIUS = 0.04;
 const INDICATOR_COLOR = 0xdddddd;
 
+// Tangent-plane size — 0.9 m × 0.9 m on the unit sphere. Reads as "a
+// flat patch tangent to the surface" rather than "a sheet that swallows
+// the surface." Tunable in headset; this is the v0.6 lock.
+const TANGENT_PLANE_HALF_EXTENT = 0.45;
+
 const AXIS_COLORS: Record<AxisName, number> = DEFAULT_AXIS_COLORS;
 
 // ────────────────────────────────────────────────────────────────────
@@ -142,6 +148,7 @@ let surfaceMaterial: THREE.ShaderMaterial | undefined;
 let thetaSlider: Slider | undefined;
 let phiSlider: Slider | undefined;
 let indicator: THREE.Mesh | undefined;
+let tangentPlane: TangentPlaneHandles | undefined;
 let worldAxes: WorldAxes | undefined;
 let controllers: readonly THREE.Object3D[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
@@ -233,6 +240,19 @@ const tangentPlanesExhibit: Exhibit = {
     );
     group.add(indicator);
 
+    // Tangent-plane mesh. Constructed with `group.visible = false` so
+    // the renderer can't paint a stale construction-time pose between
+    // mount and the first update tick — the first hit frame in update
+    // calls setPose then setVisible(true) to uncloak. (Insertion order
+    // in the scene graph doesn't drive Three's render order; that's
+    // governed by renderOrder + opaque/transparent pass sorting. We add
+    // it here only as a human-reader breadcrumb.)
+    tangentPlane = createTangentPlane({
+      surfaceCenter: SURFACE_CENTER,
+      halfExtent: TANGENT_PLANE_HALF_EXTENT,
+    });
+    group.add(tangentPlane.group);
+
     // Math-frame axis indicator — same anchor as quadrics.
     worldAxes = new WorldAxes({ axisColors: AXIS_COLORS });
     worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
@@ -240,7 +260,7 @@ const tangentPlanesExhibit: Exhibit = {
   },
 
   update() {
-    if (!thetaSlider || !phiSlider || !indicator) return;
+    if (!thetaSlider || !phiSlider || !indicator || !tangentPlane) return;
 
     // Slider hover + drag tick.
     thetaSlider.updateHover(controllers);
@@ -269,10 +289,15 @@ const tangentPlanesExhibit: Exhibit = {
       // `indicatorWorld` is the module-scope scratch.
       writeMathToWorld(result.point, indicatorWorld);
       indicator.position.copy(indicatorWorld).add(SURFACE_CENTER);
-      // result.normal is unused in this PR; #148 will read it to orient
-      // the tangent-plane mesh.
+
+      // Pose first, then uncloak — so the first paint after a mount or
+      // a miss→hit transition lands at the correct pose, not the stale
+      // construction-time identity.
+      tangentPlane.setPose(result.point, result.normal);
+      tangentPlane.setVisible(true);
     } else {
       indicator.visible = false;
+      tangentPlane.setVisible(false);
     }
 
     // Yaw-only billboard on the WorldAxes letter labels (X / Y / Z), so
@@ -305,6 +330,8 @@ const tangentPlanesExhibit: Exhibit = {
       (indicator.material as THREE.Material).dispose();
       indicator = undefined;
     }
+    tangentPlane?.dispose();
+    tangentPlane = undefined;
     thetaSlider?.dispose();
     thetaSlider = undefined;
     phiSlider?.dispose();
