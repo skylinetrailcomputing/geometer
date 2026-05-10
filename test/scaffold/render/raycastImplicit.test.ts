@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   raycastImplicit,
   type RaycastResult,
-} from '../../../src/exhibits/tangent-planes/raycastSurface.ts';
+} from '../../../src/scaffold/render/raycastImplicit.ts';
 import type { MathVec3 } from '../../../src/scaffold/math/frames.ts';
 
 // Unit-sphere test surface: f = x² + y² + z² − 1, ∇f = (2x, 2y, 2z).
@@ -252,5 +252,64 @@ describe('raycastImplicit — bisection precision', () => {
     expect(Math.abs(r.point[0] - 1)).toBeLessThan(5e-4);
     expect(Math.abs(r.point[1])).toBeLessThan(5e-4);
     expect(Math.abs(r.point[2])).toBeLessThan(5e-4);
+  });
+});
+
+describe('raycastImplicit — f(origin) = 0 (no downstream sign change)', () => {
+  // Constant-or-on-surface f along the ray exercises the algorithm's
+  // sign-change detector in a way the existing sphere/2-sheet cases don't.
+  // This is the cone-apex case from gradient-levels (#164): at k = 0 with
+  // f = x²+y²−z²−k, every ray from origin sees f either identically zero
+  // (tangent rays) or one-signed throughout (non-tangent rays from origin).
+  // `fPrev * fNext < 0` strict-less-than rejects 0·x as a sign change.
+  // Expected: miss in both cases.
+  const coneF = (x: number, y: number, z: number): number =>
+    x * x + y * y - z * z;
+  const coneGradF = (x: number, y: number, z: number): MathVec3 => [
+    2 * x,
+    2 * y,
+    -2 * z,
+  ];
+
+  it('f identically zero along the ray (cone tangent at k=0): miss', () => {
+    // Tangent ray θ = π/4, φ = 0: d = (sin π/4, 0, cos π/4) = (√2/2, 0, √2/2).
+    // f(t·d) = t²(1/2 + 0 − 1/2) = 0 identically. No sign change anywhere.
+    const inv = 1 / Math.sqrt(2);
+    const r = raycastImplicit({
+      f: coneF,
+      gradF: coneGradF,
+      origin: [0, 0, 0],
+      dir: [inv, 0, inv],
+      bound: 3,
+    });
+    expect(r.hit).toBe(false);
+  });
+
+  it('f one-signed throughout (cone non-tangent at k=0): miss', () => {
+    // Non-tangent ray θ = π/2, φ = 0: d = (1, 0, 0). f(t·d) = t² (positive
+    // for all t > 0). f(origin) = 0; first interval check is 0·t² = 0,
+    // strict `< 0` rejects ⇒ no sign change ⇒ miss.
+    const r = raycastImplicit({
+      f: coneF,
+      gradF: coneGradF,
+      origin: [0, 0, 0],
+      dir: [1, 0, 0],
+      bound: 3,
+    });
+    expect(r.hit).toBe(false);
+  });
+
+  it('polar ray on cone (f = -t² always negative): miss', () => {
+    // Polar ray θ = 0: d = (0, 0, 1). f(t·d) = -t² (one-signed negative
+    // for all t > 0). f(origin) = 0. Same strict-less-than rejection as
+    // above ⇒ miss.
+    const r = raycastImplicit({
+      f: coneF,
+      gradF: coneGradF,
+      origin: [0, 0, 0],
+      dir: [0, 0, 1],
+      bound: 3,
+    });
+    expect(r.hit).toBe(false);
   });
 });

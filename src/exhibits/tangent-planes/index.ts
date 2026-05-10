@@ -12,8 +12,8 @@ import {
   SKY_BLUE,
   VERMILLION,
 } from '@/scaffold/design/tokens';
-import { directionFromAngles } from './directionFromAngles';
-import { raycastImplicit } from './raycastSurface';
+import { directionFromAngles } from '@/scaffold/math/directionFromAngles';
+import { raycastImplicit } from '@/scaffold/render/raycastImplicit';
 import { createTangentPlane, type TangentPlaneHandles } from './TangentPlane';
 import { TangentPlaneReadout } from './TangentPlaneReadout';
 

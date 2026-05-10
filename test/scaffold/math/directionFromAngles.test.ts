@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { directionFromAngles } from '../../../src/exhibits/tangent-planes/directionFromAngles.ts';
+import { directionFromAngles } from '../../../src/scaffold/math/directionFromAngles.ts';
 import { writeMathToWorld } from '../../../src/scaffold/math/frames.ts';
 import * as THREE from 'three';
 
