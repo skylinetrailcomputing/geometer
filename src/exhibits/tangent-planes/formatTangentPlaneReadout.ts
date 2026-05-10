@@ -1,4 +1,5 @@
 import type { MathVec3 } from '@/scaffold/math/frames';
+import { formatSignedMagnitude } from '@/scaffold/ui/formatSignedMagnitude';
 
 // Pure formatter for the tangent-planes readout (#149). Given a
 // surface-local point and its outward unit normal, produce the nine
@@ -9,22 +10,12 @@ import type { MathVec3 } from '@/scaffold/math/frames';
 // unit-test import time — same isolation pattern as
 // `directionFromAngles.ts`, `raycastSurface.ts`, `poseTangentPlaneMesh.ts`.
 //
-// Sign characters use Unicode MINUS SIGN (U+2212), matching
-// `EquationReadout.ts`'s convention so the two readouts render with the
-// same `−` glyph rather than the narrower hyphen-minus.
+// `formatSignedMagnitude` lifted to scaffold on third use (#166); the
+// local `formatInvertedSignedMagnitude` stays here — only one call site,
+// extraction trigger hasn't fired.
 
-const MINUS = '−';
+const MINUS = '−'; // U+2212
 const PLUS = '+';
-
-/**
- * Sign + 2-decimal magnitude; sign is `+` for `v >= 0`, `−` for `v < 0`.
- * Mirrors `EquationReadout.ts:344` so quadrics and tangent-planes share
- * the same numeric-formatting idiom.
- */
-function formatSignedMagnitude(v: number): string {
-  const sign = v < 0 ? MINUS : PLUS;
-  return `${sign}${Math.abs(v).toFixed(2)}`;
-}
 
 /**
  * Sign + 2-decimal magnitude with the sign of `−v` (i.e. the sign of the
