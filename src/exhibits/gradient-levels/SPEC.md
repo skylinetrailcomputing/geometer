@@ -1,10 +1,10 @@
 # `gradient-levels` exhibit — SPEC
 
 > Math + UX contract for the gradient + level-surfaces scene. v0.7 cuts:
-> register the third cluster member with a single k slider sweeping
-> { f(x, y, z) = k } across the canonical hyperboloid family (#163).
-> #164 adds point selection, #165 the gradient arrow, #166 the live
-> readout.
+> #163 registered the third cluster member with a single k slider
+> sweeping { f(x, y, z) = k } across the canonical hyperboloid family;
+> #164 adds θ/φ point selection on the active level surface; #165 the
+> gradient arrow, #166 the live readout, #167 the numeric k label.
 
 ## Goal
 
@@ -81,15 +81,103 @@ Slider visuals: neutral light gray base color (`0xaaaaaa`), sphere thumb
 shape — k is a scalar level value, not an axis-aligned parameter, so
 neither an axis tint nor an arrow thumb would carry meaning.
 
-## No on-screen k value (intentional v0.7-#163 deferral)
+## No on-screen k value (intentional v0.7-#163 deferral; pending #167)
 
-The numeric value of k is not displayed in this PR. The minimum-viable
-scene the issue calls for is "register + slider"; adding worldspace
-text is scope creep against the issue title. Acknowledged that not
-seeing the number weakens the immediate learning loop (the user is
-actively dragging the parameter whose value is hidden); a follow-up
-will add a numeric k label near the slider, scheduled between #164
-and #165.
+The numeric value of k is not displayed yet. The minimum-viable scene
+#163 called for was "register + slider"; adding worldspace text was
+scope creep against that issue title. Acknowledged that not seeing the
+number weakens the immediate learning loop (the user is actively
+dragging the parameter whose value is hidden); the follow-up is
+[#167](https://github.com/skylinetrailcomputing/geometer/issues/167),
+scheduled for v0.7 and especially load-bearing once #164 ships
+point selection — correlating "indicator vanished" with "k near 0"
+becomes a single-glance read once the value is on-screen.
+
+## Point parameterization (#164)
+
+Two angular sliders (θ, φ) aim a ray from the surface center; the
+indicator is the first forward intersection with the active level
+surface. Math frame (X right, Y forward, Z up):
+
+- `θ ∈ [0, π]` — polar angle from +math-Z (up). Snap detents at
+  `[0, π/2, π]` (north pole, equator, south pole).
+- `φ ∈ [−π, π]` — azimuth in math-XY plane from +math-X. Snap
+  detents at `[−π, −π/2, 0, π/2, π]` (the four cardinal compass
+  directions plus the wrap-equivalent ±π).
+- Direction: `(sin θ cos φ, sin θ sin φ, cos θ)` via the shared
+  `scaffold/math/directionFromAngles` helper.
+- Slider range is **closed (non-wrapping)** — `±π` are distinct
+  slider positions even though they map to the same direction.
+
+Mirrors `tangent-planes`' point-selection convention (#147 §3.2)
+verbatim — the math-frame routing is shared scaffold infrastructure.
+
+## Initial pose (#164)
+
+`θ₀ = π/3, φ₀ = π/4` — off both poles AND off every snap point,
+in the equator band that hits the 1-sheet hyperboloid for the
+default `K_INITIAL = +0.5`. Concrete check: `t² · cos(2π/3) = −0.5`
+⇒ `t = 1`; point ≈ (0.612, 0.612, 0.5) — well inside `BOUND = 3.0`.
+On first load both sliders read responsive in either drag direction.
+
+## Indicator (#164)
+
+A small `MeshStandardMaterial` sphere (~0.04 m radius, neutral light
+gray `0xdddddd`). Verbatim port from tangent-planes for cluster-sibling
+visual consistency.
+
+## Miss-hide policy (#164) — geometry vs raycaster policy
+
+The indicator is visible only when `raycastImplicit` returns a hit;
+otherwise hidden. This is a deliberate choice (Option A in the #164
+plan) over re-projection (Option B) — the disappearing-indicator UX
+is pedagogically faithful to the §11.6 family deformation.
+
+Two sources of misses, distinct in mechanism:
+
+1. **Raycaster policy at k = 0.** Every ray from origin returns miss
+   at `k = 0`, by sign-change-detector policy — NOT cone geometric
+   inaccessibility. The cone `x² + y² − z² = 0` contains the full
+   generator rays at `θ ∈ {π/4, 3π/4}`, but `raycastImplicit` is a
+   sign-change detector and rejects identically-zero (tangent) or
+   one-signed (non-tangent) `f` along a ray. The right framing is
+   "no unique 'first forward intersection' is identifiable from a
+   sign-change march at k = 0" — the indicator hides as a policy
+   choice, not because the cone is unreachable.
+
+2. **Analytic miss + AABB clip for k ≠ 0.** Solving `f(t·d) − k = 0`
+   along a ray from origin gives `t² · cos(2θ) = −k`. Visible-hit
+   regions:
+   - `k > 0` (1-sheet): `θ ∈ (π/4, 3π/4)` AND `|cos(2θ)| ≥ k/BOUND²`
+     (the AABB-clip threshold; near-band-edge θ's miss because the
+     intersection is outside the rendered cube).
+   - `k < 0` (2-sheet): `θ ∈ [0, π/4) ∪ (3π/4, π]` AND
+     `|cos(2θ)| ≥ |k|/BOUND²`.
+
+   The hit region inverts (equator ↔ poles) as k crosses 0 — that's
+   the §11.6 topology-change story.
+
+If the disappearing-indicator UX proves confusing in headset smoke,
+**Option B-lite (closed-form θ clamp to the BOUND-bounded valid
+region, `|cos(2θ)| ≥ |k|/BOUND² + ε`)** is the documented v0.7-polish
+follow-up. Not pre-paved in #164 — over-engineering against a
+deferred decision.
+
+## Slider rack layout (#164 — k slider moved to bottom row)
+
+The rack now stacks three sliders, top to bottom: θ at
+`y = SLIDER_RACK_CENTER.y + SLIDER_ROW_PITCH = 1.14`, φ at
+`SLIDER_RACK_CENTER.y = 1.00`, k at
+`SLIDER_RACK_CENTER.y − SLIDER_ROW_PITCH = 0.86`. The k slider's
+#163 position at y = 1.00 changes — a footprint diff visible in
+the headset smoke pass on this PR. Rationale: pedagogy hierarchy
+reads top→bottom as "where on this surface (θ, φ) ← which surface
+(k)" — the where-question takes the top rows; the family-selector
+sits underneath.
+
+All three sliders share `SLIDER_BASE_COLOR = 0xaaaaaa` (neutral
+gray) and `thumbShape: 'sphere'`. None of θ/φ/k carries axis
+meaning — distinct from quadrics' axis-tinted coefficient sliders.
 
 ## Render
 
@@ -124,24 +212,31 @@ at the apex. Three concerns:
    a central-difference here would also be degenerate
    (`f(h, 0, 0) = f(−h, 0, 0) = h²`), so the shader-side guard is the
    right fix.
-3. **CPU side (#164's concern).** Flagged here so the design tax is
-   inherited: the same NaN edge case applies in JS when the user walks
-   a point selection toward the apex. Resolution can wait until #164
-   (likely the same `dot(g, g) < eps` guard in the JS gradient).
+3. **CPU side — resolved in #164 by the scaffold's defensive branch.**
+   The same NaN edge case in principle applies in JS, but
+   `raycastImplicit`'s defensive `gLen === 0 → miss` guard
+   (`scaffold/render/raycastImplicit.ts`) handles it without a
+   scene-side gradient guard. The JS path also can't reach the
+   apex for `t > 0` — the march starts at `t0 ≥ 0` and the first
+   sign-change check needs `t > 0`, so `gradJs` is never evaluated
+   at the origin during a successful raycast. No JS-side cone-apex
+   guard needed.
 
-## Out of scope (v0.7 #163)
+## Out of scope (v0.7 #164 and beyond)
 
-- **Point selection** — point indicator + θ/φ-style sliders + CPU
-  raymarcher land in #164.
 - **Gradient arrow** — 3D arrow at the selected point, oriented along
-  ∇f. #165.
-- **Live readout** — numeric ∇f and |∇f|. #166.
-- **Numeric k value display** — separate follow-up between #164 and
-  #165.
-- **Coefficient editing** — see "Equation form" above. The `SURFACE`
-  block in `index.ts` is the single source of truth for f; adding
-  editable `(a, b, c)` would mean new uniforms + an extended SURFACE
-  block, not a structural change.
+  ∇f. #165. Reuses the `result.point` + `result.normal` returned by
+  `raycastImplicit` in this scene's per-frame update.
+- **Live readout** — numeric ∇f and |∇f|. #166. Same source.
+- **Numeric k value display** — #167.
+- **Option B-lite (closed-form θ clamp).** Documented v0.7-polish
+  follow-up if smoke shows the disappearing-indicator UX is too
+  jarring. Clamp would need to account for BOUND
+  (`|cos(2θ)| ≥ |k|/BOUND² + ε`), not just the analytic angular
+  region.
+- **Coefficient editing** — see "Equation form" above. `surfaceModel.ts`
+  is the single source of truth for f; adding editable `(a, b, c)`
+  would mean new uniforms + extended exports, not a structural change.
 - **Alternate f presets** — quadric is the natural family for v0.7;
   non-quadric f presets are a v0.7-polish or v0.8+ idea.
 - **Floor** — the family extends to ±math-Z (vertically); a floor would
