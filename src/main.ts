@@ -6,10 +6,12 @@ import { bootShell } from './shell/shell';
 // Order matters: `registerExhibit` appends in import order, the shell's
 // cluster filter preserves it, and `clusterExhibits[0]` is the bare-URL
 // boot default. Quadrics stays first (cluster default + first SceneRack
-// tab); tangent-planes second (pre-warmed as a non-default sibling at
-// boot). `hello` stays last — cluster-less, filtered out of the rack.
+// tab); tangent-planes second; gradient-levels third (pre-warmed as a
+// non-default sibling at boot). `hello` stays last — cluster-less,
+// filtered out of the rack.
 import './exhibits/quadrics';
 import './exhibits/tangent-planes';
+import './exhibits/gradient-levels';
 import './exhibits/hello';
 
 bootShell();
