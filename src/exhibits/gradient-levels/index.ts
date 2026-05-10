@@ -6,6 +6,7 @@ import { writeMathToWorld } from '@/scaffold/math/frames';
 import { directionFromAngles } from '@/scaffold/math/directionFromAngles';
 import { createImplicitSurface } from '@/scaffold/render/ImplicitSurface';
 import { raycastImplicit } from '@/scaffold/render/raycastImplicit';
+import { Label } from '@/scaffold/ui/Label';
 import { Slider } from '@/scaffold/ui/Slider';
 import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
 import {
@@ -52,6 +53,15 @@ const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
 // to 1.42 (vs. tangent-planes' 1.32) to maintain ~0.18 m bottom-to-thumb-top
 // clearance over the taller rack (top of θ slider thumb at y ≈ 1.21).
 const READOUT_POSITION = new THREE.Vector3(0, 1.42, -0.7);
+
+// k-value label (#167) — anchored below the k slider. There's no room
+// for a label *above* the k slider because the φ slider sits at
+// y = 1.00 (thumb-bottom at y ≈ 0.93) and the k thumb-top is also at
+// y ≈ 0.93 (k slider at y=0.86 + ~0.07 sphere radius). Below k is the
+// only available rack-vertical slot. fontSize 0.06 matches the cluster's
+// rack-label convention (`quadrics/index.ts:82`).
+const K_LABEL_POSITION = new THREE.Vector3(0, 0.70, -0.7);
+const K_LABEL_PRIMARY_FONT_SIZE = 0.06;
 
 // Cluster siblings' lighting + base color so the surface reads as a
 // sibling, not as a separate scene's surface.
@@ -202,6 +212,7 @@ let phiSlider: Slider | undefined;
 let indicator: THREE.Mesh | undefined;
 let gradientArrow: GradientArrowHandles | undefined;
 let gradientLevelsReadout: GradientLevelsReadout | undefined;
+let kLabel: Label | undefined;
 let worldAxes: WorldAxes | undefined;
 let controllers: readonly THREE.Object3D[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
@@ -344,6 +355,17 @@ const gradientLevelsExhibit: Exhibit = {
     gradientLevelsReadout.group.position.copy(READOUT_POSITION);
     group.add(gradientLevelsReadout.group);
 
+    // k-value label (#167). Displays the current level value `k` below
+    // the k slider. The §11.6 family-sweep pedagogy is driven by k;
+    // surfacing the numeric value lets students correlate slider position
+    // with snap detents (k = -1 canonical 2-sheet, k = 0 cone, k = +1
+    // canonical 1-sheet) and with the indicator visibility transition
+    // at k = 0. Uses the Label primitive's primary line only; secondary
+    // stays empty (#170 may rework into a two-line shape later).
+    kLabel = new Label({ primaryFontSize: K_LABEL_PRIMARY_FONT_SIZE });
+    kLabel.group.position.copy(K_LABEL_POSITION);
+    group.add(kLabel.group);
+
     // Math-frame axis indicator — same anchor as cluster siblings.
     worldAxes = new WorldAxes({ axisColors: AXIS_COLORS });
     worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
@@ -357,7 +379,8 @@ const gradientLevelsExhibit: Exhibit = {
       !phiSlider ||
       !indicator ||
       !gradientArrow ||
-      !gradientLevelsReadout
+      !gradientLevelsReadout ||
+      !kLabel
     ) return;
 
     // 1. Slider hover + drag tick. Order doesn't matter across the
@@ -374,6 +397,17 @@ const gradientLevelsExhibit: Exhibit = {
       surfaceMaterial.uniforms.uK.value = kSlider.value;
     }
 
+    // 2b. k-value label (#167). Positive values render with no leading
+    //     sign per the issue spec ("k = 0.50"); negative values prepend
+    //     U+2212 MINUS to match the cluster's signed-numeric glyph
+    //     convention. Zero falls through the positive branch as "0.00"
+    //     (no leading sign), matching the textbook identity form.
+    const k = kSlider.value;
+    const kStr = k < 0
+      ? `k = −${Math.abs(k).toFixed(2)}`
+      : `k = ${k.toFixed(2)}`;
+    kLabel.setPrimary(kStr);
+
     // 3. Math-frame direction from θ/φ — mutates `dirMath` in place;
     //    no per-frame allocation.
     directionFromAngles(thetaSlider.value, phiSlider.value, dirMath);
@@ -382,8 +416,7 @@ const gradientLevelsExhibit: Exhibit = {
     //    over the current k each frame — one closure allocation per
     //    frame, well under the per-hit RaycastHit tuples raycastImplicit
     //    itself emits. Readability win over a mutable module-scope
-    //    `currentK` variable.
-    const k = kSlider.value;
+    //    `currentK` variable. `k` is the slider value pulled in step 2b.
     const result = raycastImplicit({
       f: (x, y, z) => fJsRaw(x, y, z) - k,
       gradF: gradJs,
@@ -427,6 +460,7 @@ const gradientLevelsExhibit: Exhibit = {
     //    read at any user yaw. Same per-frame contract as siblings.
     if (worldAxes && camera) worldAxes.faceCamera(camera);
     if (camera) gradientLevelsReadout.faceCamera(camera);
+    if (camera) kLabel.faceCamera(camera);
   },
 
   unmount() {
@@ -464,6 +498,8 @@ const gradientLevelsExhibit: Exhibit = {
     gradientArrow = undefined;
     gradientLevelsReadout?.dispose();
     gradientLevelsReadout = undefined;
+    kLabel?.dispose();
+    kLabel = undefined;
     kSlider?.dispose();
     kSlider = undefined;
     thetaSlider?.dispose();

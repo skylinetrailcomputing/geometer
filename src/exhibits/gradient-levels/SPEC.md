@@ -4,8 +4,8 @@
 > #163 registered the third cluster member with a single k slider
 > sweeping { f(x, y, z) = k } across the canonical hyperboloid family;
 > #164 added θ/φ point selection on the active level surface; #165 added
-> the gradient arrow at the selected point; #166 adds the live ∇f / |∇f|
-> readout; #167 the numeric k label (pending).
+> the gradient arrow at the selected point; #166 added the live ∇f / |∇f|
+> readout; #167 added the numeric k label.
 
 ## Goal
 
@@ -82,17 +82,29 @@ Slider visuals: neutral light gray base color (`0xaaaaaa`), sphere thumb
 shape — k is a scalar level value, not an axis-aligned parameter, so
 neither an axis tint nor an arrow thumb would carry meaning.
 
-## No on-screen k value (intentional v0.7-#163 deferral; pending #167)
+## k-value label (#167)
 
-The numeric value of k is not displayed yet. The minimum-viable scene
-#163 called for was "register + slider"; adding worldspace text was
-scope creep against that issue title. Acknowledged that not seeing the
-number weakens the immediate learning loop (the user is actively
-dragging the parameter whose value is hidden); the follow-up is
-[#167](https://github.com/skylinetrailcomputing/geometer/issues/167),
-scheduled for v0.7 and especially load-bearing once #164 ships
-point selection — correlating "indicator vanished" with "k near 0"
-becomes a single-glance read once the value is on-screen.
+A small worldspace numeric label below the k slider displays the
+current level value as `k = N.NN`. Anchored at y = 0.70 (below the
+k slider thumb-bottom at y ≈ 0.79); centered on x = 0; same z-plane
+as the rack (z = -0.7). fontSize 0.06 matches the cluster's
+rack-label convention.
+
+There's no room *above* the k slider for the label because the φ
+slider's thumb-bottom (y ≈ 0.93) meets the k slider's thumb-top
+(y ≈ 0.93) — putting the label below is the only available rack-
+vertical slot.
+
+Format: positive values render without a leading sign (`k = 0.50`,
+`k = 0.00`); negative values prepend U+2212 MINUS (`k = −1.00`) to
+match the cluster's signed-numeric glyph convention. 2-decimal
+precision via `.toFixed(2)`, consistent with the readout (#166)
+and the EquationReadout / TangentPlaneReadout cluster idiom.
+
+Built on the `Label` primitive (`src/scaffold/ui/Label.ts`) using
+the primary line only; secondary stays empty. #170 (per-slider
+θ/φ/k labels) may rework this into a two-line shape (`k` primary +
+`0.50` secondary) once that scaffold lands.
 
 ## Point parameterization (#164)
 
@@ -327,9 +339,8 @@ at the apex. Three concerns:
    at the origin during a successful raycast. No JS-side cone-apex
    guard needed.
 
-## Out of scope (v0.7 beyond #166)
+## Out of scope (v0.7 beyond #167)
 
-- **Numeric k value display** — #167.
 - **Option B-lite (closed-form θ clamp).** Documented v0.7-polish
   follow-up if smoke shows the disappearing-indicator UX is too
   jarring. Clamp would need to account for BOUND
