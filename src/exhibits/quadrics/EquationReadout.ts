@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Text } from 'troika-three-text';
+import { formatSignedMagnitude } from '@/scaffold/ui/formatSignedMagnitude';
 
 // Live equation readout above the slider rack (#58). Two-line layout (#89)
 // renders the full quadric with linear terms:
@@ -341,8 +342,7 @@ export class EquationReadout {
       const value = values[i];
       if (value === this.numericValues[i]) continue;
       this.numericValues[i] = value;
-      const sign = value < 0 ? '−' : '+';
-      this.numericTexts[i].text = `${sign}${Math.abs(value).toFixed(2)}`;
+      this.numericTexts[i].text = formatSignedMagnitude(value);
       this.numericTexts[i].sync();
     }
   }

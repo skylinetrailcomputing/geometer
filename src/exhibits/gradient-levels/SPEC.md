@@ -3,9 +3,9 @@
 > Math + UX contract for the gradient + level-surfaces scene. v0.7 cuts:
 > #163 registered the third cluster member with a single k slider
 > sweeping { f(x, y, z) = k } across the canonical hyperboloid family;
-> #164 added θ/φ point selection on the active level surface; #165 adds
-> the gradient arrow at the selected point; #166 the live readout, #167
-> the numeric k label.
+> #164 added θ/φ point selection on the active level surface; #165 added
+> the gradient arrow at the selected point; #166 adds the live ∇f / |∇f|
+> readout; #167 the numeric k label (pending).
 
 ## Goal
 
@@ -222,6 +222,68 @@ testable without a renderer. Hides when the indicator hides (same
 distinct from the math-X / Y / Z axis tints (vermillion / bluish-green
 / sky-blue) so the arrow doesn't read as carrying axis identity.
 
+## Readout (#166)
+
+Live readout of ∇f and |∇f| at the selected point, anchored above
+the slider rack. Two-line layout:
+
+- **Top line:** `∇f = ( ±N.NN , ±N.NN , ±N.NN )` — the gradient
+  decomposed into math-frame components. Each component picks up
+  the cluster's axis-color convention (vermillion / bluish-green
+  / sky-blue for math-X / Y / Z), mirroring `TangentPlaneReadout`'s
+  bottom-line normal decomposition.
+- **Bottom line:** `|∇f| = N.NN` — the scalar magnitude. Numeric
+  value tinted **YELLOW**, matching the gradient arrow.
+
+**Source.** The readout consumes the *raw* gradient `gradJs(p)` at
+the selected point, NOT `result.normal` (which is the unit normal
+from `raycastImplicit`). The arrow consumes the unit normal because
+direction is its punch line; the readout consumes the raw gradient
+because magnitude is the other half of the §11.6 story the unit-length
+arrow deliberately drops. A composition test in
+`test/exhibits/gradient-levels/formatGradientLevelsReadout.test.ts`
+pins the raw-vs-unit wiring at the unit-test level — a unit-normal
+wiring would format to `'1.00'` instead of the real |∇f|.
+
+**YELLOW color-identity decoupling.** The arrow's rendered length is
+fixed at 0.40 m regardless of |∇f| (per the unit-length lock above);
+the YELLOW pairing on the |∇f| numeric communicates "these two
+elements describe the same gradient vector" — the arrow showing
+*direction*, the readout showing *magnitude*. It does NOT communicate
+"the number equals the arrow's length." When sliding k from +0.5 to
++2, |∇f| grows from `2.00` to ~`8.94` while the arrow stays at fixed
+visual length — this is the intended decoupling, not a display bug.
+
+**Format.** Signed-magnitude `±N.NN` on top-line components (sign
+char is U+2212 MINUS for negative, `+` for non-negative including
+zero); unsigned `N.NN` on the |∇f| line (magnitude is non-negative
+by definition). `toFixed(2)` matches the cluster's 2-decimal idiom.
+
+**Anchor.** y = 1.42, z = -0.7 (same z-plane as the slider rack +
+WorldAxes indicator). Lifted from tangent-planes' y = 1.32 to
+maintain ~0.18 m bottom-to-thumb-top clearance over the now-three-row
+rack (top of θ slider thumb at y ≈ 1.21).
+
+**Cadence.** ≈30 Hz troika `.sync()` throttle on the four numerics
+to bound SDF rebuild work during fast drags; yaw-only billboard
+runs every frame so motion smoothness is unaffected. Per-slot
+string caching skips troika rewrite when the formatted string
+hasn't changed.
+
+**Miss-policy UX contract.** During raycast miss frames (k = 0
+cone, polar/equator-band rays at k ≠ 0, AABB-clip cases — all
+documented under "Miss-hide policy" above), the **displayed value
+is the last valid hit value**. The arrow and indicator hide; the
+readout freezes. Pedagogically: "the picture is paused while no
+point is selectable" rather than "the picture is broken." On
+scene mount the readout boots hidden (`group.visible = false`) and
+uncloaks on the first `setValues()` call — the boot pose guarantees
+a first-frame hit, so under normal mount the readout populates
+within one tick; deep-link / state-restore to a miss state stays
+gracefully hidden. If headset smoke surfaces that the frozen
+readout reads as a bug, a 50%-opacity dim during miss frames is
+a documented v0.7-polish follow-up.
+
 ## Render
 
 Minimal lambert: `uBaseColor * (0.2 + 0.8 * max(dot(n, normalize(uLightDir)), 0))`.
@@ -265,9 +327,8 @@ at the apex. Three concerns:
    at the origin during a successful raycast. No JS-side cone-apex
    guard needed.
 
-## Out of scope (v0.7 beyond #165)
+## Out of scope (v0.7 beyond #166)
 
-- **Live readout** — numeric ∇f and |∇f|. #166. Same source.
 - **Numeric k value display** — #167.
 - **Option B-lite (closed-form θ clamp).** Documented v0.7-polish
   follow-up if smoke shows the disappearing-indicator UX is too

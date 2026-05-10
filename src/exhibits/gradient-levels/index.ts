@@ -8,8 +8,15 @@ import { createImplicitSurface } from '@/scaffold/render/ImplicitSurface';
 import { raycastImplicit } from '@/scaffold/render/raycastImplicit';
 import { Slider } from '@/scaffold/ui/Slider';
 import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
-import { DEFAULT_AXIS_COLORS } from '@/scaffold/design/tokens';
+import {
+  BLUISH_GREEN,
+  DEFAULT_AXIS_COLORS,
+  SKY_BLUE,
+  VERMILLION,
+  YELLOW,
+} from '@/scaffold/design/tokens';
 import { createGradientArrow, type GradientArrowHandles } from './GradientArrow';
+import { GradientLevelsReadout } from './GradientLevelsReadout';
 import { BOUND, fJsRaw, gradJs } from './surfaceModel';
 
 // Gradient + level-surfaces scene (#162 epic). Third member of the
@@ -40,6 +47,11 @@ import { BOUND, fJsRaw, gradJs } from './surfaceModel';
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
 const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
+
+// Live readout (#166) — anchored above the three-row slider rack. y bumped
+// to 1.42 (vs. tangent-planes' 1.32) to maintain ~0.18 m bottom-to-thumb-top
+// clearance over the taller rack (top of θ slider thumb at y ≈ 1.21).
+const READOUT_POSITION = new THREE.Vector3(0, 1.42, -0.7);
 
 // Cluster siblings' lighting + base color so the surface reads as a
 // sibling, not as a separate scene's surface.
@@ -189,6 +201,7 @@ let thetaSlider: Slider | undefined;
 let phiSlider: Slider | undefined;
 let indicator: THREE.Mesh | undefined;
 let gradientArrow: GradientArrowHandles | undefined;
+let gradientLevelsReadout: GradientLevelsReadout | undefined;
 let worldAxes: WorldAxes | undefined;
 let controllers: readonly THREE.Object3D[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
@@ -315,6 +328,22 @@ const gradientLevelsExhibit: Exhibit = {
     gradientArrow = createGradientArrow({ surfaceCenter: SURFACE_CENTER });
     group.add(gradientArrow.group);
 
+    // Live readout of ∇f components + |∇f| (#166). Anchored above the
+    // slider rack on the same z-plane. Top-line components carry the
+    // cluster's axis-color convention (vermillion/bluish-green/sky-blue
+    // for math-X/Y/Z); the |∇f| numeric is YELLOW to pair with the
+    // gradient arrow — direction (arrow) + magnitude (number) are
+    // facets of the same gradient vector. The arrow's rendered length
+    // is fixed per #165; the YELLOW pairing communicates "same vector,"
+    // not "this number is that arrow's length." See SPEC.md Readout
+    // section for the full color-identity-decoupling note.
+    gradientLevelsReadout = new GradientLevelsReadout({
+      axisColors: [VERMILLION, BLUISH_GREEN, SKY_BLUE],
+      magnitudeColor: YELLOW,
+    });
+    gradientLevelsReadout.group.position.copy(READOUT_POSITION);
+    group.add(gradientLevelsReadout.group);
+
     // Math-frame axis indicator — same anchor as cluster siblings.
     worldAxes = new WorldAxes({ axisColors: AXIS_COLORS });
     worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
@@ -322,7 +351,14 @@ const gradientLevelsExhibit: Exhibit = {
   },
 
   update() {
-    if (!kSlider || !thetaSlider || !phiSlider || !indicator || !gradientArrow) return;
+    if (
+      !kSlider ||
+      !thetaSlider ||
+      !phiSlider ||
+      !indicator ||
+      !gradientArrow ||
+      !gradientLevelsReadout
+    ) return;
 
     // 1. Slider hover + drag tick. Order doesn't matter across the
     //    three sliders (each tracks its own grab/hover state).
@@ -368,14 +404,29 @@ const gradientLevelsExhibit: Exhibit = {
 
       gradientArrow.setPose(result.point, result.normal);
       gradientArrow.setVisible(true);
+
+      // Readout consumes the RAW gradient gradJs(p), NOT the unit
+      // result.normal — direction is the arrow's job; magnitude is
+      // the readout's. The composition test in
+      // test/exhibits/gradient-levels/formatGradientLevelsReadout.test.ts
+      // pins this contract: a unit-normal wiring would format to '1.00'
+      // instead of the real |∇f|.
+      const gradAtPoint = gradJs(result.point[0], result.point[1], result.point[2]);
+      gradientLevelsReadout.setValues(gradAtPoint);
     } else {
       indicator.visible = false;
       gradientArrow.setVisible(false);
+      // Readout: freeze on last good value. Gradient-levels has real
+      // miss frames (cone at k=0, polar/equator-band rays, AABB-clip
+      // cases) — blanking each would flicker. The frozen display IS
+      // the "no point currently selectable" signal; SPEC.md Readout
+      // section documents the contract.
     }
 
     // 6. Yaw-only billboard on the WorldAxes letter labels so they
     //    read at any user yaw. Same per-frame contract as siblings.
     if (worldAxes && camera) worldAxes.faceCamera(camera);
+    if (camera) gradientLevelsReadout.faceCamera(camera);
   },
 
   unmount() {
@@ -411,6 +462,8 @@ const gradientLevelsExhibit: Exhibit = {
     // existing convention (mirrors tangent-planes/index.ts:340-380).
     gradientArrow?.dispose();
     gradientArrow = undefined;
+    gradientLevelsReadout?.dispose();
+    gradientLevelsReadout = undefined;
     kSlider?.dispose();
     kSlider = undefined;
     thetaSlider?.dispose();
