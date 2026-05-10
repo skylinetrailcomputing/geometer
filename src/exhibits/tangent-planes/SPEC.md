@@ -1,9 +1,9 @@
 # `tangent-planes` exhibit — SPEC
 
 > Math + UX contract for the tangent-planes scene. v0.6 cuts: point
-> selection on a fixed unit sphere (#147) + tangent-plane mesh anchored
-> at the selected point (#148). Live readout (#149) extends this in a
-> subsequent PR.
+> selection on a fixed unit sphere (#147), tangent-plane mesh anchored
+> at the selected point (#148), and live readout of the plane equation
+> + normal (#149).
 
 ## Goal
 
@@ -123,6 +123,44 @@ recipe lives in one shader. Color/alpha/width *constants* are
 intentionally per-scene so the design language can drift in v0.7+
 without coupling the two scenes.
 
+## Live readout
+
+A two-line stacked readout above the slider rack reports the tangent
+plane's algebraic state. Anchored at `(0, 1.32, -0.7)` — the same
+z-plane as the slider rack and the math-frame axis indicator, mirroring
+quadrics' `EQUATION_READOUT_POSITION`.
+
+- **Top line — §11.4 textbook expanded form:**
+  `n_x (x − x₀) + n_y (y − y₀) + n_z (z − z₀) = 0` with all six numerics
+  rendered as `±N.NN`. The parenthesized connector's sign is the sign
+  of `−x₀` — so `x₀ = +0.42` reads `(x − 0.42)`, `x₀ = −0.42` reads
+  `(x + 0.42)`, and exact zero reads `(x − 0.00)` (deliberate; matches
+  the textbook identity form).
+- **Bottom line — geometric handle:**
+  `n = ( ±N.NN , ±N.NN , ±N.NN )` with each component rendered as
+  `±N.NN`.
+
+Numerics are colored to match the math-frame axis story (vermillion =
+math-X, bluish-green = math-Y, sky-blue = math-Z); algebraic glue is
+neutral white with a black SDF outline. troika-three-text drives every
+glyph; layout is computed once at construction (no reflow). `.sync()`
+calls are throttled to ≈30 Hz, mirroring `quadrics/EquationReadout.ts`.
+Yaw-only billboard so the equation reads from any user yaw without
+inheriting head pitch / roll.
+
+For the unit sphere `∇f = 2p` ⇒ unit normal `n̂ = p̂`, so on first
+inspection the readout shows `n_x = x₀`, etc. — pedagogically useful
+("the normal IS the point on a unit sphere") and falls out of the
+component naturally without special handling. Generalizes cleanly to
+v0.7+ surfaces where `n ≠ p`.
+
+The class lives in `src/exhibits/tangent-planes/TangentPlaneReadout.ts`;
+a pure formatter helper in `formatTangentPlaneReadout.ts` produces the
+nine numeric strings and is unit-tested under
+`test/exhibits/tangent-planes/formatTangentPlaneReadout.test.ts`. The
+sibling vs. extending-`EquationReadout` decision is recorded in the
+class header — different slot model, no hide-on-zero, simpler.
+
 ## Render
 
 Minimal lambert: `uBaseColor * (0.2 + 0.8 * max(dot(n, normalize(uLightDir)), 0))`.
@@ -136,9 +174,6 @@ indicator.
 
 ## Out of scope (v0.6)
 
-- **Live readout of plane equation / normal** (#149) — consumes
-  `result.normal` directly from `raycastImplicit`'s return type. No new
-  entry points needed in `raycastSurface.ts` or in `TangentPlane.ts`.
 - **Coefficient editing** — see "Equation form" above.
 - **Controller-aim point picking** — natural in headset, unusable on
   the pancake build (#105) and Cloudflare PR previews. Deferred to v0.9.

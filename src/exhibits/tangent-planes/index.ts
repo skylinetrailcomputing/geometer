@@ -6,10 +6,16 @@ import { writeMathToWorld, type MathVec3 } from '@/scaffold/math/frames';
 import { createImplicitSurface } from '@/scaffold/render/ImplicitSurface';
 import { Slider } from '@/scaffold/ui/Slider';
 import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
-import { DEFAULT_AXIS_COLORS } from '@/scaffold/design/tokens';
+import {
+  BLUISH_GREEN,
+  DEFAULT_AXIS_COLORS,
+  SKY_BLUE,
+  VERMILLION,
+} from '@/scaffold/design/tokens';
 import { directionFromAngles } from './directionFromAngles';
 import { raycastImplicit } from './raycastSurface';
 import { createTangentPlane, type TangentPlaneHandles } from './TangentPlane';
+import { TangentPlaneReadout } from './TangentPlaneReadout';
 
 // Tangent-planes scene (#147). First sub-issue of the #121 epic — sets up
 // the v0.6 scene's surface + θ/φ point selection so #148 (tangent-plane
@@ -38,6 +44,13 @@ import { createTangentPlane, type TangentPlaneHandles } from './TangentPlane';
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
 const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
 const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
+
+// Tangent-plane readout (#149) sits above the slider rack, on the same
+// z-plane. y = 1.32 mirrors quadrics' EQUATION_READOUT_POSITION; clears
+// the θ slider's top (y ≈ 1.07) by ~0.25 m — enough vertical breathing
+// room for the two-line stack at fontSize 0.028 (line pitch 0.06, total
+// height ~0.06 m).
+const READOUT_POSITION = new THREE.Vector3(0, 1.32, -0.7);
 
 // Tighter than quadrics' BOUND=3.5: the unit sphere fits in [-1, 1]³ with
 // room to spare; no coefficient-driven expansion to budget for.
@@ -149,6 +162,7 @@ let thetaSlider: Slider | undefined;
 let phiSlider: Slider | undefined;
 let indicator: THREE.Mesh | undefined;
 let tangentPlane: TangentPlaneHandles | undefined;
+let tangentPlaneReadout: TangentPlaneReadout | undefined;
 let worldAxes: WorldAxes | undefined;
 let controllers: readonly THREE.Object3D[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
@@ -253,6 +267,15 @@ const tangentPlanesExhibit: Exhibit = {
     });
     group.add(tangentPlane.group);
 
+    // Live readout of the plane equation + normal (#149). Anchored above
+    // the slider rack on the same z-plane; updated each hit frame from
+    // the same raymarch result that drives the indicator + tangent plane.
+    tangentPlaneReadout = new TangentPlaneReadout({
+      axisColors: [VERMILLION, BLUISH_GREEN, SKY_BLUE],
+    });
+    tangentPlaneReadout.group.position.copy(READOUT_POSITION);
+    group.add(tangentPlaneReadout.group);
+
     // Math-frame axis indicator — same anchor as quadrics.
     worldAxes = new WorldAxes({ axisColors: AXIS_COLORS });
     worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
@@ -295,14 +318,23 @@ const tangentPlanesExhibit: Exhibit = {
       // construction-time identity.
       tangentPlane.setPose(result.point, result.normal);
       tangentPlane.setVisible(true);
+
+      // Readout consumes raw surface-local point + normal; the §11.4
+      // expanded form is in math coordinates, no frame swap needed.
+      tangentPlaneReadout?.setValues(result.point, result.normal);
     } else {
       indicator.visible = false;
       tangentPlane.setVisible(false);
+      // Freeze the readout on its last value during a miss frame —
+      // blanking would flicker on grazing rays (when v0.7+ surfaces
+      // bring real misses); for v0.6's unit sphere this branch never
+      // fires.
     }
 
     // Yaw-only billboard on the WorldAxes letter labels (X / Y / Z), so
     // they read at any user yaw. Same per-frame contract as quadrics.
     if (worldAxes && camera) worldAxes.faceCamera(camera);
+    if (tangentPlaneReadout && camera) tangentPlaneReadout.faceCamera(camera);
   },
 
   unmount() {
@@ -332,6 +364,8 @@ const tangentPlanesExhibit: Exhibit = {
     }
     tangentPlane?.dispose();
     tangentPlane = undefined;
+    tangentPlaneReadout?.dispose();
+    tangentPlaneReadout = undefined;
     thetaSlider?.dispose();
     thetaSlider = undefined;
     phiSlider?.dispose();
