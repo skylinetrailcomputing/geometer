@@ -26,6 +26,10 @@ import {
 } from './GraphSurface';
 import { DEFAULT_PRESET_INDEX, PRESETS } from './presets';
 import { SaddleExtremaReadout } from './SaddleExtremaReadout';
+import {
+  createTaylorOverlay,
+  type TaylorOverlayHandles,
+} from './TaylorOverlay';
 
 // Saddle / extrema scene (#175 epic). Fourth and final member of the
 // calculus3 cluster, alongside quadrics, tangent-planes, and gradient-levels.
@@ -149,6 +153,7 @@ function formatLinearDecimal(v: number): string {
 let exhibitGroup: THREE.Group | undefined;
 let graphSurface: GraphSurfaceHandles | undefined;
 let criticalPointMarkers: CriticalPointMarkersHandles | undefined;
+let taylorOverlay: TaylorOverlayHandles | undefined;
 let worldAxes: WorldAxes | undefined;
 let xSlider: Slider | undefined;
 let ySlider: Slider | undefined;
@@ -213,6 +218,24 @@ const saddleExtremaExhibit: Exhibit = {
       surfaceCenter: SURFACE_CENTER,
     });
     group.add(criticalPointMarkers.group);
+
+    // Local-quadratic-approximation overlay (#180; the §11.7–11.8
+    // pedagogical punch line). Sits on top of the main surface,
+    // translucent body + brighter rim, mutates positions + normals
+    // every frame from the per-frame (x, y) and the active preset's
+    // (f, gradF, hessF). polygonOffset shipped day-one — the
+    // exact-quadratic presets coincide with the main surface across
+    // the entire patch, not just at the center vertex.
+    taylorOverlay = createTaylorOverlay({
+      preset: initialPreset,
+      surfaceCenter: SURFACE_CENTER,
+      lightDir: LIGHT_DIR.clone(),
+    });
+    // Seed the overlay's pose to the initial slider values so the
+    // first paint isn't a stale zero pose (overlay constructor seeds
+    // at (0, 0); the indicator boots at (X_INITIAL, Y_INITIAL)).
+    taylorOverlay.setPose(X_INITIAL, Y_INITIAL);
+    group.add(taylorOverlay.mesh);
 
     // x slider — vermillion (math-X axis tint). Honest pickup since
     // x IS the math-X axis value, not a derived parameter. Mirrors
@@ -365,6 +388,14 @@ const saddleExtremaExhibit: Exhibit = {
         indicator.position.copy(indicatorWorld);
       }
 
+      // 2b. Quadratic-overlay pose (#180). Mutates positions + normals
+      //     of the overlay's BufferGeometry to the Taylor expansion of
+      //     the active preset at the current (x, y). Always-on per the
+      //     v0.8 design decision; toggle UI deferred to v0.9 polish.
+      if (taylorOverlay) {
+        taylorOverlay.setPose(x, y);
+      }
+
       // 3. Per-slider value labels — linear-decimal format (Cartesian
       //    coords, not angles).
       if (xLabel && camera) {
@@ -419,6 +450,8 @@ const saddleExtremaExhibit: Exhibit = {
     graphSurface = undefined;
     criticalPointMarkers?.dispose();
     criticalPointMarkers = undefined;
+    taylorOverlay?.dispose();
+    taylorOverlay = undefined;
     worldAxes?.dispose();
     worldAxes = undefined;
     xSlider?.dispose();
@@ -526,6 +559,18 @@ function applyPreset(idx: number): void {
   // (possibly clamped) value via the next update() tick.
   xSlider?.setRange(preset.domain.xMin, preset.domain.xMax);
   ySlider?.setRange(preset.domain.yMin, preset.domain.yMax);
+
+  // Quadratic overlay (#180) — swap the active preset reference,
+  // recompute half-extent, rewrite the aLocal attribute, refresh
+  // positions + normals at the (possibly clamped) slider values so
+  // the next frame doesn't render the prior preset's shape. setRange
+  // above runs first so the values are clamped before the overlay
+  // reads them.
+  taylorOverlay?.setPreset(
+    preset,
+    xSlider?.value ?? 0,
+    ySlider?.value ?? 0,
+  );
 }
 
 registerExhibit(saddleExtremaExhibit);
