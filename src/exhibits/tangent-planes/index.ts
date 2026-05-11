@@ -4,6 +4,8 @@ import { CLUSTER_CALCULUS3 } from '../../shell/clusters';
 import { registerExhibit } from '../../shell/registry';
 import { writeMathToWorld, type MathVec3 } from '@/scaffold/math/frames';
 import { createImplicitSurface } from '@/scaffold/render/ImplicitSurface';
+import { formatAnglePiFraction } from '@/scaffold/ui/formatAnglePiFraction';
+import { Label } from '@/scaffold/ui/Label';
 import { Slider } from '@/scaffold/ui/Slider';
 import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
 import {
@@ -95,6 +97,17 @@ const SLIDER_BASE_COLOR = 0xaaaaaa;
 const INDICATOR_RADIUS = 0.04;
 const INDICATOR_COLOR = 0xdddddd;
 
+// Per-slider labels (#170). Anchored ~0.05 m left of each slider's
+// track-end, right-aligned so the rendered text right-edge stays
+// fixed at x = -0.20 regardless of value-string length, clearing the
+// thumb at slider min by 0.025 m. Sizes shrunk from the v1 plan
+// values to leave 0.034 m of breathing room between adjacent labels
+// in the 3-row gradient-levels rack — same constants port across.
+const SLIDER_LABEL_X_OFFSET = -0.20;
+const SLIDER_LABEL_PRIMARY_FONT_SIZE = 0.05;
+const SLIDER_LABEL_SECONDARY_FONT_SIZE = 0.035;
+const SLIDER_LABEL_LINE_GAP = 0.008;
+
 // Tangent-plane size — 0.9 m × 0.9 m on the unit sphere. Reads as "a
 // flat patch tangent to the surface" rather than "a sheet that swallows
 // the surface." Tunable in headset; this is the v0.6 lock.
@@ -163,6 +176,8 @@ let phiSlider: Slider | undefined;
 let indicator: THREE.Mesh | undefined;
 let tangentPlane: TangentPlaneHandles | undefined;
 let tangentPlaneReadout: TangentPlaneReadout | undefined;
+let thetaLabel: Label | undefined;
+let phiLabel: Label | undefined;
 let worldAxes: WorldAxes | undefined;
 let controllers: readonly THREE.Object3D[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
@@ -247,6 +262,40 @@ const tangentPlanesExhibit: Exhibit = {
     );
     group.add(phiSlider.group);
 
+    // Per-slider variable + value labels (#170). Two-line billboarded
+    // text: primary line is the variable name (set once at mount);
+    // secondary line is the live value (updated each frame in update()).
+    // Right-aligned so the rendered text right-edge stays fixed at
+    // SLIDER_LABEL_X_OFFSET regardless of value-string length, keeping
+    // worst-case secondary text clear of the slider thumb at slider min.
+    thetaLabel = new Label({
+      primaryFontSize: SLIDER_LABEL_PRIMARY_FONT_SIZE,
+      secondaryFontSize: SLIDER_LABEL_SECONDARY_FONT_SIZE,
+      lineGap: SLIDER_LABEL_LINE_GAP,
+      anchorX: 'right',
+    });
+    thetaLabel.setPrimary('θ');
+    thetaLabel.group.position.set(
+      SLIDER_RACK_CENTER.x + SLIDER_LABEL_X_OFFSET,
+      thetaY,
+      SLIDER_RACK_CENTER.z,
+    );
+    group.add(thetaLabel.group);
+
+    phiLabel = new Label({
+      primaryFontSize: SLIDER_LABEL_PRIMARY_FONT_SIZE,
+      secondaryFontSize: SLIDER_LABEL_SECONDARY_FONT_SIZE,
+      lineGap: SLIDER_LABEL_LINE_GAP,
+      anchorX: 'right',
+    });
+    phiLabel.setPrimary('φ');
+    phiLabel.group.position.set(
+      SLIDER_RACK_CENTER.x + SLIDER_LABEL_X_OFFSET,
+      phiY,
+      SLIDER_RACK_CENTER.z,
+    );
+    group.add(phiLabel.group);
+
     // Point indicator. Positioned in update() each frame.
     indicator = new THREE.Mesh(
       new THREE.SphereGeometry(INDICATOR_RADIUS, 16, 12),
@@ -283,6 +332,8 @@ const tangentPlanesExhibit: Exhibit = {
   },
 
   update() {
+    // Labels are accessory (#170) — handled by per-call guards below;
+    // not gated here so a missing label never blocks slider/raycast updates.
     if (!thetaSlider || !phiSlider || !indicator || !tangentPlane) return;
 
     // Slider hover + drag tick.
@@ -290,6 +341,24 @@ const tangentPlanesExhibit: Exhibit = {
     phiSlider.updateHover(controllers);
     thetaSlider.update();
     phiSlider.update();
+
+    // Per-slider value labels (#170). `formatAnglePiFraction` is
+    // snap-aware: with PHI_INITIAL = π/4 and PHI_SNAP_POINTS not
+    // including π/4, the boot pose renders as "0.25π" not the false-snap
+    // "π/4" glyph. faceCamera runs unconditionally so the label stays
+    // billboarded even on frames where the slider value didn't change.
+    if (thetaLabel && camera) {
+      thetaLabel.setSecondary(
+        formatAnglePiFraction(thetaSlider.value, THETA_SNAP_POINTS),
+      );
+      thetaLabel.faceCamera(camera);
+    }
+    if (phiLabel && camera) {
+      phiLabel.setSecondary(
+        formatAnglePiFraction(phiSlider.value, PHI_SNAP_POINTS),
+      );
+      phiLabel.faceCamera(camera);
+    }
 
     // Math-frame direction from θ/φ — mutates `dirMath` in place; no
     // per-frame allocation.
@@ -366,6 +435,10 @@ const tangentPlanesExhibit: Exhibit = {
     tangentPlane = undefined;
     tangentPlaneReadout?.dispose();
     tangentPlaneReadout = undefined;
+    thetaLabel?.dispose();
+    thetaLabel = undefined;
+    phiLabel?.dispose();
+    phiLabel = undefined;
     thetaSlider?.dispose();
     thetaSlider = undefined;
     phiSlider?.dispose();
