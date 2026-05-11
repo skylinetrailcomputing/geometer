@@ -4,9 +4,11 @@
 > v0.8 cuts: #176 registers the fourth cluster member, introduces a
 > new meshed graph-surface rendering primitive, and ships one locked
 > starter preset (`z = x² − y²`). #177 adds (x, y) point selection;
-> #178 expands the preset library; #179 adds critical-point markers;
-> #180 ships the local-quadratic-approximation overlay (the §11.7–11.8
-> punch line); #181 ships the live Hessian + classification readout.
+> #178 expands the preset library to five archetypes + adds `hessF`
+> to the preset record + ships the preset-selector UI; #179 adds
+> critical-point markers; #180 ships the local-quadratic-approximation
+> overlay (the §11.7–11.8 punch line); #181 ships the live Hessian +
+> classification readout.
 
 ## Goal
 
@@ -52,30 +54,116 @@ mapping is JS-side per vertex via `writeGraphPointToWorld` in
 bundles both steps so downstream consumers don't re-derive the
 contract.
 
-## Starter preset
+## Preset library (#178)
 
-`f(x, y) = x² − y²` on `(x, y) ∈ [−1.5, 1.5]²`. Analytic data:
+Five curated presets, one per critical-point archetype. The student
+steps through them deliberately — each preset replaces the active
+`f`, `gradF`, `hessF`, and `(x, y)` domain — so the lesson focuses on
+one archetype at a time rather than a single function mixing several.
+The boot pose is the saddle (the #176 starter; also visually the most
+recognizable archetype).
 
-- First partials: `f_x = 2x`, `f_y = −2y`.
-- Hessian: `f_xx = 2`, `f_yy = −2`, `f_xy = 0`.
-- Critical point at the origin (gradient vanishes).
-- `D = f_xx · f_yy − f_xy² = (2)(−2) − 0² = −4 < 0` ⇒ saddle.
+Reading order in the preset row matches the array order in
+`presets.ts` — paraboloid → inv-paraboloid → saddle → monkey saddle →
+quartic — which is also the pedagogical sequence: simplest classical
+cases first, then the eponymous saddle, then the degenerate
+counterexamples that drive the §11.7–11.8 stuck-point.
 
-Visually the eponymous shape — math-X edges curve upward, math-Y edges
-curve downward. The §11.7 "what does it look like at the critical
-point?" question reads at a glance.
+| `id`              | Function            | Domain          | `D` at origin   | Classification |
+|-------------------|---------------------|-----------------|-----------------|----------------|
+| `paraboloid`      | `x² + y²`           | `[-1.2, 1.2]²`  | `4` (> 0)       | Local min      |
+| `inv-paraboloid`  | `−(x² + y²)`        | `[-1.2, 1.2]²`  | `4` (> 0)       | Local max      |
+| `saddle`          | `x² − y²`           | `[-1.5, 1.5]²`  | `−4` (< 0)      | Saddle         |
+| `monkey-saddle`   | `x³ − 3xy²`         | `[-1.2, 1.2]²`  | `0`             | Inconclusive (degenerate; cubic terms determine local shape) |
+| `quartic-min`     | `x⁴ + y⁴`           | `[-1, 1]²`      | `0`             | Inconclusive (test failure — surface is still a local min)   |
 
-### Note (forward-looking for #178)
+Analytic data on each preset:
 
-*All v0.8 preset critical points sit at the origin.* The starter
-saddle, the paraboloid (`x² + y²`), the inverted paraboloid
-(`−(x² + y²)`), the monkey saddle (`x³ − 3xy²`), and the D = 0
-degenerate min (`x⁴ + y⁴`) all have their critical point at
-`(x, y) = (0, 0)`. This is itself a useful pedagogical observation —
-critical points don't have to be "out there somewhere"; they live at
-a chosen origin so the focus can stay on the *local shape*, not the
-*location*. #179's critical-point markers will all render at the
-origin for v0.8.
+- `f(x, y)` — function value in math-frame coords.
+- `gradF(x, y) → [f_x, f_y]` — first partials. Required (vertex normals on the graph-surface primitive read from this).
+- `hessF(x, y) → [f_xx, f_xy, f_yy]` — symmetric Hessian, three distinct entries. Stored on the preset for #181's classification readout (`D = f_xx · f_yy − f_xy²`); not consumed by #178 itself.
+- `domain: { xMin, xMax, yMin, yMax }` — per-preset rectangle, sized so the rendered surface fits the cluster envelope.
+
+### Why per-preset domains?
+
+The cluster's vertical envelope is roughly world-Y `[−0.75, 3.75]`
+(4.5 m, centered on `SURFACE_CENTER.y = 1.5`, see "Domain framing"
+below). A shared `[−1.5, 1.5]²` doesn't work across the set:
+
+- Paraboloid / inv-paraboloid at `(±1.5, ±1.5)` evaluates to `±4.5` —
+  top corner extends to world-Y = 6, well above the cluster envelope.
+- Monkey saddle at corner `(1.5, 1.5)` evaluates to `−6.75` — bottom
+  corner at world-Y ≈ −5.25, far below the cluster floor.
+- Quartic at corner `(1.5, 1.5)` evaluates to `10.125` — top corner at
+  world-Y ≈ 11.6, completely out of FOV from spawn.
+
+Smaller domains for higher-degree presets keep the surface within the
+viewing volume without sacrificing the critical-point neighborhood (every
+preset's critical point sits at the origin, well inside its domain).
+
+### Pedagogical observation — all critical points at origin
+
+*All v0.8 preset critical points sit at the origin.* Critical points
+don't have to be "out there somewhere"; they live at a chosen origin
+so the focus stays on the *local shape*, not the *location*. #179's
+critical-point markers will all render at the origin for v0.8.
+Origin-snap on the (x, y) sliders (`snapPoints = [0]`) coincides with
+the critical point for every preset — slider-canonical, not
+critical-point-aware (the snap mechanism doesn't know about presets).
+
+## Preset-selector UI (#178)
+
+Five `TapButton` instances in a single horizontal row above the slider
+rack, at `y = 1.30`, centered on `x = 0` with `0.13 m` horizontal pitch
+(span 0.52 m; columns at `[-0.26, -0.13, 0, 0.13, 0.26]`). Always
+visible — five archetypes is small enough to live on screen at all
+times (the quadrics manipulator's 8-preset rack needed an
+expand/collapse chevron; here that machinery would be friction without
+payoff).
+
+Button visuals mirror the manipulator's `Preset` primitive
+(`src/scaffold/ui/Preset.ts`) — cool-blue base, label below the
+button, smaller font than `SectionTab` — **plus** sticky-active
+emissive. Saddle-extrema's preset is a persistent mode (the surface IS
+the preset's `f`); the manipulator's `Preset` deliberately omits
+`activeEmissive` because its presets are one-shot snap-to-pose
+affordances. Different semantic → different visual contract.
+
+`Preset` (the scaffold class) couples its API to quadrics-coefficient
+`values: PresetValues = [number, number, number, number]`, so this
+scene uses `TapButton` directly rather than the `Preset` subclass.
+Generalizing `Preset` to a typed payload would touch the manipulator
+for one new consumer and the rule-of-three threshold hasn't been
+crossed (scaffold's `Preset` is consumer #1; saddle-extrema is
+consumer #2). Defer scaffold extraction to consumer #3.
+
+### Apply-preset semantics
+
+When a preset button activates:
+
+1. Press flash fires (TapButton-internal feedback).
+2. Previous active preset's button → inactive; new preset's button → active.
+3. Old `graphSurface.mesh` removed from the exhibit group, then disposed.
+4. New `graphSurface` constructed with the new preset's `f` / `gradF` /
+   `domain`, added to the group.
+5. `xSlider.setRange(...)` and `ySlider.setRange(...)` update slider
+   domains; current values clamp into the new range and re-apply snap.
+6. Indicator + labels pick up the new active preset's `f` on the next
+   `update()` tick via the `PRESETS[activePresetIndex]` lookup.
+
+No tween between preset surfaces. The active `f` changes
+fundamentally between presets (different polynomial families,
+different domains), so a coefficient-tween — what the manipulator does
+between its presets — is meaningless here. Instant swap also matches
+the lesson: each preset shows one archetype.
+
+Slider values carry over across preset switches (clamped into the new
+domain). A student comparing min vs. saddle at the same `(x, y)` point
+sees the local-shape difference; forcing reset to `(0, 0)` on each
+switch would hide that pedagogy.
+
+Tapping the already-active preset is a press-flash-only no-op (no
+surface rebuild).
 
 ## Graph-surface primitive (`GraphSurface.ts`)
 
@@ -201,17 +289,19 @@ spanning world-X `[-3, 3]`, world-Y `[-1.5, 4.5]` (centered on
 `SURFACE_CENTER.y = 1.5`), world-Z `[-7, -1]` (centered on
 `SURFACE_CENTER.z = -4`).
 
-The starter saddle on `[−1.5, 1.5]²` uses **half** the cluster's
-per-axis x/y extent (3 m × 3 m, vs. the cluster's 6 m × 6 m). The
-saddle's z-range `[−2.25, 2.25]` is inside the cluster's half-extent;
-the bottom corner sits at world-Y `= -0.75` (below `SURFACE_CENTER.y`
-by 2.25 m). The cluster doesn't render a floor and gradient-levels'
-family extends arbitrarily along ±math-Z too, so visually consistent
-with cluster convention.
+Each preset's `domain` (see "Preset library" above) sizes the rendered
+surface to fit comfortably inside the cluster envelope. The starter
+saddle on `[−1.5, 1.5]²` uses **half** the cluster's per-axis x/y
+extent (3 m × 3 m, vs. the cluster's 6 m × 6 m). The saddle's z-range
+`[−2.25, 2.25]` is inside the cluster's half-extent; the bottom corner
+sits at world-Y `= -0.75` (below `SURFACE_CENTER.y` by 2.25 m). The
+cluster doesn't render a floor and gradient-levels' family extends
+arbitrarily along ±math-Z too, so visually consistent with cluster
+convention.
 
-`[−1.5, 1.5]²` is a v0.8-starter lock; iterate in-headset if it reads
-too small. Future presets in #178 carry per-preset domains in the
-preset record.
+Per-preset domains are tabulated in the "Preset library" section
+above and are revisited in-headset; iterate if any preset reads too
+small or too tall.
 
 ## Camera framing
 
@@ -232,17 +322,8 @@ Visibility check for the starter saddle:
   (top corner above eye level), total ~58°.
 - Quest 3 FOV: ~96°×96° per eye. Saddle fits well within FOV.
 
-## Out of scope (v0.8 beyond #176)
+## Out of scope (v0.8 beyond #178)
 
-- **Point selection (#177).** Two (x, y) sliders walking the domain
-  + selected-point indicator on the surface. Per-slider variable +
-  value labels reusing the #170 scaffold. Introduces the
-  `SLIDER_RACK_CENTER` constant (deliberately deferred from #176 per
-  the v1 roundtable's GPT #4 finding — scope creep otherwise).
-- **Preset library (#178).** Four additional presets (paraboloid,
-  inverted paraboloid, monkey saddle, `x⁴ + y⁴`); preset-selector UI
-  (mirror the manipulator's `Preset` scaffold primitive); preset-record
-  interface extended with `hessF` (second partials for #181's readout).
 - **Critical-point markers (#179).** Small visual markers at the
   analytically-known critical points (all at origin for v0.8 presets).
 - **Quadratic overlay (#180).** Always-on, translucent second-order

@@ -210,6 +210,32 @@ export class Slider {
   }
 
   /**
+   * Update the slider's value range. The raw and emitted values are
+   * clamped into the new range; the visible thumb position re-syncs to
+   * the clamped value, with snap re-applied. Used by scenes whose domain
+   * shifts at runtime — e.g., saddle-extrema's per-preset (x, y)
+   * windows (#178). `snapDetent` and `snapPoints` are unchanged; callers
+   * are responsible for keeping snap points inside the new range.
+   * Throws if `min >= max` or either bound is non-finite.
+   */
+  setRange(min: number, max: number): void {
+    if (!Number.isFinite(min) || !Number.isFinite(max) || !(min < max)) {
+      throw new Error(
+        `Slider.setRange: min (${min}) must be finite and < max (${max})`,
+      );
+    }
+    this.opts.min = min;
+    this.opts.max = max;
+    this.rawValue = clamp(this.rawValue, min, max);
+    this.currentValue = applySnap(
+      this.rawValue,
+      this.opts.snapPoints,
+      this.opts.snapDetent,
+    );
+    this.syncThumbPosition();
+  }
+
+  /**
    * Test whether `controller`'s forward ray hits the thumb. On hit, attach
    * the grab to that controller and pulse haptics. Returns whether grabbed.
    */
