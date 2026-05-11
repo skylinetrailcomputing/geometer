@@ -1,6 +1,4 @@
 import * as THREE from 'three';
-import { writeMathToWorld } from '@/scaffold/math/frames';
-import { writeGraphPointToWorld } from './GraphSurface';
 import type { SaddleExtremaPreset } from './presets';
 
 // Local-quadratic-approximation overlay for the saddle / extrema scene
@@ -211,8 +209,11 @@ export function createTaylorOverlay(
   positionAttr.setUsage(THREE.DynamicDrawUsage);
   const normalAttr = new THREE.BufferAttribute(normals, 3);
   normalAttr.setUsage(THREE.DynamicDrawUsage);
-  // `aLocal` stays at the default StaticDrawUsage — it's rewritten
-  // only on preset swap, not per frame.
+  // `aLocal` stays at the default StaticDrawUsage — static relative
+  // to frame frequency. It IS rewritten on preset swap (cadence
+  // ~seconds, on tap), but the driver hint "this buffer doesn't
+  // change frequently" still applies — preset taps are tens of
+  // seconds apart in practice, not per frame.
   const localAttr = new THREE.BufferAttribute(locals, 2);
   geometry.setAttribute('position', positionAttr);
   geometry.setAttribute('normal', normalAttr);
@@ -291,8 +292,25 @@ export function createTaylorOverlay(
         const qx = fx + fxx * u + fxy * v;
         const qy = fy + fxy * u + fyy * v;
 
-        writeGraphPointToWorld(x0 + u, y0 + v, q, surfaceCenter, scratchPos);
-        writeMathToWorld([-qx, -qy, 1], scratchNorm).normalize();
+        // Inline the math-frame → world-frame mapping + surfaceCenter
+        // offset. Equivalent to:
+        //   writeGraphPointToWorld(x0 + u, y0 + v, q, surfaceCenter, scratchPos);
+        //   writeMathToWorld([-qx, -qy, 1], scratchNorm).normalize();
+        // Both helpers internally pack their scalar inputs into a
+        // MathVec3 tuple, which allocates a fresh array per call.
+        // Inside this 2401-iteration hot path (at 60 Hz that's ~144K
+        // short-lived arrays/sec) the GC pressure produced frame-rate
+        // hitches in headset. Inlining the math (math (a, b, c) →
+        // world (a, c, -b), then + surfaceCenter) keeps the helpers'
+        // semantics without their per-call tuple. Caught by GPT-5.5
+        // in PR-#187 /roundtable-review.
+        scratchPos.set(
+          x0 + u + surfaceCenter.x,
+          q + surfaceCenter.y,
+          -(y0 + v) + surfaceCenter.z,
+        );
+        // Math normal: writeMathToWorld([-qx, -qy, 1], …) → (-qx, 1, qy).
+        scratchNorm.set(-qx, 1, qy).normalize();
 
         const vIdx = (j * RES + i) * 3;
         positions[vIdx + 0] = scratchPos.x;

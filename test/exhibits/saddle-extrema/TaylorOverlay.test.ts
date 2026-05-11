@@ -455,6 +455,40 @@ describe('createTaylorOverlay — material flags', () => {
   });
 });
 
+describe('createTaylorOverlay — out-of-domain robustness', () => {
+  it('produces all-finite positions when overlay extends past preset domain', () => {
+    // Sonnet PR-review LOW F1: when the slider sits at (xMax, yMax)
+    // and halfExtent extends past the domain, f(x0+u, y0+v) is called
+    // with arguments outside [xMin, xMax]×[yMin, yMax]. Current v0.8
+    // presets are global polynomials so f never NaNs/asserts at the
+    // boundary, but this test pins the property so a future preset
+    // whose f misbehaves at domain edges trips at unit-test time.
+    // Worst v0.8 case: quartic-min at (xMax, yMax) = (1, 1) with
+    // halfExtent = 0.25, sampling out to x = y = 1.25.
+    const quartic = PRESETS.find((p) => p.id === 'quartic-min')!;
+    const overlay = createTaylorOverlay({
+      preset: quartic,
+      surfaceCenter: SURFACE_CENTER,
+      lightDir: LIGHT_DIR,
+    });
+    try {
+      overlay.setPose(quartic.domain.xMax, quartic.domain.yMax);
+      const pos = overlay.mesh.geometry.getAttribute('position');
+      const norm = overlay.mesh.geometry.getAttribute('normal');
+      for (let i = 0; i < pos.count; i++) {
+        expect(Number.isFinite(pos.getX(i))).toBe(true);
+        expect(Number.isFinite(pos.getY(i))).toBe(true);
+        expect(Number.isFinite(pos.getZ(i))).toBe(true);
+        expect(Number.isFinite(norm.getX(i))).toBe(true);
+        expect(Number.isFinite(norm.getY(i))).toBe(true);
+        expect(Number.isFinite(norm.getZ(i))).toBe(true);
+      }
+    } finally {
+      overlay.dispose();
+    }
+  });
+});
+
 describe('createTaylorOverlay — dispose', () => {
   it('disposes both geometry and material exactly once', () => {
     const handles = makeOverlay();
