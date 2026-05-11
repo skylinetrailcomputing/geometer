@@ -11,6 +11,11 @@ export interface LabelOptions {
   // secondary line, in meters.
   lineGap?: number;
   color?: number | string;
+  // Horizontal anchor for both lines. Default 'center' (family-label and
+  // axis-letter use). Per-slider labels (#170) pass 'right' so the rendered
+  // text right-edge stays fixed regardless of value-string length, keeping
+  // the worst-case secondary text clear of the slider thumb.
+  anchorX?: 'left' | 'center' | 'right';
 }
 
 const DEFAULT_PRIMARY_FONT_SIZE = 0.16;
@@ -49,6 +54,9 @@ export class Label {
       opts.secondaryFontSize ?? DEFAULT_SECONDARY_FONT_SIZE;
     const lineGap = opts.lineGap ?? DEFAULT_LINE_GAP;
     const color = opts.color ?? DEFAULT_COLOR;
+    const anchorX = opts.anchorX ?? 'center';
+    const textAlign =
+      anchorX === 'right' ? 'right' : anchorX === 'left' ? 'left' : 'center';
 
     this.group = new THREE.Group();
     this.group.name = 'label';
@@ -57,9 +65,9 @@ export class Label {
     this.primary = new Text();
     this.primary.fontSize = primaryFontSize;
     this.primary.color = color;
-    this.primary.anchorX = 'center';
+    this.primary.anchorX = anchorX;
     this.primary.anchorY = 'bottom';
-    this.primary.textAlign = 'center';
+    this.primary.textAlign = textAlign;
     this.primary.outlineWidth = OUTLINE_WIDTH;
     this.primary.outlineColor = OUTLINE_COLOR;
     this.primary.position.y = lineGap / 2;
@@ -69,9 +77,9 @@ export class Label {
     this.secondary = new Text();
     this.secondary.fontSize = secondaryFontSize;
     this.secondary.color = color;
-    this.secondary.anchorX = 'center';
+    this.secondary.anchorX = anchorX;
     this.secondary.anchorY = 'top';
-    this.secondary.textAlign = 'center';
+    this.secondary.textAlign = textAlign;
     this.secondary.outlineWidth = OUTLINE_WIDTH;
     this.secondary.outlineColor = OUTLINE_COLOR;
     this.secondary.position.y = -lineGap / 2;

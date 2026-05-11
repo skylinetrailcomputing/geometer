@@ -161,6 +161,20 @@ nine numeric strings and is unit-tested under
 sibling vs. extending-`EquationReadout` decision is recorded in the
 class header — different slot model, no hide-on-zero, simpler.
 
+## Per-slider labels (#170)
+
+Each slider in the rack carries a two-line billboarded label
+right-anchored ~0.05 m left of the track end (0.025 m clearance to
+the thumb). The primary line shows the variable name (`θ`, `φ`);
+the secondary line shows the current value. Angular sliders render
+their value in π-fraction format (e.g., `π/2`) at the slider's snap
+points and as `Xπ` decimal (e.g., `0.33π`) off-snap; the
+`scaffold/ui/formatAnglePiFraction(rad, snapPoints)` helper is gated
+on the slider's actual `snapPoints` array, so an off-snap value
+equal to a standard π-fraction (e.g., φ at `PHI_INITIAL = π/4` when
+the slider has no π/4 snap) renders as `0.25π`, not the false-snap
+`π/4` glyph.
+
 ## Render
 
 Minimal lambert: `uBaseColor * (0.2 + 0.8 * max(dot(n, normalize(uLightDir)), 0))`.

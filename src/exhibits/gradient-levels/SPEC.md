@@ -82,29 +82,37 @@ Slider visuals: neutral light gray base color (`0xaaaaaa`), sphere thumb
 shape — k is a scalar level value, not an axis-aligned parameter, so
 neither an axis tint nor an arrow thumb would carry meaning.
 
-## k-value label (#167)
+## Per-slider labels (#170 — supersedes the original #167 k label)
 
-A small worldspace numeric label below the k slider displays the
-current level value as `k = N.NN`. Anchored at y = 0.70 (below the
-k slider thumb-bottom at y ≈ 0.79); centered on x = 0; same z-plane
-as the rack (z = -0.7). fontSize 0.06 matches the cluster's
-rack-label convention.
+All three sliders (θ, φ, k) carry a two-line billboarded label
+right-anchored ~0.05 m left of each slider's track-end (0.025 m
+clearance to the thumb at slider min). The primary line shows the
+variable name; the secondary line shows the live value. Same
+visual shape across the three sliders; each label spans roughly
+0.10 m vertical with 0.034 m of breathing room between adjacent
+rows in the 3-row rack.
 
-There's no room *above* the k slider for the label because the φ
-slider's thumb-bottom (y ≈ 0.93) meets the k slider's thumb-top
-(y ≈ 0.93) — putting the label below is the only available rack-
-vertical slot.
+**Angular sliders (θ, φ):** value rendered via the snap-aware
+`scaffold/ui/formatAnglePiFraction(rad, snapPoints)`. Textbook
+π-fraction glyph (`π/2`, `−π/4`, `0`, `π`) ONLY when `rad` is in
+the slider's actual snap set; otherwise `Xπ` decimal (`0.33π`,
+`−0.80π`). Gating on the per-slider `snapPoints` is what
+distinguishes a true snap-detent commit from an off-snap value
+that happens to equal a standard π-fraction (e.g., `PHI_INITIAL =
+π/4` with the φ slider's snap set `[-π, -π/2, 0, π/2, π]`
+renders as `0.25π`, not the false-snap `π/4` glyph).
 
-Format: positive values render without a leading sign (`k = 0.50`,
-`k = 0.00`); negative values prepend U+2212 MINUS (`k = −1.00`) to
-match the cluster's signed-numeric glyph convention. 2-decimal
-precision via `.toFixed(2)`, consistent with the readout (#166)
-and the EquationReadout / TangentPlaneReadout cluster idiom.
+**k slider:** value rendered via a local `formatLinearDecimal`
+helper at the top of `index.ts` — non-negative values without a
+leading sign (`0.50`, `1.00`, `0.00`); negatives prepend U+2212
+MINUS (`−1.00`). 2-decimal precision via `.toFixed(2)`, matching
+the cluster's signed-numeric glyph convention. Helper is local;
+extract-on-third-use deferred (only call site).
 
-Built on the `Label` primitive (`src/scaffold/ui/Label.ts`) using
-the primary line only; secondary stays empty. #170 (per-slider
-θ/φ/k labels) may rework this into a two-line shape (`k` primary +
-`0.50` secondary) once that scaffold lands.
+**History.** #167 originally introduced the k label as a one-line
+`k = N.NN` readout below the k slider at y = 0.70. #170 unified
+it with the new θ/φ labels: same two-line shape, same per-row
+left-of-track right-aligned anchor — frees the y = 0.70 slot.
 
 ## Point parameterization (#164)
 
@@ -339,7 +347,7 @@ at the apex. Three concerns:
    at the origin during a successful raycast. No JS-side cone-apex
    guard needed.
 
-## Out of scope (v0.7 beyond #167)
+## Out of scope (v0.7 beyond #170)
 
 - **Option B-lite (closed-form θ clamp).** Documented v0.7-polish
   follow-up if smoke shows the disappearing-indicator UX is too

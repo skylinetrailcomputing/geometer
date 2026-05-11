@@ -6,6 +6,7 @@ import { writeMathToWorld } from '@/scaffold/math/frames';
 import { directionFromAngles } from '@/scaffold/math/directionFromAngles';
 import { createImplicitSurface } from '@/scaffold/render/ImplicitSurface';
 import { raycastImplicit } from '@/scaffold/render/raycastImplicit';
+import { formatAnglePiFraction } from '@/scaffold/ui/formatAnglePiFraction';
 import { Label } from '@/scaffold/ui/Label';
 import { Slider } from '@/scaffold/ui/Slider';
 import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
@@ -54,14 +55,16 @@ const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
 // clearance over the taller rack (top of θ slider thumb at y ≈ 1.21).
 const READOUT_POSITION = new THREE.Vector3(0, 1.42, -0.7);
 
-// k-value label (#167) — anchored below the k slider. There's no room
-// for a label *above* the k slider because the φ slider sits at
-// y = 1.00 (thumb-bottom at y ≈ 0.93) and the k thumb-top is also at
-// y ≈ 0.93 (k slider at y=0.86 + ~0.07 sphere radius). Below k is the
-// only available rack-vertical slot. fontSize 0.06 matches the cluster's
-// rack-label convention (`quadrics/index.ts:82`).
-const K_LABEL_POSITION = new THREE.Vector3(0, 0.70, -0.7);
-const K_LABEL_PRIMARY_FONT_SIZE = 0.06;
+// Per-slider variable + value labels (#170). All three sliders (θ/φ/k)
+// carry a two-line right-aligned label anchored ~0.05 m left of each
+// slider's track-end. The k label was originally introduced by #167 as
+// a one-line "k = N.NN" readout below the k slider; #170 unifies it into
+// the same two-line shape as the new θ/φ labels — same per-row anchor,
+// same fonts. Frees the y = 0.70 slot the old k label occupied.
+const SLIDER_LABEL_X_OFFSET = -0.20;
+const SLIDER_LABEL_PRIMARY_FONT_SIZE = 0.05;
+const SLIDER_LABEL_SECONDARY_FONT_SIZE = 0.035;
+const SLIDER_LABEL_LINE_GAP = 0.008;
 
 // Cluster siblings' lighting + base color so the surface reads as a
 // sibling, not as a separate scene's surface.
@@ -193,6 +196,22 @@ const SURFACE_SHADE = /* glsl */ `
 `;
 
 // ────────────────────────────────────────────────────────────────────
+// Helpers
+// ────────────────────────────────────────────────────────────────────
+
+const SLIDER_VALUE_MINUS = '−'; // U+2212 — cluster glyph convention
+
+// k slider value formatter for the per-slider label (#170). Distinct
+// from scaffold/ui/formatSignedMagnitude (which always prefixes ±) —
+// per-slider labels render single values without tabular alignment, so
+// a leading `+` reads as visual noise. Lift to scaffold/ui/ when a
+// v0.8+ scene also wants this format (extract-on-third-use rule).
+function formatLinearDecimal(v: number): string {
+  if (v < 0) return `${SLIDER_VALUE_MINUS}${Math.abs(v).toFixed(2)}`;
+  return v.toFixed(2);
+}
+
+// ────────────────────────────────────────────────────────────────────
 // Module-scoped state
 // ────────────────────────────────────────────────────────────────────
 
@@ -212,6 +231,8 @@ let phiSlider: Slider | undefined;
 let indicator: THREE.Mesh | undefined;
 let gradientArrow: GradientArrowHandles | undefined;
 let gradientLevelsReadout: GradientLevelsReadout | undefined;
+let thetaLabel: Label | undefined;
+let phiLabel: Label | undefined;
 let kLabel: Label | undefined;
 let worldAxes: WorldAxes | undefined;
 let controllers: readonly THREE.Object3D[] = [];
@@ -355,15 +376,54 @@ const gradientLevelsExhibit: Exhibit = {
     gradientLevelsReadout.group.position.copy(READOUT_POSITION);
     group.add(gradientLevelsReadout.group);
 
-    // k-value label (#167). Displays the current level value `k` below
-    // the k slider. The §11.6 family-sweep pedagogy is driven by k;
-    // surfacing the numeric value lets students correlate slider position
-    // with snap detents (k = -1 canonical 2-sheet, k = 0 cone, k = +1
-    // canonical 1-sheet) and with the indicator visibility transition
-    // at k = 0. Uses the Label primitive's primary line only; secondary
-    // stays empty (#170 may rework into a two-line shape later).
-    kLabel = new Label({ primaryFontSize: K_LABEL_PRIMARY_FONT_SIZE });
-    kLabel.group.position.copy(K_LABEL_POSITION);
+    // Per-slider variable + value labels (#170). All three sliders carry
+    // the same two-line right-aligned shape: primary = variable name (set
+    // once at mount), secondary = live value (per-frame in update()). The
+    // k label was originally one-line "k = 0.50" below the slider (#167);
+    // unified here into the cluster-uniform shape so all three sliders
+    // read visually identically. Right-align (anchorX: 'right') keeps
+    // worst-case secondary text — "−2.00" at k_min, "−0.80π" at φ
+    // extremes — clear of the slider thumb at any value.
+    thetaLabel = new Label({
+      primaryFontSize: SLIDER_LABEL_PRIMARY_FONT_SIZE,
+      secondaryFontSize: SLIDER_LABEL_SECONDARY_FONT_SIZE,
+      lineGap: SLIDER_LABEL_LINE_GAP,
+      anchorX: 'right',
+    });
+    thetaLabel.setPrimary('θ');
+    thetaLabel.group.position.set(
+      SLIDER_RACK_CENTER.x + SLIDER_LABEL_X_OFFSET,
+      THETA_Y,
+      SLIDER_RACK_CENTER.z,
+    );
+    group.add(thetaLabel.group);
+
+    phiLabel = new Label({
+      primaryFontSize: SLIDER_LABEL_PRIMARY_FONT_SIZE,
+      secondaryFontSize: SLIDER_LABEL_SECONDARY_FONT_SIZE,
+      lineGap: SLIDER_LABEL_LINE_GAP,
+      anchorX: 'right',
+    });
+    phiLabel.setPrimary('φ');
+    phiLabel.group.position.set(
+      SLIDER_RACK_CENTER.x + SLIDER_LABEL_X_OFFSET,
+      PHI_Y,
+      SLIDER_RACK_CENTER.z,
+    );
+    group.add(phiLabel.group);
+
+    kLabel = new Label({
+      primaryFontSize: SLIDER_LABEL_PRIMARY_FONT_SIZE,
+      secondaryFontSize: SLIDER_LABEL_SECONDARY_FONT_SIZE,
+      lineGap: SLIDER_LABEL_LINE_GAP,
+      anchorX: 'right',
+    });
+    kLabel.setPrimary('k');
+    kLabel.group.position.set(
+      SLIDER_RACK_CENTER.x + SLIDER_LABEL_X_OFFSET,
+      K_Y,
+      SLIDER_RACK_CENTER.z,
+    );
     group.add(kLabel.group);
 
     // Math-frame axis indicator — same anchor as cluster siblings.
@@ -373,14 +433,16 @@ const gradientLevelsExhibit: Exhibit = {
   },
 
   update() {
+    // Per-slider labels (θ/φ/k) are accessory (#170) — handled by per-call
+    // guards below; not gated here so a missing label never blocks
+    // slider/raycast updates.
     if (
       !kSlider ||
       !thetaSlider ||
       !phiSlider ||
       !indicator ||
       !gradientArrow ||
-      !gradientLevelsReadout ||
-      !kLabel
+      !gradientLevelsReadout
     ) return;
 
     // 1. Slider hover + drag tick. Order doesn't matter across the
@@ -397,16 +459,29 @@ const gradientLevelsExhibit: Exhibit = {
       surfaceMaterial.uniforms.uK.value = kSlider.value;
     }
 
-    // 2b. k-value label (#167). Positive values render with no leading
-    //     sign per the issue spec ("k = 0.50"); negative values prepend
-    //     U+2212 MINUS to match the cluster's signed-numeric glyph
-    //     convention. Zero falls through the positive branch as "0.00"
-    //     (no leading sign), matching the textbook identity form.
+    // 2b. Per-slider value labels (#170). `formatAnglePiFraction` is
+    //     snap-aware — boot pose φ = π/4 is OFF-snap on this slider's
+    //     PHI_SNAP_POINTS, so it renders as "0.25π" not the false-snap
+    //     "π/4" glyph. `formatLinearDecimal` is the local helper above;
+    //     extract-on-third-use deferred (only call site).
+    //     `k` is preserved here for the raycast closure in step 4.
     const k = kSlider.value;
-    const kStr = k < 0
-      ? `k = −${Math.abs(k).toFixed(2)}`
-      : `k = ${k.toFixed(2)}`;
-    kLabel.setPrimary(kStr);
+    if (thetaLabel && camera) {
+      thetaLabel.setSecondary(
+        formatAnglePiFraction(thetaSlider.value, THETA_SNAP_POINTS),
+      );
+      thetaLabel.faceCamera(camera);
+    }
+    if (phiLabel && camera) {
+      phiLabel.setSecondary(
+        formatAnglePiFraction(phiSlider.value, PHI_SNAP_POINTS),
+      );
+      phiLabel.faceCamera(camera);
+    }
+    if (kLabel && camera) {
+      kLabel.setSecondary(formatLinearDecimal(k));
+      kLabel.faceCamera(camera);
+    }
 
     // 3. Math-frame direction from θ/φ — mutates `dirMath` in place;
     //    no per-frame allocation.
@@ -458,9 +533,9 @@ const gradientLevelsExhibit: Exhibit = {
 
     // 6. Yaw-only billboard on the WorldAxes letter labels so they
     //    read at any user yaw. Same per-frame contract as siblings.
+    //    (Per-slider label faceCamera calls live in step 2b above.)
     if (worldAxes && camera) worldAxes.faceCamera(camera);
     if (camera) gradientLevelsReadout.faceCamera(camera);
-    if (camera) kLabel.faceCamera(camera);
   },
 
   unmount() {
@@ -498,6 +573,10 @@ const gradientLevelsExhibit: Exhibit = {
     gradientArrow = undefined;
     gradientLevelsReadout?.dispose();
     gradientLevelsReadout = undefined;
+    thetaLabel?.dispose();
+    thetaLabel = undefined;
+    phiLabel?.dispose();
+    phiLabel = undefined;
     kLabel?.dispose();
     kLabel = undefined;
     kSlider?.dispose();
