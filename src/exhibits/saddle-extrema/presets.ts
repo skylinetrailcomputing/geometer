@@ -20,6 +20,16 @@ import type { GraphSurfaceDomain } from './GraphSurface';
  */
 export type Hessian = readonly [number, number, number];
 
+/**
+ * Analytically-known critical point in math-frame `(x, y)` coords. Every
+ * v0.8 preset has exactly one critical point at the origin (see SPEC.md
+ * §"Pedagogical observation — all critical points at origin"); the
+ * `readonly [number, number][]` shape is forward-looking so a future
+ * preset with off-origin or multiple CPs drops in without an interface
+ * change.
+ */
+export type CriticalPoint = readonly [number, number];
+
 export interface SaddleExtremaPreset {
   readonly id: string;
   readonly label: string;
@@ -32,6 +42,13 @@ export interface SaddleExtremaPreset {
   readonly hessF: (x: number, y: number) => Hessian;
   /** Per-preset (x, y) window. Picked so the surface fits the cluster envelope. */
   readonly domain: GraphSurfaceDomain;
+  /**
+   * Analytically-known critical points (`∇f = 0`). Rendered by #179 as
+   * small markers on the graph surface; not consumed by #178 / #181.
+   * v0.8 entries are all `[[0, 0]]` — every preset has one CP at the
+   * origin.
+   */
+  readonly criticalPoints: readonly CriticalPoint[];
   /** Optional grid resolution per side. Defaults to 128 at the call site. */
   readonly res?: number;
 }
@@ -45,6 +62,7 @@ export const PRESETS: readonly SaddleExtremaPreset[] = [
     gradF: (x, y) => [2 * x, 2 * y],
     hessF: () => [2, 0, 2],
     domain: { xMin: -1.2, xMax: 1.2, yMin: -1.2, yMax: 1.2 },
+    criticalPoints: [[0, 0]],
   },
   // 2. Local max — z = −(x² + y²). Inverted paraboloid; D > 0 + f_xx < 0 ⇒ max.
   {
@@ -54,6 +72,7 @@ export const PRESETS: readonly SaddleExtremaPreset[] = [
     gradF: (x, y) => [-2 * x, -2 * y],
     hessF: () => [-2, 0, -2],
     domain: { xMin: -1.2, xMax: 1.2, yMin: -1.2, yMax: 1.2 },
+    criticalPoints: [[0, 0]],
   },
   // 3. Saddle — z = x² − y². The #176 starter; D < 0 ⇒ saddle.
   {
@@ -63,6 +82,7 @@ export const PRESETS: readonly SaddleExtremaPreset[] = [
     gradF: (x, y) => [2 * x, -2 * y],
     hessF: () => [2, 0, -2],
     domain: { xMin: -1.5, xMax: 1.5, yMin: -1.5, yMax: 1.5 },
+    criticalPoints: [[0, 0]],
   },
   // 4. Monkey saddle — z = x³ − 3xy². Degenerate critical point at origin
   //    (Hessian vanishes identically there ⇒ D = 0). Three "valleys"
@@ -75,6 +95,7 @@ export const PRESETS: readonly SaddleExtremaPreset[] = [
     gradF: (x, y) => [3 * x * x - 3 * y * y, -6 * x * y],
     hessF: (x, y) => [6 * x, -6 * y, -6 * x],
     domain: { xMin: -1.2, xMax: 1.2, yMin: -1.2, yMax: 1.2 },
+    criticalPoints: [[0, 0]],
   },
   // 5. D = 0 degenerate that's still a min — z = x⁴ + y⁴. Hessian vanishes
   //    at origin (f_xx = f_xy = f_yy = 0) ⇒ D = 0 inconclusive — yet the
@@ -88,6 +109,7 @@ export const PRESETS: readonly SaddleExtremaPreset[] = [
     gradF: (x, y) => [4 * x ** 3, 4 * y ** 3],
     hessF: (x, y) => [12 * x * x, 0, 12 * y * y],
     domain: { xMin: -1, xMax: 1, yMin: -1, yMax: 1 },
+    criticalPoints: [[0, 0]],
   },
 ];
 

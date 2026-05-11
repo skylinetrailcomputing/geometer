@@ -16,6 +16,10 @@ import {
 } from '@/scaffold/ui/TapButton';
 import { WorldAxes } from '@/scaffold/ui/WorldAxes';
 import {
+  createCriticalPointMarkers,
+  type CriticalPointMarkersHandles,
+} from './CriticalPointMarkers';
+import {
   createGraphSurface,
   writeGraphPointToWorld,
   type GraphSurfaceHandles,
@@ -70,8 +74,8 @@ const Y_SLIDER_Y = SLIDER_RACK_CENTER.y - SLIDER_ROW_PITCH / 2;
 // siblings. Snap detents at [0] only: slider-canonical origin, not
 // critical-point-aware (the coincidence that v0.8 preset critical points
 // sit at the origin makes origin-snap LAND on the critical point, but the
-// snap mechanism is preset-independent). Critical-point-aware snap is
-// deferred to #179.
+// snap mechanism is preset-independent). #179's markers are visual-only;
+// critical-point-aware snap defers to v0.9 polish.
 const SLIDER_SNAP_DETENT = 0.05;
 const GRAB_RADIUS_MULTIPLIER = 2.75;
 const SLIDER_SNAP_POINTS: readonly number[] = [0];
@@ -144,6 +148,7 @@ function formatLinearDecimal(v: number): string {
 
 let exhibitGroup: THREE.Group | undefined;
 let graphSurface: GraphSurfaceHandles | undefined;
+let criticalPointMarkers: CriticalPointMarkersHandles | undefined;
 let worldAxes: WorldAxes | undefined;
 let xSlider: Slider | undefined;
 let ySlider: Slider | undefined;
@@ -197,6 +202,17 @@ const saddleExtremaExhibit: Exhibit = {
       lightDir: LIGHT_DIR.clone(),
     });
     group.add(graphSurface.mesh);
+
+    // Critical-point markers (#179). Built once per preset and replaced
+    // whole-cloth on preset swap (mirrors the graphSurface lifecycle).
+    // For every v0.8 preset this is a single sphere at the origin; the
+    // helper accepts the analytic list so future off-origin / multi-CP
+    // presets drop in without a wiring change.
+    criticalPointMarkers = createCriticalPointMarkers({
+      preset: initialPreset,
+      surfaceCenter: SURFACE_CENTER,
+    });
+    group.add(criticalPointMarkers.group);
 
     // x slider — vermillion (math-X axis tint). Honest pickup since
     // x IS the math-X axis value, not a derived parameter. Mirrors
@@ -401,6 +417,8 @@ const saddleExtremaExhibit: Exhibit = {
     //    after unmount() returns, so no scene.remove() calls here.
     graphSurface?.dispose();
     graphSurface = undefined;
+    criticalPointMarkers?.dispose();
+    criticalPointMarkers = undefined;
     worldAxes?.dispose();
     worldAxes = undefined;
     xSlider?.dispose();
@@ -488,6 +506,20 @@ function applyPreset(idx: number): void {
     lightDir: LIGHT_DIR.clone(),
   });
   exhibitGroup?.add(graphSurface.mesh);
+
+  // Rebuild critical-point markers for the new preset. Same
+  // remove-before-dispose ordering as the graphSurface swap above so the
+  // old marker group doesn't leak as a child of `exhibitGroup`.
+  if (criticalPointMarkers && exhibitGroup) {
+    exhibitGroup.remove(criticalPointMarkers.group);
+    criticalPointMarkers.dispose();
+    criticalPointMarkers = undefined;
+  }
+  criticalPointMarkers = createCriticalPointMarkers({
+    preset,
+    surfaceCenter: SURFACE_CENTER,
+  });
+  exhibitGroup?.add(criticalPointMarkers.group);
 
   // Slider domains follow the preset. setRange clamps the current value
   // into the new range and re-applies snap; the indicator picks up the

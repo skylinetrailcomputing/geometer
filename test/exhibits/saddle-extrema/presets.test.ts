@@ -96,6 +96,48 @@ describe('PRESETS — critical point at origin', () => {
   });
 });
 
+describe('PRESETS — criticalPoints (#179)', () => {
+  it('every preset declares at least one critical point', () => {
+    for (const p of PRESETS) {
+      expect(p.criticalPoints.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('v0.8: every preset declares exactly one critical point at the origin', () => {
+    // Pins the cluster-shared pedagogical observation in SPEC.md — every
+    // v0.8 preset's CP sits at the origin. If a future preset legitimately
+    // diverges from this (off-origin or multi-CP), this assertion is the
+    // intended forcing function to revisit SPEC.md + this test together.
+    for (const p of PRESETS) {
+      expect(p.criticalPoints).toEqual([[0, 0]]);
+    }
+  });
+
+  it('every critical point lies inside its preset domain', () => {
+    for (const p of PRESETS) {
+      for (const [cx, cy] of p.criticalPoints) {
+        expect(cx).toBeGreaterThanOrEqual(p.domain.xMin);
+        expect(cx).toBeLessThanOrEqual(p.domain.xMax);
+        expect(cy).toBeGreaterThanOrEqual(p.domain.yMin);
+        expect(cy).toBeLessThanOrEqual(p.domain.yMax);
+      }
+    }
+  });
+
+  it('gradF vanishes at every declared critical point', () => {
+    // Catches a bug where the preset author hard-codes a "critical point"
+    // that isn't actually one (e.g., copy-paste typo). Stronger than the
+    // origin-only check above because it scales with the data shape.
+    for (const p of PRESETS) {
+      for (const [cx, cy] of p.criticalPoints) {
+        const [fx, fy] = p.gradF(cx, cy);
+        expect(fx).toBeCloseTo(0);
+        expect(fy).toBeCloseTo(0);
+      }
+    }
+  });
+});
+
 describe('PRESETS — analytic derivatives agree with finite differences', () => {
   // Sample at a generic non-origin, non-axis point inside every domain.
   // (0.3, 0.2) sits inside the quartic preset's [-1, 1]² (the tightest

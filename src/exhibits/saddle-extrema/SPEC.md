@@ -7,8 +7,8 @@
 > #178 expands the preset library to five archetypes + adds `hessF`
 > to the preset record + ships the preset-selector UI; #181 ships the
 > live Hessian + classification readout; #179 adds critical-point
-> markers; #180 ships the local-quadratic-approximation overlay (the
-> §11.7–11.8 punch line).
+> markers + `criticalPoints` on the preset record; #180 ships the
+> local-quadratic-approximation overlay (the §11.7–11.8 punch line).
 
 ## Goal
 
@@ -83,6 +83,7 @@ Analytic data on each preset:
 - `gradF(x, y) → [f_x, f_y]` — first partials. Required (vertex normals on the graph-surface primitive read from this).
 - `hessF(x, y) → [f_xx, f_xy, f_yy]` — symmetric Hessian, three distinct entries. Stored on the preset for #181's classification readout (`D = f_xx · f_yy − f_xy²`); not consumed by #178 itself.
 - `domain: { xMin, xMax, yMin, yMax }` — per-preset rectangle, sized so the rendered surface fits the cluster envelope.
+- `criticalPoints: readonly [number, number][]` — analytically-known critical points (`∇f = 0`) in math-frame `(x, y)`. v0.8 entries are all `[[0, 0]]`; consumed by #179's markers, not by #178 / #181.
 
 ### Why per-preset domains?
 
@@ -384,10 +385,58 @@ slider-reachable domains:
 Per-slot string caching skips the write entirely when the formatted
 string hasn't changed.
 
-## Out of scope (v0.8 beyond #181)
+## Critical-point markers (#179)
 
-- **Critical-point markers (#179).** Small visual markers at the
-  analytically-known critical points (all at origin for v0.8 presets).
+Each preset declares its critical points analytically via
+`criticalPoints: readonly [number, number][]` on the preset record;
+#179 renders one small marker per CP at `(x_c, y_c, f(x_c, y_c))` on
+the graph surface so the student can navigate the `(x, y)` sliders to
+a known-interesting location and watch the local shape change.
+
+All v0.8 presets declare exactly `[[0, 0]]` — every critical point sits
+at the origin, per the cluster-shared pedagogical observation above.
+The shape `readonly [number, number][]` is forward-looking so a future
+preset with off-origin or multiple CPs drops in without an interface
+change.
+
+### Visual treatment
+
+Small YELLOW sphere (radius `0.024 m`) at each CP, lit
+`MeshStandardMaterial`. The marker is deliberately smaller than the
+selected-point indicator's `0.04 m` off-white sphere (≈60% the
+diameter) — the lesson is the *shape*, not the marker (#179 issue
+text). YELLOW continues the cluster's accent convention for
+"important math fact at a point" (gradient arrow #165, `|∇f|`
+numeric #166, `D` + verdict in the classification readout #181); the
+size + color contrast against the indicator keeps a side-by-side
+reading unambiguous.
+
+When the user navigates the indicator to a critical point, the
+indicator's larger off-white sphere nests over the marker — reading as
+"you've reached the critical point." The classification readout (#181)
+confirms the arrival with the live `D` + verdict.
+
+### Lifecycle
+
+Markers are built whole-cloth from `preset.criticalPoints` on mount and
+rebuilt on every preset swap — mirrors the `graphSurface` swap pattern
+in `applyPreset`. No per-frame update is needed (the active preset's
+critical points are analytically fixed for the preset's lifetime); the
+helper exposes `{ group, dispose() }` only. Geometry + material are
+shared across all markers of one preset and disposed once per swap.
+
+### Out of scope for #179
+
+- **Slider snap-detents on the critical points.** Visual-only per the
+  issue. The `(x, y)` domain is small enough that the existing
+  origin-snap detent (`SLIDER_SNAP_POINTS = [0]`) lands on every v0.8
+  preset's CP anyway; critical-point-aware snap is a quadric-tuned
+  scaffold knob and defers to v0.9 polish.
+- **Numerical critical-point solver.** Preset-supplied analytical CPs
+  only.
+
+## Out of scope (v0.8 beyond #179 + #181)
+
 - **Quadratic overlay (#180).** Always-on, translucent second-order
   Taylor approximation rendered as a second graph surface hugging the
   main one at the selected point. Reuses `GraphSurface` and
