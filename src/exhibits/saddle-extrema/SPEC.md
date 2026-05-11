@@ -435,16 +435,224 @@ shared across all markers of one preset and disposed once per swap.
 - **Numerical critical-point solver.** Preset-supplied analytical CPs
   only.
 
-## Out of scope (v0.8 beyond #179 + #181)
+## Quadratic overlay (#180)
 
-- **Quadratic overlay (#180).** Always-on, translucent second-order
-  Taylor approximation rendered as a second graph surface hugging the
-  main one at the selected point. Reuses `GraphSurface` and
-  `writeGraphPointToWorld`. The §11.7–11.8 punch line.
+The §11.7–11.8 *pedagogical* punch line of the scene. At the slider-
+selected point `(x₀, y₀)`, a second graph surface hugs the main one,
+rendered as the second-order Taylor expansion of the active preset's
+`f`:
+
+```
+q(x, y) = f(x₀, y₀)
+        + f_x(x₀, y₀)·(x − x₀)
+        + f_y(x₀, y₀)·(y − y₀)
+        + ½·[ f_xx·(x − x₀)²
+            + 2·f_xy·(x − x₀)·(y − y₀)
+            + f_yy·(y − y₀)² ]
+```
+
+Two cases the overlay makes literal:
+
+- **At a critical point**, the linear term vanishes and the overlay
+  IS the local quadratic — bowl up (min), bowl down (max), saddle, or
+  the degenerate flat plane (`monkey-saddle` / `quartic-min`, where
+  the Hessian vanishes and the quadratic collapses to a constant).
+- **Away from a critical point**, the linear term tips the overlay
+  into a curved tangent-shaped patch. Reading the overlay as "linear
+  plus a little curvature" makes the second-derivative test's
+  domain-of-validity legible.
+
+Always-on (mirrors tangent-planes #148; toggle UI deferred to v0.9 if
+the always-on read is cluttered in-headset).
+
+### Primitive — `TaylorOverlay.ts`
+
+A new same-scene helper distinct from `GraphSurface.ts`. The main
+surface is *built once per preset* (opaque cluster-lambert
+ShaderMaterial); the overlay is *mutated every frame* (translucent
+body+rim shader). The two lifecycles + materials + domains differ
+enough that a shared primitive would compromise both call sites.
+`TaylorOverlay` reuses only the math-frame helpers
+(`writeGraphPointToWorld`, `writeMathToWorld`) — `GraphSurface`
+deliberately designed those as cross-consumer.
+
+Scaffold extraction to `src/scaffold/` is deferred per the
+extract-on-second-consumer rule. The overlay is consumer #1 of "per-
+frame mutating graph surface"; a future ODE phase-portrait scene may
+trigger extraction in v1.x.
+
+### Neighborhood size
+
+Per-preset half-extent = `25% × min(domain x-range, domain y-range) / 2`:
+
+| Preset | Domain | Half-extent |
+|---|---|---|
+| `paraboloid` / `inv-paraboloid` / `monkey-saddle` | range 2.4 | 0.30 |
+| `saddle` | range 3.0 | 0.375 |
+| `quartic-min` | range 2.0 | 0.25 |
+
+Min-of-range keeps the patch square in math coords (uniform rim band
+on all four edges, no stretched-rect look). At origin pose the patch
+is well inside every preset's domain.
+
+**No clamping at slider edges.** When `(x₀, y₀)` is near a corner,
+the overlay extends past the main surface's edge. The Taylor
+approximation is defined on all of ℝ²; the floating-past-edge read is
+a feature, not a bug. Symmetric edge-shrink is the v0.9 escape hatch
+if smoke flags this read poorly. `quartic-min` at `(0.9, 0)` is the
+worst case (flat overlay, right half floating); explicitly smoke-
+checked.
+
+### Tessellation — `res = 49`
+
+Odd resolution so the center vertex `(u = v = 0)` lands exactly at
+the middle index. With `res = 49`, that's index `24` in both `i` and
+`j`, flat index `1200`. Vertex spacing on the saddle preset (the
+largest half-extent): `2·0.375 / 48 ≈ 15.6 mm` in math coords; on the
+quartic: `2·0.25 / 48 ≈ 10.4 mm`. Smooth at any headset distance.
+
+Even resolutions (e.g., 48) would put the center between vertices,
+defeating the "overlay center IS the indicator" visual claim by a
+small linear-interpolation error and breaking the center-vertex
+tests.
+
+`49² = 2401` vertices ⇒ ~58 KB of position + normal buffer writes per
+frame. Negligible for Quest 3; well under the main surface's 16384-
+vertex one-time build.
+
+### Per-frame update path
+
+`setPose(x0, y0)` reads the active preset's `f`, `gradF`, `hessF` at
+`(x0, y0)`, then walks the `res × res` grid in `(u, v)` and writes
+positions + normals into the existing typed arrays. `position` and
+`normal` BufferAttributes are marked `needsUpdate = true`; `aLocal`
+(the math-frame `(u, v)` attribute, used by the fragment shader for
+rim distance) is unchanged on the per-frame path.
+
+Math-frame normal at `(u, v)`: the overlay surface is the graph of
+`q`, an implicit surface `{ z − q(x, y) = 0 }`, whose gradient is
+`(−q_x, −q_y, 1)`. Since `u = x − x₀` and `v = y − y₀`,
+`q_x = ∂q/∂u = f_x + f_xx·u + f_xy·v` and `q_y = ∂q/∂v = f_y + f_xy·u
++ f_yy·v`.
+
+Two scratch `Vector3` objects (one for position, one for normal) are
+allocated once and reused across all `res²` iterations — same as
+`GraphSurface.ts:155-156`. Merging into a single scratch would
+clobber position before it lands in the typed array on each iteration.
+
+### Render
+
+Translucent body + brighter rim, sky-blue per the locked #113 visual
+language. Same body / rim colors and alphas as `TangentPlane.ts` and
+`SlicingPlane.ts`; rim width tighter (0.015 m on a ~0.30 m half-
+extent gives a 5% rim-to-half-extent ratio, vs. the slicing-plane's
+1.7%).
+
+Two adaptations from the flat-rect precedent:
+
+1. **`aLocal` vec2 attribute.** `TranslucentRect.ts` reads
+   `position.xy` for the rim-distance computation because its mesh is
+   an axis-aligned plane geometry. The overlay's `position` is in
+   world space (lifted via `writeGraphPointToWorld`), so a separate
+   `aLocal` attribute carries the math-frame `(u, v)` directly to the
+   fragment shader.
+2. **Subtle lambert on the body** (`color = uBodyColor × (0.6 + 0.4 ·
+   max(dot(n, L), 0))`). A flat-lit translucent curved surface reads
+   as a uniform tint that hides the bowl / saddle / flat curvature
+   that's the whole reason for the overlay. Low-amplitude lambert
+   (vs. the main surface's `0.2 + 0.8·dot`) makes curvature legible
+   without competing with the main surface for "solid surface"
+   presence. The rim stays flat (lambert applied only to body) so the
+   patch boundary stays uniform regardless of surface tilt.
+
+### Material flags
+
+```ts
+transparent: true,
+depthWrite: false,
+side: THREE.DoubleSide,
+polygonOffset: true,
+polygonOffsetFactor: -1,
+polygonOffsetUnits: -1,
+```
+
+`renderOrder = 1` on the mesh (renders after the opaque main
+surface).
+
+**Why `polygonOffset` ships day one.** For the three exact-quadratic
+presets (`paraboloid`, `inv-paraboloid`, `saddle`), the second-order
+Taylor approximation IS the surface across the entire patch (no
+truncation error). The overlay coincides with the main surface in
+*thousands of fragments*, not just at the center vertex. Without
+`polygonOffset` the GPU's tie-breaking is implementation-defined and
+the result is z-fighting. Negative factor + units shift the overlay's
+depth toward the camera so coplanar fragments consistently pass the
+depth test on top.
+
+### Occlusion contract
+
+`depthWrite: false` means the overlay does NOT write to the depth
+buffer; it still *reads* depth. So:
+
+- **Behind the main surface**: overlay fragments fail the depth test
+  → not drawn. Correct (back half hides behind front half).
+- **In front of the main surface**: overlay fragments pass → alpha-
+  blend over the main surface. Correct (translucent tint + rim halo).
+- **Coplanar with the main surface**: `polygonOffset` shifts depth
+  toward camera; overlay consistently passes the depth test.
+- **In front of the opaque indicator / CP marker**: overlay alpha-
+  blends over them. Indicator (off-white) shows as slightly bluer
+  off-white sphere; CP marker (yellow) shows as slightly cyan yellow
+  — both still distinct.
+- **Behind the indicator / CP marker**: overlay fails the depth test
+  against the marker's opaque depth → marker reads on top of overlay
+  in those pixels.
+
+### Buffer + culling
+
+`position` and `normal` BufferAttributes use
+`setUsage(THREE.DynamicDrawUsage)` — driver hint that these buffers
+are written every frame. `aLocal` stays `StaticDrawUsage` (only
+rewritten on preset swap, cadence ~seconds).
+
+`mesh.frustumCulled = false`. Three.js doesn't auto-invalidate the
+cached bounding sphere when position attributes are marked
+`needsUpdate`; per-frame position writes leave the cached bounds
+stale. The overlay is small and anchored near `SURFACE_CENTER` (which
+is always in view by cluster framing), so frustum culling on it never
+pays for itself anyway. Pinned by Vitest so a future "performance
+cleanup" can't silently re-enable it.
+
+### Lifecycle
+
+Built once at mount with the initial preset. On preset swap
+(`setPreset(preset, x0, y0)`):
+
+1. Cache the new preset reference.
+2. Recompute `halfExtent` from the new preset's domain.
+3. Rewrite the `aLocal` typed array; mark `aLocalAttr.needsUpdate`.
+4. Update the `uHalfExtent` uniform so the rim shader's smoothstep
+   comparator agrees with the new local-coords range.
+5. Refresh positions + normals at the (possibly clamped) slider
+   values so the next frame doesn't render the prior preset's shape.
+
+Disposed once at unmount: dispose `geometry` + `material`. No shared
+resources with the main `graphSurface` mesh.
+
+## Out of scope (v0.9+)
+
+- **Toggle UI for overlay on/off.** Deferred to v0.9 polish iff the
+  always-on read is cluttered in-headset.
+- **Symmetric overlay-shrink near domain edges.** v0.9 escape hatch
+  if smoke shows the floating-past-edge read as a bug rather than a
+  feature (especially on `quartic-min` at `(0.9, 0)`).
 - **`GraphSurface` extraction to `src/scaffold/`.** Deferred until a
   second scene wants the primitive (likely v1.x). The overlay in #180
   is a same-scene consumer; doesn't count for the extract-on-second-
   consumer rule.
+- **`TaylorOverlay` extraction to `src/scaffold/`.** Same posture —
+  consumer #1; a future ODE phase-portrait scene may trigger
+  extraction.
 - **Numerical critical-point solver.** Preset-supplied analytical
   critical points only.
 - **User-supplied `f(x, y)`.** Strong long-term motivator for the
@@ -452,3 +660,7 @@ shared across all markers of one preset and disposed once per swap.
 - **Runtime `f` / `gradF` non-finite-value validation.** v0.8 presets
   are all polynomials; sampling validation is over-engineering against
   a deferred risk.
+- **Higher-order Taylor (cubic +).** Second-order is the §11.7–11.8
+  lesson; cubic would address the monkey-saddle and quartic-min
+  degenerate cases but the visual machinery doubles in size and the
+  pedagogical lift is unclear.
