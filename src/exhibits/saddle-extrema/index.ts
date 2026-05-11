@@ -6,6 +6,7 @@ import {
   BLUISH_GREEN,
   DEFAULT_AXIS_COLORS,
   VERMILLION,
+  YELLOW,
 } from '@/scaffold/design/tokens';
 import { Label } from '@/scaffold/ui/Label';
 import { Slider } from '@/scaffold/ui/Slider';
@@ -20,6 +21,7 @@ import {
   type GraphSurfaceHandles,
 } from './GraphSurface';
 import { DEFAULT_PRESET_INDEX, PRESETS } from './presets';
+import { SaddleExtremaReadout } from './SaddleExtremaReadout';
 
 // Saddle / extrema scene (#175 epic). Fourth and final member of the
 // calculus3 cluster, alongside quadrics, tangent-planes, and gradient-levels.
@@ -47,6 +49,13 @@ const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
 const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 const BASE_COLOR = new THREE.Color(0.4, 0.7, 0.95);
+
+// Classification readout (#181) — three lines (Hessian entries / D /
+// verdict). Anchored above the preset row (preset-row buttons cap at
+// y ≈ 1.32 including button radius) with ~0.12 m vertical clearance.
+// Shares the foreground-UI z-plane with the slider rack and preset
+// row so the user's gaze stays in one depth band.
+const READOUT_POSITION = new THREE.Vector3(0, 1.5, -0.7);
 
 // Slider rack — two-row symmetric straddle around SLIDER_RACK_CENTER. The
 // 3-row top-heavy pattern from gradient-levels (θ/φ/k at [center+pitch,
@@ -143,6 +152,7 @@ let yLabel: Label | undefined;
 let indicator: THREE.Mesh | undefined;
 let presetButtons: TapButton[] = [];
 let activePresetIndex = DEFAULT_PRESET_INDEX;
+let saddleExtremaReadout: SaddleExtremaReadout | undefined;
 let camera: THREE.Camera | undefined;
 let controllers: readonly THREE.Object3D[] = [];
 
@@ -280,6 +290,22 @@ const saddleExtremaExhibit: Exhibit = {
     worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
     group.add(worldAxes.group);
 
+    // Classification readout (#181). f_xx and f_yy tinted with the
+    // cluster's math-X / math-Y axis colors (vermillion / bluish-green)
+    // to reinforce "f_xx is the pure-x² term, f_yy is the pure-y²
+    // term"; the cross-term f_xy stays white to read as "neither pure
+    // axis." D and verdict use YELLOW — the same accent gradient-levels
+    // (#166) uses for the |∇f| numeric. Boots hidden; the first
+    // update() tick populates the slots and uncloaks.
+    saddleExtremaReadout = new SaddleExtremaReadout({
+      fxxColor: VERMILLION,
+      fxyColor: 0xffffff,
+      fyyColor: BLUISH_GREEN,
+      accentColor: YELLOW,
+    });
+    saddleExtremaReadout.group.position.copy(READOUT_POSITION);
+    group.add(saddleExtremaReadout.group);
+
     // Preset row (#178) — five archetypes left → right, mirroring the
     // PRESETS array order. The starter (saddle, DEFAULT_PRESET_INDEX) is
     // marked sticky-active so the user reads which archetype is current.
@@ -333,9 +359,22 @@ const saddleExtremaExhibit: Exhibit = {
         yLabel.setSecondary(formatLinearDecimal(y));
         yLabel.faceCamera(camera);
       }
+
+      // 4. Classification readout (#181). Hessian evaluated at the
+      //    current (x, y) — the readout shows what the second-
+      //    derivative test would *report* at that point, treating it
+      //    as if it were a critical point. SPEC.md §"Classification
+      //    readout" documents the always-on-at-any-point contract.
+      if (saddleExtremaReadout) {
+        saddleExtremaReadout.setValues(activePreset.hessF(x, y));
+      }
     }
 
-    // 4. Preset-button hover + press-flash tick. Faces the camera so
+    if (saddleExtremaReadout && camera) {
+      saddleExtremaReadout.faceCamera(camera);
+    }
+
+    // 5. Preset-button hover + press-flash tick. Faces the camera so
     //    labels stay readable at any user yaw, mirroring the slider-
     //    label and worldAxes billboarding contract.
     for (const btn of presetButtons) {
@@ -374,6 +413,8 @@ const saddleExtremaExhibit: Exhibit = {
     yLabel = undefined;
     for (const btn of presetButtons) btn.dispose();
     presetButtons = [];
+    saddleExtremaReadout?.dispose();
+    saddleExtremaReadout = undefined;
     if (indicator) {
       indicator.geometry.dispose();
       (indicator.material as THREE.Material).dispose();
