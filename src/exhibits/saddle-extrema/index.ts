@@ -9,26 +9,29 @@ import {
 } from '@/scaffold/design/tokens';
 import { Label } from '@/scaffold/ui/Label';
 import { Slider } from '@/scaffold/ui/Slider';
+import {
+  TapButton,
+  type TapButtonVisuals,
+} from '@/scaffold/ui/TapButton';
 import { WorldAxes } from '@/scaffold/ui/WorldAxes';
 import {
   createGraphSurface,
   writeGraphPointToWorld,
-  type GraphSurfaceDomain,
   type GraphSurfaceHandles,
 } from './GraphSurface';
+import { DEFAULT_PRESET_INDEX, PRESETS } from './presets';
 
-// Saddle / extrema scene (#175 epic, #176 foundation). Fourth and final
-// member of the calculus3 cluster, alongside quadrics, tangent-planes,
-// and gradient-levels.
+// Saddle / extrema scene (#175 epic). Fourth and final member of the
+// calculus3 cluster, alongside quadrics, tangent-planes, and gradient-levels.
 //
 // Pedagogy target: APPM 2350 §11.7–11.8 (Maximum/Minimum Values + Second
 // Derivatives Test). Stuck-point: students mechanically compute D =
 // f_xx·f_yy − f_xy² without seeing that they're asking "what does this
 // surface look like in a small neighborhood?" The quadratic-overlay
-// punch line lands in #180; this PR establishes the substrate — meshed
-// graph surface for z = f(x, y) — that #177 (point selection), #178
-// (preset library), #179 (critical-point markers), #180 (overlay), and
-// #181 (Hessian readout) attach to.
+// punch line lands in #180; #178 ships the curated preset library
+// (paraboloid / inv-paraboloid / saddle / monkey saddle / x⁴+y⁴) so the
+// student steps through each archetype deliberately rather than
+// encountering them mixed in one surface.
 //
 // Architectural divergence from the prior three cluster scenes: those
 // render an implicit surface via the GPU raymarcher. Saddle-extrema
@@ -84,6 +87,37 @@ const INDICATOR_COLOR = 0xdddddd;
 // Cluster glyph convention for negative-magnitude formatting.
 const SLIDER_VALUE_MINUS = '−'; // U+2212
 
+// Preset row (#178). Five buttons in a single horizontal row above the
+// slider rack, centered on x = 0. Always-visible — five archetypes is
+// small enough to live on screen at all times (the quadrics manipulator's
+// 8-preset rack needed an expand/collapse chevron; here that machinery
+// would be friction without payoff). The y level clears the top slider's
+// grab sphere (≈ 0.07 m radius) with ~0.16 m of clear air.
+const PRESET_ROW_Y = 1.30;
+const PRESET_HORIZONTAL_PITCH = 0.13;
+// 5 columns centered on x = 0 ⇒ leftmost col at -2 × pitch.
+const PRESET_ROW_START_X = -2 * PRESET_HORIZONTAL_PITCH;
+const PRESET_RES = 128;
+
+// Mirror the manipulator's `Preset` visual identity (cool blue base,
+// label below the button) plus a sticky-active emissive — saddle-extrema's
+// preset is a persistent mode (the surface IS the preset's f), where the
+// manipulator's preset is a one-shot snap-to-pose. Sticky-active reads as
+// "this is the current archetype"; press flash layers on top as tap
+// feedback. Pattern echoes SectionTab (#57): press + active + hover, all
+// three managed by the shared TapButton base.
+const PRESET_BUTTON_VISUALS: TapButtonVisuals = {
+  groupNamePrefix: 'preset',
+  buttonRadius: 0.02,
+  baseColor: 0x44aabb,
+  hoverEmissive: 0x224455,
+  activeEmissive: 0x66ccdd,
+  pressEmissive: 0x88ddff,
+  labelFontSize: 0.022,
+  labelOffsetY: -0.025,
+  labelAnchorY: 'top',
+};
+
 // Local linear-decimal formatter for the per-slider value labels.
 // Identical in shape to gradient-levels' local helper (#170 history);
 // this scene becomes consumer #2 — extract-on-third-use rule honored, so
@@ -94,39 +128,12 @@ function formatLinearDecimal(v: number): string {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Starter preset — z = x² − y² on [-1.5, 1.5]². Sole preset for #176.
-// The `id` and `label` fields exist now to pre-pave #178's preset-
-// selector UI (which will mirror the manipulator's `Preset` primitive);
-// #176 has only one preset and never reads them.
-//
-// `hessF` (second partials for #181's Hessian readout) is intentionally
-// absent from this interface — added in #178 alongside the preset
-// library, because no #176-scope consumer needs second partials.
-// Implementer note: do not try to "complete" the interface in this PR.
-// ────────────────────────────────────────────────────────────────────
-
-interface SaddleExtremaPreset {
-  readonly id: string;
-  readonly label: string;
-  readonly f: (x: number, y: number) => number;
-  readonly gradF: (x: number, y: number) => readonly [number, number];
-  readonly domain: GraphSurfaceDomain;
-  readonly res?: number;
-}
-
-const STARTER_PRESET: SaddleExtremaPreset = {
-  id: 'saddle',
-  label: 'Saddle (x² − y²)',
-  f: (x, y) => x * x - y * y,
-  gradF: (x, y) => [2 * x, -2 * y],
-  domain: { xMin: -1.5, xMax: 1.5, yMin: -1.5, yMax: 1.5 },
-};
-
-// ────────────────────────────────────────────────────────────────────
 // Module-scoped state — named handles initialized in mount, disposed
-// inline in unmount.
+// inline in unmount. `exhibitGroup` is captured at mount so applyPreset
+// (called from onSelectStart) can swap the graphSurface mesh in/out.
 // ────────────────────────────────────────────────────────────────────
 
+let exhibitGroup: THREE.Group | undefined;
 let graphSurface: GraphSurfaceHandles | undefined;
 let worldAxes: WorldAxes | undefined;
 let xSlider: Slider | undefined;
@@ -134,6 +141,8 @@ let ySlider: Slider | undefined;
 let xLabel: Label | undefined;
 let yLabel: Label | undefined;
 let indicator: THREE.Mesh | undefined;
+let presetButtons: TapButton[] = [];
+let activePresetIndex = DEFAULT_PRESET_INDEX;
 let camera: THREE.Camera | undefined;
 let controllers: readonly THREE.Object3D[] = [];
 
@@ -152,8 +161,11 @@ const saddleExtremaExhibit: Exhibit = {
   cluster: CLUSTER_CALCULUS3,
 
   mount({ group, camera: cam, controllers: shellControllers }: ExhibitContext) {
+    exhibitGroup = group;
     camera = cam;
     controllers = shellControllers;
+    activePresetIndex = DEFAULT_PRESET_INDEX;
+    const initialPreset = PRESETS[activePresetIndex];
 
     // Ambient + directional lights match cluster siblings. The graph
     // surface uses a custom ShaderMaterial reproducing the cluster's
@@ -166,10 +178,10 @@ const saddleExtremaExhibit: Exhibit = {
     group.add(directional);
 
     graphSurface = createGraphSurface({
-      f: STARTER_PRESET.f,
-      gradF: STARTER_PRESET.gradF,
-      domain: STARTER_PRESET.domain,
-      res: STARTER_PRESET.res ?? 128,
+      f: initialPreset.f,
+      gradF: initialPreset.gradF,
+      domain: initialPreset.domain,
+      res: initialPreset.res ?? PRESET_RES,
       surfaceCenter: SURFACE_CENTER,
       baseColor: BASE_COLOR.clone(),
       lightDir: LIGHT_DIR.clone(),
@@ -182,8 +194,8 @@ const saddleExtremaExhibit: Exhibit = {
     // convention.
     xSlider = new Slider({
       label: 'x',
-      min: STARTER_PRESET.domain.xMin,
-      max: STARTER_PRESET.domain.xMax,
+      min: initialPreset.domain.xMin,
+      max: initialPreset.domain.xMax,
       initial: X_INITIAL,
       snapDetent: SLIDER_SNAP_DETENT,
       snapPoints: SLIDER_SNAP_POINTS,
@@ -201,8 +213,8 @@ const saddleExtremaExhibit: Exhibit = {
     // y slider — bluish-green (math-Y axis tint).
     ySlider = new Slider({
       label: 'y',
-      min: STARTER_PRESET.domain.yMin,
-      max: STARTER_PRESET.domain.yMax,
+      min: initialPreset.domain.yMin,
+      max: initialPreset.domain.yMax,
       initial: Y_INITIAL,
       snapDetent: SLIDER_SNAP_DETENT,
       snapPoints: SLIDER_SNAP_POINTS,
@@ -257,7 +269,7 @@ const saddleExtremaExhibit: Exhibit = {
     writeGraphPointToWorld(
       X_INITIAL,
       Y_INITIAL,
-      STARTER_PRESET.f(X_INITIAL, Y_INITIAL),
+      initialPreset.f(X_INITIAL, Y_INITIAL),
       SURFACE_CENTER,
       indicatorWorld,
     );
@@ -267,9 +279,30 @@ const saddleExtremaExhibit: Exhibit = {
     worldAxes = new WorldAxes({ axisColors: DEFAULT_AXIS_COLORS });
     worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
     group.add(worldAxes.group);
+
+    // Preset row (#178) — five archetypes left → right, mirroring the
+    // PRESETS array order. The starter (saddle, DEFAULT_PRESET_INDEX) is
+    // marked sticky-active so the user reads which archetype is current.
+    presetButtons = PRESETS.map((preset, i) => {
+      const btn = new TapButton({
+        name: preset.label,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+        visuals: PRESET_BUTTON_VISUALS,
+      });
+      btn.group.position.set(
+        PRESET_ROW_START_X + i * PRESET_HORIZONTAL_PITCH,
+        PRESET_ROW_Y,
+        SLIDER_RACK_CENTER.z,
+      );
+      group.add(btn.group);
+      return btn;
+    });
+    presetButtons[activePresetIndex]?.setActive(true);
   },
 
   update() {
+    const activePreset = PRESETS[activePresetIndex];
+
     if (xSlider && ySlider) {
       // 1. Slider hover + drag tick. Order between the two sliders
       //    doesn't matter — each tracks its own grab/hover state.
@@ -280,7 +313,7 @@ const saddleExtremaExhibit: Exhibit = {
 
       const x = xSlider.value;
       const y = ySlider.value;
-      const z = STARTER_PRESET.f(x, y);
+      const z = activePreset.f(x, y);
 
       // 2. Indicator pose. writeGraphPointToWorld reuses the same
       //    math-frame mapping as the surface mesh, so indicator and
@@ -300,6 +333,15 @@ const saddleExtremaExhibit: Exhibit = {
         yLabel.setSecondary(formatLinearDecimal(y));
         yLabel.faceCamera(camera);
       }
+    }
+
+    // 4. Preset-button hover + press-flash tick. Faces the camera so
+    //    labels stay readable at any user yaw, mirroring the slider-
+    //    label and worldAxes billboarding contract.
+    for (const btn of presetButtons) {
+      btn.updateHover(controllers);
+      btn.update();
+      if (camera) btn.faceCamera(camera);
     }
 
     // Yaw-only billboard on the WorldAxes letter labels so they read at
@@ -330,6 +372,8 @@ const saddleExtremaExhibit: Exhibit = {
     xLabel = undefined;
     yLabel?.dispose();
     yLabel = undefined;
+    for (const btn of presetButtons) btn.dispose();
+    presetButtons = [];
     if (indicator) {
       indicator.geometry.dispose();
       (indicator.material as THREE.Material).dispose();
@@ -339,15 +383,22 @@ const saddleExtremaExhibit: Exhibit = {
     // 3. Drop external references so a re-mount starts clean.
     controllers = [];
     camera = undefined;
+    exhibitGroup = undefined;
+    activePresetIndex = DEFAULT_PRESET_INDEX;
   },
 
   onSelectStart(controller: THREE.Object3D) {
-    // Try sliders in rack reading order (x first, y second); first hit
-    // wins. Rack-first-refusal arbitration happens upstream in the
-    // shell — by the time this fires, SceneRack didn't consume the
-    // event.
+    // Sliders first (warm drag affordance), then the preset row. Spatially
+    // disjoint regions, but explicit ordering keeps first-hit-wins
+    // well-defined regardless of layout.
     if (xSlider?.tryGrab(controller)) return;
-    ySlider?.tryGrab(controller);
+    if (ySlider?.tryGrab(controller)) return;
+    for (let i = 0; i < presetButtons.length; i++) {
+      if (presetButtons[i].tryActivate(controller)) {
+        applyPreset(i);
+        return;
+      }
+    }
   },
 
   onSelectEnd(controller: THREE.Object3D) {
@@ -355,6 +406,54 @@ const saddleExtremaExhibit: Exhibit = {
     ySlider?.releaseFromController(controller);
   },
 };
+
+// ────────────────────────────────────────────────────────────────────
+// Preset application (#178).
+//
+// Switching presets rebuilds the graph-surface mesh outright — unlike the
+// quadrics manipulator's preset tweens, here the active `f` changes
+// fundamentally between presets (different polynomial families,
+// different domains), so a coefficient-tween is meaningless. Instant
+// swap also matches the lesson: "this preset shows ONE archetype."
+//
+// Slider values carry across the switch (clamped into the new domain via
+// setRange). Rationale: a student comparing min vs. saddle at the same
+// (x, y) point sees the local-shape difference. Forcing reset to (0, 0)
+// every switch would hide that pedagogy.
+// ────────────────────────────────────────────────────────────────────
+
+function applyPreset(idx: number): void {
+  if (idx === activePresetIndex) return; // press flash already fired; no rebuild
+  presetButtons[activePresetIndex]?.setActive(false);
+  presetButtons[idx]?.setActive(true);
+  activePresetIndex = idx;
+
+  const preset = PRESETS[idx];
+  if (graphSurface && exhibitGroup) {
+    // Remove from the parent group BEFORE dispose — otherwise the disposed
+    // mesh leaks as a child of `exhibitGroup` until unmount sweeps the
+    // group. Sequencing matters.
+    exhibitGroup.remove(graphSurface.mesh);
+    graphSurface.dispose();
+    graphSurface = undefined;
+  }
+  graphSurface = createGraphSurface({
+    f: preset.f,
+    gradF: preset.gradF,
+    domain: preset.domain,
+    res: preset.res ?? PRESET_RES,
+    surfaceCenter: SURFACE_CENTER,
+    baseColor: BASE_COLOR.clone(),
+    lightDir: LIGHT_DIR.clone(),
+  });
+  exhibitGroup?.add(graphSurface.mesh);
+
+  // Slider domains follow the preset. setRange clamps the current value
+  // into the new range and re-applies snap; the indicator picks up the
+  // (possibly clamped) value via the next update() tick.
+  xSlider?.setRange(preset.domain.xMin, preset.domain.xMax);
+  ySlider?.setRange(preset.domain.yMin, preset.domain.yMax);
+}
 
 registerExhibit(saddleExtremaExhibit);
 
