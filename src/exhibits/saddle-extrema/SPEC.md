@@ -146,30 +146,20 @@ meshes but inferior for analytically-derived smooth surfaces.
 
 ## Render
 
-`MeshStandardMaterial` with `metalness: 0`, `roughness: 0.6`,
-`side: THREE.DoubleSide`. Approximately matches the cluster's
-hand-rolled `0.2 + 0.8 × max(dot(n, L), 0)` lambert under the same
-`AmbientLight(0xffffff, 0.4)` + `DirectionalLight(0xffffff, 0.8)`
-lighting; BUT Cook-Torrance with `roughness=0.6` does produce a soft
-specular lobe, and PBR ambient injection differs from the hardcoded
-`0.2` floor.
-
-### Material parity fallback
-
-If headset smoke reveals visible parity drift (specular highlight at
-the saddle's edges; noticeably cooler or shinier than the
-implicit-surface cluster siblings during a scene swap), replace
-`MeshStandardMaterial` with a thin `ShaderMaterial` reproducing the
-cluster's exact lambert. The fallback shader (pre-coded in the #176
-plan):
+Custom **`ShaderMaterial`** reproducing the cluster's exact lighting
+formula `uBaseColor * (0.2 + 0.8 × max(dot(n, L), 0))` under the
+scene's `AmbientLight(0xffffff, 0.4)` + `DirectionalLight(0xffffff,
+0.8)` (the directional light is decorative — `ShaderMaterial` doesn't
+auto-bind scene lights; the world-space `uLightDir` uniform drives the
+lambert directly). Vertex shader uses `mat3(modelMatrix) * normal`
+(not `normalMatrix * normal`) to keep the normal in world space,
+matching the world-space `uLightDir` and the cluster's `DoublePlane.ts:52`
+precedent.
 
 ```glsl
 // Vertex
 varying vec3 vNormal;
 void main() {
-  // World-space normal (matches DoublePlane.ts precedent and the
-  // world-space uLightDir below). normalMatrix would put vNormal in
-  // view space, which would drift under head rotation.
   vNormal = normalize(mat3(modelMatrix) * normal);
   gl_Position = projectionMatrix * viewMatrix * modelMatrix
               * vec4(position, 1.0);
@@ -185,9 +175,23 @@ void main() {
 }
 ```
 
-The fallback is a one-line ctor swap inside `GraphSurface.ts`. Decision
-rule for smoke: "if any specular highlight is visible at the saddle's
-edges → swap before merge."
+### Material history (why ShaderMaterial, not MeshStandardMaterial)
+
+The v1/v2 plan initially specified `MeshStandardMaterial({metalness: 0,
+roughness: 0.6})` as the default with the ShaderMaterial above as a
+"if smoke trips, swap to this" fallback (Sonnet #2 + DeepSeek #2 from
+the v1 roundtable both flagged the parity risk). **In-headset smoke on
+PR #182 confirmed the trip:** the saddle read as visibly off-white
+under PBR's Cook-Torrance BRDF + PBR ambient injection, while the
+cluster siblings (raymarched via `ImplicitSurface.ts`'s hand-rolled
+lambert) read as a clear light blue. The plan's pre-coded fallback is
+what ships in #176.
+
+The shader is identical in math to what the cluster's raymarched
+siblings use in their per-fragment `shadeHit(...)` — the only
+difference is that here it runs at the vertex-interpolated normal
+stage rather than at per-fragment ray-march hit points. Visual parity
+across the cluster is the design goal.
 
 ## Domain framing + spatial-footprint
 

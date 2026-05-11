@@ -24,6 +24,7 @@ function makeSurface(overrides: Partial<{
   res: number;
   surfaceCenter: THREE.Vector3;
   baseColor: THREE.Color;
+  lightDir: THREE.Vector3;
 }> = {}) {
   return createGraphSurface({
     f: STARTER_F,
@@ -32,6 +33,7 @@ function makeSurface(overrides: Partial<{
     res: 3,
     surfaceCenter: new THREE.Vector3(0, 1.5, -4),
     baseColor: new THREE.Color(0.4, 0.7, 0.95),
+    lightDir: new THREE.Vector3(0.4, 0.8, 0.5).normalize(),
     ...overrides,
   });
 }

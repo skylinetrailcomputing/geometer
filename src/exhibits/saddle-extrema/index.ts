@@ -106,6 +106,7 @@ const saddleExtremaExhibit: Exhibit = {
       res: STARTER_PRESET.res ?? 128,
       surfaceCenter: SURFACE_CENTER,
       baseColor: BASE_COLOR.clone(),
+      lightDir: LIGHT_DIR.clone(),
     });
     group.add(graphSurface.mesh);
 

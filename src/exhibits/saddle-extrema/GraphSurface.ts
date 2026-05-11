@@ -71,17 +71,24 @@ export interface GraphSurfaceOptions {
   /** World-space anchor where math-origin lifts to. Math-Z = 0 → this.y. */
   surfaceCenter: THREE.Vector3;
   /**
-   * Base diffuse color. The default `MeshStandardMaterial` path approximates
-   * the cluster's hand-rolled `0.2 + 0.8 × lambert` shader; if smoke shows
-   * visible parity drift (specular lobe, cooler ambient), swap to the
-   * cluster-lambert ShaderMaterial — see SPEC.md "Material parity fallback."
+   * Base diffuse color, fed to the cluster-lambert `ShaderMaterial`
+   * (see below) verbatim. Treated as linear-space RGB inside the shader
+   * — pass the same value cluster siblings pass to their raymarch
+   * harness (`new THREE.Color(0.4, 0.7, 0.95)` for v0.8 cluster sky-blue).
    */
   baseColor: THREE.Color;
+  /**
+   * World-space directional-light direction (the SAME direction the scene
+   * passes to its `DirectionalLight.position`, pre-normalization). Baked
+   * into the `uLightDir` uniform so the surface's lambert agrees with
+   * the cluster's ShaderMaterial-rendered siblings.
+   */
+  lightDir: THREE.Vector3;
 }
 
 export interface GraphSurfaceHandles {
   readonly mesh: THREE.Mesh;
-  readonly material: THREE.MeshStandardMaterial;
+  readonly material: THREE.ShaderMaterial;
   dispose(): void;
 }
 
@@ -204,14 +211,44 @@ export function createGraphSurface(
   geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
 
-  // MeshStandardMaterial default. Approximates the cluster's hand-rolled
-  // lambert under the same lights; if §5.3 smoke shows visible parity
-  // drift, swap to the cluster-lambert ShaderMaterial — SPEC.md
-  // "Material parity fallback" carries the verbatim shader.
-  const material = new THREE.MeshStandardMaterial({
-    color: opts.baseColor,
-    metalness: 0,
-    roughness: 0.6,
+  // Cluster-lambert ShaderMaterial — reproduces the implicit-surface
+  // cluster siblings' exact lighting formula
+  // (`uBaseColor * (0.2 + 0.8 * max(dot(n, L), 0))`) so the saddle reads
+  // as a visual kin during scene swaps. The v0.8 in-headset smoke
+  // confirmed that `MeshStandardMaterial({metalness:0, roughness:0.6})`
+  // under the same lights read as off-white vs. the cluster's clear
+  // light-blue — the v2 plan / SPEC.md's pre-coded fallback (this
+  // shader) is what ships.
+  //
+  // Vertex shader: `mat3(modelMatrix) * normal` (not `normalMatrix *
+  // normal`) puts vNormal in world space, matching the world-space
+  // `uLightDir` below. `normalMatrix` would put it in view space and
+  // the lambert dot would drift under head rotation. (Mesh modelMatrix
+  // is identity here — graph surface bakes world-frame positions at
+  // build time — but the explicit form survives any future
+  // repositioning, and matches `DoublePlane.ts:52`'s precedent.)
+  const material = new THREE.ShaderMaterial({
+    vertexShader: /* glsl */ `
+      varying vec3 vNormal;
+      void main() {
+        vNormal = normalize(mat3(modelMatrix) * normal);
+        gl_Position = projectionMatrix * viewMatrix * modelMatrix
+                    * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uBaseColor;
+      uniform vec3 uLightDir;
+      varying vec3 vNormal;
+      void main() {
+        float lambert = max(dot(normalize(vNormal), normalize(uLightDir)), 0.0);
+        gl_FragColor = vec4(uBaseColor * (0.2 + 0.8 * lambert), 1.0);
+      }
+    `,
+    uniforms: {
+      uBaseColor: { value: opts.baseColor.clone() },
+      uLightDir: { value: opts.lightDir.clone() },
+    },
     side: THREE.DoubleSide,
   });
 
