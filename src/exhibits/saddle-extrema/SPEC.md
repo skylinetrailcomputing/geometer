@@ -5,10 +5,10 @@
 > new meshed graph-surface rendering primitive, and ships one locked
 > starter preset (`z = x² − y²`). #177 adds (x, y) point selection;
 > #178 expands the preset library to five archetypes + adds `hessF`
-> to the preset record + ships the preset-selector UI; #179 adds
-> critical-point markers; #180 ships the local-quadratic-approximation
-> overlay (the §11.7–11.8 punch line); #181 ships the live Hessian +
-> classification readout.
+> to the preset record + ships the preset-selector UI; #181 ships the
+> live Hessian + classification readout; #179 adds critical-point
+> markers; #180 ships the local-quadratic-approximation overlay (the
+> §11.7–11.8 punch line).
 
 ## Goal
 
@@ -322,7 +322,69 @@ Visibility check for the starter saddle:
   (top corner above eye level), total ~58°.
 - Quest 3 FOV: ~96°×96° per eye. Saddle fits well within FOV.
 
-## Out of scope (v0.8 beyond #178)
+## Classification readout (#181)
+
+Live three-line readout above the preset row (`READOUT_POSITION = (0,
+1.50, -0.7)`) showing the symmetric Hessian entries, the
+discriminant, and the second-derivative-test verdict at the
+slider-selected `(x, y)`:
+
+```
+line 1 (top): f_xx = ±N.NN   f_xy = ±N.NN   f_yy = ±N.NN
+line 2 (mid): D = ±N.NN
+line 3 (bot): <verdict>
+```
+
+Verdict is one of `local min` / `local max` / `saddle` /
+`inconclusive`. Branches per §11.7–11.8:
+
+- `D > 0` and `f_xx > 0` ⇒ local min.
+- `D > 0` and `f_xx < 0` ⇒ local max.
+- `D < 0` ⇒ saddle.
+- `|D| < ε` (default `1e-9`) ⇒ inconclusive (test failure; higher-
+  order terms determine the shape).
+
+`f_xx` and `f_yy` are tinted with the cluster's math-X / math-Y axis
+colors (vermillion / bluish-green) to reinforce "pure-x² / pure-y²
+term"; the cross term `f_xy` stays white to read as "neither pure
+axis." `D` and the verdict use YELLOW — the same accent the
+gradient-levels readout (#166) uses for `|∇f|`.
+
+### Always-on at any (x, y) (not just critical points)
+
+Strictly the second-derivative test classifies *critical* points —
+at a non-critical point the linear term dominates and "local min /
+saddle / ..." isn't a well-formed claim about the surface there.
+The readout displays the Hessian-based verdict at whatever `(x, y)`
+the sliders select anyway, mirroring the always-on local-quadratic
+overlay's (#180) approach: this is "what *would* the local shape be
+IF this were a critical point." The interpretation that the verdict
+only *applies* at a critical point is a SPEC-level claim, not a
+runtime gate on the display.
+
+Pedagogical payoff: the student steps `(x, y)` toward the origin on
+the monkey saddle preset and watches `D` cross zero as the local
+shape transitions — visualizing the test's failure mode rather than
+memorizing it as a footnote. Pure formatting + classification logic
+lives in `formatSaddleExtremaReadout.ts`, covered by
+`test/exhibits/saddle-extrema/formatSaddleExtremaReadout.test.ts`.
+
+### Layout sizing
+
+Slot widths are sized to worst-case preset values within the
+slider-reachable domains:
+
+- Hessian entries: `NUMERIC_ENTRY_EM = 3.2` fits `−12.00` (quartic
+  at domain corner `(1, 1)`: `f_xx = 12`).
+- D: `NUMERIC_D_EM = 4.2` fits `−103.68` (monkey saddle at domain
+  corner `(1.2, 1.2)`: `D = -36·(x² + y²) ≈ -103.68`).
+
+`SYNC_INTERVAL_MS = 33` throttles troika-Text `.sync()` calls to
+≈30 Hz, mirroring `GradientLevelsReadout` / `TangentPlaneReadout`.
+Per-slot string caching skips the write entirely when the formatted
+string hasn't changed.
+
+## Out of scope (v0.8 beyond #181)
 
 - **Critical-point markers (#179).** Small visual markers at the
   analytically-known critical points (all at origin for v0.8 presets).
@@ -330,9 +392,6 @@ Visibility check for the starter saddle:
   Taylor approximation rendered as a second graph surface hugging the
   main one at the selected point. Reuses `GraphSurface` and
   `writeGraphPointToWorld`. The §11.7–11.8 punch line.
-- **Hessian + classification readout (#181).** Live 2×2 Hessian,
-  `D = f_xx · f_yy − f_xy²`, classification verdict
-  (min / max / saddle / inconclusive).
 - **`GraphSurface` extraction to `src/scaffold/`.** Deferred until a
   second scene wants the primitive (likely v1.x). The overlay in #180
   is a same-scene consumer; doesn't count for the extract-on-second-
