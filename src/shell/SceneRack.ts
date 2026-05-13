@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SceneTab } from '@/scaffold/ui/SceneTab';
 import type { Exhibit } from './Exhibit';
+import type { Pointer } from './Pointer';
 
 // In-app navigation surface for moving between sibling exhibits in a
 // cluster (#150). Owns the row of `SceneTab` instances + their
@@ -96,7 +97,7 @@ export class SceneRack {
   }
 
   /**
-   * Try to activate a tab on this controller's `selectstart`. Returns
+   * Try to activate a tab on this pointer's `selectstart`. Returns
    * true if a tab was hit (rack consumed the event); the shell uses
    * the return value as its rack-first-refusal signal — only routes
    * the event to the current exhibit's `onSelectStart` if the rack
@@ -113,9 +114,9 @@ export class SceneRack {
    * resolved to a different id (e.g., bogus or non-cluster id that
    * fell back to the cluster default).
    */
-  tryActivate(controller: THREE.Object3D): boolean {
+  tryActivate(pointer: Pointer): boolean {
     for (let i = 0; i < this.tabs.length; i++) {
-      if (this.tabs[i].tryActivate(controller)) {
+      if (this.tabs[i].tryActivate(pointer)) {
         this.setActiveExhibit(this.exhibitIds[i]);
         this.onSelect(this.exhibitIds[i]);
         return true;
@@ -124,8 +125,8 @@ export class SceneRack {
     return false;
   }
 
-  updateHover(controllers: readonly THREE.Object3D[]): void {
-    for (const tab of this.tabs) tab.updateHover(controllers);
+  updateHover(pointers: readonly Pointer[]): void {
+    for (const tab of this.tabs) tab.updateHover(pointers);
   }
 
   update(): void {

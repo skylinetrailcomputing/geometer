@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { raySphereHit } from '@/scaffold/ui/rayHit';
+import type { Pointer } from '@/shell/Pointer';
 
 // `arrow-{x,y,z}` are bidirectional 3D arrows aligned with their respective
 // world axis. The slider group has no rotation, so slider-local frame =
@@ -43,9 +44,9 @@ export interface SliderOptions {
   grabRadiusMultiplier: number;
   trackLength?: number;
   thumbRadius?: number;
-  // Multiplier on per-frame controller motion → value change. >1 means
+  // Multiplier on per-frame pointer motion → value change. >1 means
   // less hand travel per unit value (i.e. the slider feels more sensitive).
-  // 1 = thumb tracks controller 1:1 across the visible track length.
+  // 1 = thumb tracks pointer 1:1 across the visible track length.
   dragGain?: number;
   // Base diffuse color for the thumb. Hover/grab emissives are scaled
   // copies of this (see THUMB_HOVER_SCALE / THUMB_GRAB_SCALE), so a single
@@ -74,9 +75,14 @@ const HAPTIC_DURATION_MS = 10;
 const THUMB_HOVER_SCALE = 0.4;
 const THUMB_GRAB_SCALE = 0.7;
 
-interface ControllerWithGamepad extends THREE.Object3D {
-  userData: { gamepad?: Gamepad };
-}
+// Denominator floor for the skew-line projection in
+// `pointerAxisProjection`. When the pointer ray is nearly parallel to the
+// slider's local X axis (`aDotR ≈ ±1`), `denom = 1 - aDotR² → 0` and the
+// projection blows up. The fallback below this floor returns the ray
+// origin's axis-projection — bit-identical to the v1 `controllerLocalX`
+// behavior, which was the same projection of the controller's world
+// position. In VR `aDotR ≈ 0` and `denom ≈ 1`, well above the floor.
+const PROJECTION_DENOM_FLOOR = 1e-4;
 
 export class Slider {
   readonly group: THREE.Group;
@@ -85,8 +91,16 @@ export class Slider {
   private readonly track: THREE.Mesh;
   private readonly thumb: THREE.Mesh;
   private readonly thumbWorld = new THREE.Vector3();
-  private readonly controllerWorld = new THREE.Vector3();
-  private readonly localPoint = new THREE.Vector3();
+  // Skew-line projection scratches (allocated once per Slider). Shared
+  // between `rayHitsThumb` (ray-sphere hit-test) and
+  // `pointerAxisProjection` (drag math) — both write `rayOrigin` /
+  // `rayDirection` and neither is re-entrant within a single frame's
+  // call stack.
+  private readonly rayOrigin = new THREE.Vector3();
+  private readonly rayDirection = new THREE.Vector3();
+  private readonly sliderOrigin = new THREE.Vector3();
+  private readonly axisDir = new THREE.Vector3();
+  private readonly v = new THREE.Vector3();
   private readonly hoverEmissive: THREE.Color;
   private readonly grabEmissive: THREE.Color;
 
@@ -98,8 +112,8 @@ export class Slider {
   // each frame (#24).
   private rawValue: number;
   private currentValue: number;
-  private grabbedBy: THREE.Object3D | null = null;
-  private lastControllerLocalX = 0;
+  private grabbedBy: Pointer | null = null;
+  private lastPointerAxisX = 0;
   private hovered = false;
 
   constructor(options: SliderOptions) {
@@ -175,7 +189,7 @@ export class Slider {
    * Programmatically set the value (e.g. from a preset, #46). Snaps the raw
    * accumulator and applies the zero detent identically to a drag tick, then
    * updates the visible thumb. Safe mid-drag: rebases
-   * `lastControllerLocalX` so the next `update()` computes deltas from the
+   * `lastPointerAxisX` so the next `update()` computes deltas from the
    * new state, not the pre-jump one.
    */
   setValue(v: number): void {
@@ -186,7 +200,7 @@ export class Slider {
       this.opts.snapDetent,
     );
     if (this.grabbedBy) {
-      this.lastControllerLocalX = this.controllerLocalX(this.grabbedBy);
+      this.lastPointerAxisX = this.pointerAxisProjection(this.grabbedBy);
     }
     this.syncThumbPosition();
   }
@@ -204,7 +218,7 @@ export class Slider {
     this.rawValue = clamp(v, this.opts.min, this.opts.max);
     this.currentValue = this.rawValue;
     if (this.grabbedBy) {
-      this.lastControllerLocalX = this.controllerLocalX(this.grabbedBy);
+      this.lastPointerAxisX = this.pointerAxisProjection(this.grabbedBy);
     }
     this.syncThumbPosition();
   }
@@ -236,50 +250,52 @@ export class Slider {
   }
 
   /**
-   * Test whether `controller`'s forward ray hits the thumb. On hit, attach
-   * the grab to that controller and pulse haptics. Returns whether grabbed.
+   * Test whether `pointer`'s ray hits the thumb. On hit, attach the grab
+   * to that pointer and pulse haptics. Returns whether grabbed.
    */
-  tryGrab(controller: THREE.Object3D): boolean {
+  tryGrab(pointer: Pointer): boolean {
     if (this.grabbedBy) return false;
-    if (!this.rayHitsThumb(controller)) return false;
+    if (!this.rayHitsThumb(pointer)) return false;
 
-    this.grabbedBy = controller;
-    this.lastControllerLocalX = this.controllerLocalX(controller);
+    this.grabbedBy = pointer;
+    this.lastPointerAxisX = this.pointerAxisProjection(pointer);
     this.refreshThumbEmissive();
-    pulse(controller);
+    pointer.pulse(HAPTIC_AMPLITUDE, HAPTIC_DURATION_MS);
     return true;
   }
 
-  releaseFromController(controller: THREE.Object3D): void {
-    if (this.grabbedBy !== controller) return;
+  releaseFromPointer(pointer: Pointer): void {
+    // Reference-equality grab/release contract per pancake plan v3 S4 —
+    // `Pointer` instances are stable across frames, so `!==` is sufficient.
+    if (this.grabbedBy !== pointer) return;
     this.grabbedBy = null;
     // `hovered` is frozen at whatever it was at grab time — `updateHover`
     // short-circuits while grabbed, so it can't go false during the drag.
-    // Clear it here so a release after the controller drifted off the thumb
+    // Clear it here so a release after the pointer drifted off the thumb
     // doesn't flash the hover-yellow color until the next `updateHover`
     // frame corrects it.
     this.hovered = false;
     this.refreshThumbEmissive();
-    pulse(controller);
+    pointer.pulse(HAPTIC_AMPLITUDE, HAPTIC_DURATION_MS);
   }
 
   /**
-   * Per-frame hover update. Lights the thumb's emissive when any controller's
+   * Per-frame hover update. Lights the thumb's emissive when any pointer's
    * ray is within the grab region — a "you can grab now" affordance that also
    * exposes the wider hit radius to the user. No-op on the hover bit while
    * grabbed (the grab visual takes precedence and is set elsewhere).
    */
-  updateHover(controllers: readonly THREE.Object3D[]): void {
+  updateHover(pointers: readonly Pointer[]): void {
     const hovered =
       this.grabbedBy === null &&
-      controllers.some((c) => this.rayHitsThumb(c));
+      pointers.some((p) => this.rayHitsThumb(p));
     if (hovered === this.hovered) return;
     this.hovered = hovered;
     this.refreshThumbEmissive();
   }
 
   // Thumb emissive is a deterministic function of {grabbed, hovered, idle}.
-  // Called from each transition point — `tryGrab`, `releaseFromController`,
+  // Called from each transition point — `tryGrab`, `releaseFromPointer`,
   // and `updateHover` — so the visual always matches state.
   private refreshThumbEmissive(): void {
     const mat = this.thumb.material as THREE.MeshStandardMaterial;
@@ -292,20 +308,16 @@ export class Slider {
     }
   }
 
-  private rayHitsThumb(controller: THREE.Object3D): boolean {
-    const rayOrigin = new THREE.Vector3();
-    const rayDir = new THREE.Vector3();
-    controller.getWorldPosition(rayOrigin);
-    rayDir.set(0, 0, -1).applyQuaternion(
-      controller.getWorldQuaternion(new THREE.Quaternion()),
-    );
+  private rayHitsThumb(pointer: Pointer): boolean {
+    pointer.getRayOrigin(this.rayOrigin);
+    pointer.getRayDirection(this.rayDirection);
     this.thumb.getWorldPosition(this.thumbWorld);
     const r = this.opts.thumbRadius * this.opts.grabRadiusMultiplier;
-    return raySphereHit(rayOrigin, rayDir, this.thumbWorld, r);
+    return raySphereHit(this.rayOrigin, this.rayDirection, this.thumbWorld, r);
   }
 
   /**
-   * Per-frame tick. Integrates controller motion (relative drag) into the
+   * Per-frame tick. Integrates pointer motion (relative drag) into the
    * raw value with `dragGain` as the sensitivity multiplier — the user's
    * hand doesn't have to traverse the full track to span the full range.
    * The detent is applied only to `currentValue` (the emitted/shader value),
@@ -314,9 +326,9 @@ export class Slider {
    */
   update(): void {
     if (!this.grabbedBy) return;
-    const x = this.controllerLocalX(this.grabbedBy);
-    const delta = x - this.lastControllerLocalX;
-    this.lastControllerLocalX = x;
+    const x = this.pointerAxisProjection(this.grabbedBy);
+    const delta = x - this.lastPointerAxisX;
+    this.lastPointerAxisX = x;
 
     const range = this.opts.max - this.opts.min;
     const valueDelta = delta * this.opts.dragGain * (range / this.opts.trackLength);
@@ -333,10 +345,32 @@ export class Slider {
     this.syncThumbPosition();
   }
 
-  private controllerLocalX(controller: THREE.Object3D): number {
-    controller.getWorldPosition(this.controllerWorld);
-    this.group.worldToLocal(this.localPoint.copy(this.controllerWorld));
-    return this.localPoint.x;
+  // Slider-local X of the closest point on the pointer's world ray to the
+  // slider's drag line (skew-line projection). Bit-identical to the v1
+  // `controllerLocalX` in VR: there the ray is roughly perpendicular to
+  // the slider axis, `aDotR ≈ 0`, and the formula reduces to
+  // `(rayOrigin − sliderOrigin) · sliderXAxis` — exactly v1's projection
+  // of the controller world position into the slider's local frame.
+  // Per pancake plan v3 §3.5 N1; per the no-scale assertion at §5 step
+  // 3.5, the slider group is never scaled, so `axisDir` is unit-length
+  // after `transformDirection`.
+  private pointerAxisProjection(pointer: Pointer): number {
+    pointer.getRayOrigin(this.rayOrigin);
+    pointer.getRayDirection(this.rayDirection);
+    this.axisDir.set(1, 0, 0).transformDirection(this.group.matrixWorld);
+    this.group.getWorldPosition(this.sliderOrigin);
+    this.v.subVectors(this.rayOrigin, this.sliderOrigin);
+    const vDotA = this.v.dot(this.axisDir);
+    const vDotR = this.v.dot(this.rayDirection);
+    const aDotR = this.axisDir.dot(this.rayDirection);
+    const denom = 1 - aDotR * aDotR;
+    if (Math.abs(denom) < PROJECTION_DENOM_FLOOR) {
+      // Ray nearly parallel to the axis: skew-line projection ill-
+      // conditioned. Fall back to projecting the ray origin onto the
+      // axis — bit-identical to v1's `controllerLocalX` behavior.
+      return vDotA;
+    }
+    return (vDotA - vDotR * aDotR) / denom;
   }
 
   // Thumb tracks `currentValue` — the emitted/shader value with detents
@@ -456,16 +490,4 @@ function applySnap(
     if (Math.abs(v - p) < halfWidth) return p;
   }
   return v;
-}
-
-function pulse(controller: THREE.Object3D): void {
-  const gamepad = (controller as ControllerWithGamepad).userData.gamepad;
-  const actuator = gamepad?.hapticActuators?.[0];
-  if (!actuator) return;
-  // hapticActuators is part of the Gamepad Extensions draft; pulse() is the
-  // widely-shipped surface on Quest, so the type narrowing here is permissive.
-  (actuator as { pulse?: (a: number, d: number) => void }).pulse?.(
-    HAPTIC_AMPLITUDE,
-    HAPTIC_DURATION_MS,
-  );
 }

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Exhibit, ExhibitContext } from '../../shell/Exhibit';
 import { CLUSTER_CALCULUS3 } from '../../shell/clusters';
+import type { Pointer } from '../../shell/Pointer';
 import { registerExhibit } from '../../shell/registry';
 import {
   BLUISH_GREEN,
@@ -738,11 +739,12 @@ let activeSectionIndex = 0;
 // flips the flag and shows / hides the row.
 let canonicalFormsHeading: SectionTab | undefined;
 let presetsExpanded = false;
-// Cached reference to the shell-owned controllers (#150). Repopulated on
-// each `mount` from `ctx.controllers`; cleared on `unmount`. The shell
-// registers the controller event listeners; this exhibit only reads the
-// array for hover ticking and during `onSelectStart` / `onSelectEnd`.
-let controllers: readonly THREE.Object3D[] = [];
+// Cached reference to the shell-owned pointers (#150 + #191). Repopulated
+// on each `mount` from `ctx.pointers`; cleared on `unmount`. The shell
+// registers the controller event listeners and resolves them to the
+// matching `Pointer` instance; this exhibit only reads the array for
+// hover ticking and during `onSelectStart` / `onSelectEnd`.
+let pointers: readonly Pointer[] = [];
 let rackLabel: Label | undefined;
 let equationReadout: EquationReadout | undefined;
 let fpsOverlay: FpsOverlay | undefined;
@@ -784,9 +786,9 @@ const quadricsExhibit: Exhibit = {
   title: 'Quadric surfaces',
   cluster: CLUSTER_CALCULUS3,
 
-  mount({ group, renderer, camera: cam, controllers: shellControllers }: ExhibitContext) {
+  mount({ group, renderer, camera: cam, pointers: shellPointers }: ExhibitContext) {
     camera = cam;
-    controllers = shellControllers;
+    pointers = shellPointers;
 
     // #125: hole-punch the floor inside the AABB's world-XZ footprint so it
     // doesn't occlude the lower half of the cube. Math-Z routes to world-Y;
@@ -1165,13 +1167,13 @@ const quadricsExhibit: Exhibit = {
   update({ delta }) {
     // Tabs always tick / face camera — they're cross-cutting like the
     // family classifier, not section-scoped.
-    for (const t of tabs) t.updateHover(controllers);
+    for (const t of tabs) t.updateHover(pointers);
     for (const t of tabs) t.update();
     if (camera) for (const t of tabs) t.faceCamera(camera);
     // Canonical-forms heading lives on the tab row but isn't a section
     // tab — same per-frame ticks, separate dispatch.
     if (canonicalFormsHeading) {
-      canonicalFormsHeading.updateHover(controllers);
+      canonicalFormsHeading.updateHover(pointers);
       canonicalFormsHeading.update();
       if (camera) canonicalFormsHeading.faceCamera(camera);
     }
@@ -1195,11 +1197,11 @@ const quadricsExhibit: Exhibit = {
     // troika sync.
     for (const p of presets) p.update();
     if (presetsExpanded) {
-      for (const p of presets) p.updateHover(controllers);
+      for (const p of presets) p.updateHover(pointers);
       if (camera) for (const p of presets) p.faceCamera(camera);
     }
     const activeSection = sections[activeSectionIndex];
-    for (const s of activeSection.sliders) s.updateHover(controllers);
+    for (const s of activeSection.sliders) s.updateHover(pointers);
     // `d` lives outside the Section abstraction (#140); hover-light it
     // whenever it's currently visible (i.e. not in Cross sections) so
     // the user gets the same "you can grab now" affordance as a/b/c.
@@ -1207,7 +1209,7 @@ const quadricsExhibit: Exhibit = {
       dSlider !== undefined &&
       activeSection.name !== CROSS_SECTION_SECTION_NAME
     ) {
-      dSlider.updateHover(controllers);
+      dSlider.updateHover(pointers);
     }
     // Cross-section toggles tick / hover only while their section is
     // focused. Their groups inherit visibility from the slider groups
@@ -1219,7 +1221,7 @@ const quadricsExhibit: Exhibit = {
       sections[activeSectionIndex]?.name === CROSS_SECTION_SECTION_NAME;
     if (crossSectionsActive) {
       for (const t of crossSectionToggles) {
-        t.updateHover(controllers);
+        t.updateHover(pointers);
         t.update();
       }
     }
@@ -1411,8 +1413,8 @@ const quadricsExhibit: Exhibit = {
     canonicalFormsHeading = undefined;
     presetsExpanded = false;
     // The shell owns the actual controllers; we just clear the local
-    // cache. Re-mount populates from `ctx.controllers`.
-    controllers = [];
+    // pointer cache. Re-mount populates from `ctx.pointers`.
+    pointers = [];
     rackLabel = undefined;
     equationReadout = undefined;
     fpsOverlay = undefined;
@@ -1426,7 +1428,7 @@ const quadricsExhibit: Exhibit = {
     presetTween = undefined;
   },
 
-  onSelectStart(controller: THREE.Object3D): void {
+  onSelectStart(pointer: Pointer): void {
     // Dispatch in z-order from rack-local outward: active section's
     // sliders first (the warm drag affordance), then the global preset
     // row (only when expanded), then the section tabs and canonical-
@@ -1449,11 +1451,11 @@ const quadricsExhibit: Exhibit = {
     // focused — toggles belong to that section.
     if (activeSection.name === CROSS_SECTION_SECTION_NAME) {
       for (const t of crossSectionToggles) {
-        if (t.tryToggle(controller)) return;
+        if (t.tryToggle(pointer)) return;
       }
     }
     for (const s of activeSection.sliders) {
-      if (s.tryGrab(controller)) {
+      if (s.tryGrab(pointer)) {
         // Cancel any in-flight preset tween — the user is taking the
         // wheel, and a still-ticking tween would fight the drag (#56,
         // "interrupt" interaction policy).
@@ -1469,14 +1471,14 @@ const quadricsExhibit: Exhibit = {
     if (
       dSlider !== undefined &&
       activeSection.name !== CROSS_SECTION_SECTION_NAME &&
-      dSlider.tryGrab(controller)
+      dSlider.tryGrab(pointer)
     ) {
       presetTween?.cancel();
       presetTween = undefined;
       return;
     }
     if (presetsExpanded) for (const p of presets) {
-      if (p.tryActivate(controller)) {
+      if (p.tryActivate(pointer)) {
         // Preset values are coefficient-frame [a, b, c, d] regardless
         // of the active section (#93): the preset row is global, so
         // pressing a preset always drives the coefficient rack toward
@@ -1521,28 +1523,28 @@ const quadricsExhibit: Exhibit = {
       }
     }
     for (let i = 0; i < tabs.length; i++) {
-      if (tabs[i].tryActivate(controller)) {
+      if (tabs[i].tryActivate(pointer)) {
         switchToSection(i);
         return;
       }
     }
-    if (canonicalFormsHeading?.tryActivate(controller)) {
+    if (canonicalFormsHeading?.tryActivate(pointer)) {
       togglePresetsExpanded();
       return;
     }
   },
 
-  onSelectEnd(controller: THREE.Object3D): void {
+  onSelectEnd(pointer: Pointer): void {
     // Release sliders across all sections — releasing a slider that
     // isn't grabbed is a no-op, and an active grab can only ever live
     // in the section that was active at grab time, so a switch
     // mid-drag (which the dispatch above prevents anyway) wouldn't
     // strand a held slider.
     for (const section of sections) {
-      for (const s of section.sliders) s.releaseFromController(controller);
+      for (const s of section.sliders) s.releaseFromPointer(pointer);
     }
     // `d` lives outside any section (#140); release it explicitly.
-    dSlider?.releaseFromController(controller);
+    dSlider?.releaseFromPointer(pointer);
   },
 };
 

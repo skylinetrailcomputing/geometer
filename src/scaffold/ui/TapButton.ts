@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { Text } from 'troika-three-text';
 import { raySphereHit } from '@/scaffold/ui/rayHit';
+import type { Pointer } from '@/shell/Pointer';
 
 // Shared base for the project's tap-button-like primitives — `Preset`
 // (#46), `SectionTab` (#57), and `SceneTab` (#150). Owns the bits that
 // every variant has had verbatim since first instance: a sphere mesh,
-// a yaw-billboarded text label, ray-from-controller hit-testing, a
+// a yaw-billboarded text label, ray-from-pointer hit-testing, a
 // haptic pulse on activation, a press-flash emissive that decays after
 // PRESS_FLASH_DURATION_MS, and an optional sticky-active emissive
 // layered underneath the press flash.
@@ -68,10 +69,6 @@ const LABEL_COLOR = 0xffffff;
 const LABEL_OUTLINE_WIDTH = '8%';
 const LABEL_OUTLINE_COLOR = 0x000000;
 
-interface ControllerWithGamepad extends THREE.Object3D {
-  userData: { gamepad?: Gamepad };
-}
-
 export class TapButton {
   readonly group: THREE.Group;
   readonly name: string;
@@ -87,6 +84,9 @@ export class TapButton {
   private readonly buttonWorld = new THREE.Vector3();
   private readonly camWorld = new THREE.Vector3();
   private readonly labelWorld = new THREE.Vector3();
+  // Ray-sphere hit-test scratches (allocated once per TapButton).
+  private readonly rayOrigin = new THREE.Vector3();
+  private readonly rayDirection = new THREE.Vector3();
 
   private hovered = false;
   private active = false;
@@ -148,22 +148,22 @@ export class TapButton {
   }
 
   /**
-   * Test whether `controller`'s forward ray hits the button. On hit, fire
-   * haptics, kick off the press flash, and return true. The caller owns
-   * any sticky-active bookkeeping (clearing the previously-active peer,
+   * Test whether `pointer`'s ray hits the button. On hit, fire haptics,
+   * kick off the press flash, and return true. The caller owns any
+   * sticky-active bookkeeping (clearing the previously-active peer,
    * setting this one) — keeping the dispatch out here means a button
    * doesn't need a reference to its peers.
    */
-  tryActivate(controller: THREE.Object3D): boolean {
-    if (!this.rayHitsButton(controller)) return false;
+  tryActivate(pointer: Pointer): boolean {
+    if (!this.rayHitsButton(pointer)) return false;
     this.pressedUntilMs = performance.now() + PRESS_FLASH_DURATION_MS;
     this.refreshButtonEmissive();
-    pulse(controller);
+    pointer.pulse(HAPTIC_AMPLITUDE, HAPTIC_DURATION_MS);
     return true;
   }
 
-  updateHover(controllers: readonly THREE.Object3D[]): void {
-    const hovered = controllers.some((c) => this.rayHitsButton(c));
+  updateHover(pointers: readonly Pointer[]): void {
+    const hovered = pointers.some((p) => this.rayHitsButton(p));
     if (hovered === this.hovered) return;
     this.hovered = hovered;
     this.refreshButtonEmissive();
@@ -213,25 +213,11 @@ export class TapButton {
     mat.emissive.setHex(hex);
   }
 
-  private rayHitsButton(controller: THREE.Object3D): boolean {
-    const rayOrigin = new THREE.Vector3();
-    const rayDir = new THREE.Vector3();
-    controller.getWorldPosition(rayOrigin);
-    rayDir.set(0, 0, -1).applyQuaternion(
-      controller.getWorldQuaternion(new THREE.Quaternion()),
-    );
+  private rayHitsButton(pointer: Pointer): boolean {
+    pointer.getRayOrigin(this.rayOrigin);
+    pointer.getRayDirection(this.rayDirection);
     this.button.getWorldPosition(this.buttonWorld);
     const r = this.buttonRadius * this.grabRadiusMultiplier;
-    return raySphereHit(rayOrigin, rayDir, this.buttonWorld, r);
+    return raySphereHit(this.rayOrigin, this.rayDirection, this.buttonWorld, r);
   }
-}
-
-function pulse(controller: THREE.Object3D): void {
-  const gamepad = (controller as ControllerWithGamepad).userData.gamepad;
-  const actuator = gamepad?.hapticActuators?.[0];
-  if (!actuator) return;
-  (actuator as { pulse?: (a: number, d: number) => void }).pulse?.(
-    HAPTIC_AMPLITUDE,
-    HAPTIC_DURATION_MS,
-  );
 }

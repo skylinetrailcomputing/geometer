@@ -11,21 +11,11 @@ export interface ExhibitContext {
   renderer: THREE.WebGLRenderer;
   camera: THREE.PerspectiveCamera;
   /**
-   * Shell-owned `Pointer` instances (#190, pancake plan v3 §3.1). Same
-   * reference per frame; consumers compare by reference for grab /
-   * release bookkeeping. `controllers` lives on alongside this field
-   * during the migration window (UI primitives are still
-   * `Object3D`-typed) and retires in #191 once the bundled migration
-   * lands.
+   * Shell-owned `Pointer` instances (#190 + #191). Same reference per
+   * frame; UI primitives compare by reference for grab / release
+   * bookkeeping (pancake plan v3 §3.5 / S4).
    */
   pointers: readonly Pointer[];
-  /**
-   * @deprecated #190 — replaced by `pointers`. Removed in #191 once
-   * `Slider` / `TapButton` / `Preset` / `SectionTab` / `SceneTab` /
-   * `AxisToggle` migrate from `THREE.Object3D` to `Pointer`. Both
-   * fields populated in lockstep until then.
-   */
-  controllers: readonly THREE.Object3D[];
 }
 
 export interface ExhibitFrame {
@@ -47,9 +37,11 @@ export interface Exhibit {
   // per-exhibit `group` afterwards; exhibits don't need to clear the
   // group's children manually.
   unmount(ctx: ExhibitContext): void;
-  // Controller-event dispatch routes shell → exhibit (#150). Quadrics
-  // implements the full grab-tab-toggle dispatch in `onSelectStart`;
-  // `hello` is a no-op.
-  onSelectStart(controller: THREE.Object3D): void;
-  onSelectEnd(controller: THREE.Object3D): void;
+  // Pointer-event dispatch routes shell → exhibit (#150 + #191). The
+  // shell resolves the originating XR controller (or desktop / mobile
+  // pointer in pancake mode, #105) to a stable `Pointer` instance and
+  // hands it to the current exhibit. Quadrics implements the full
+  // grab-tab-toggle dispatch in `onSelectStart`; `hello` is a no-op.
+  onSelectStart(pointer: Pointer): void;
+  onSelectEnd(pointer: Pointer): void;
 }

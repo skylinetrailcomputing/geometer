@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Exhibit, ExhibitContext } from '../../shell/Exhibit';
 import { CLUSTER_CALCULUS3 } from '../../shell/clusters';
+import type { Pointer } from '../../shell/Pointer';
 import { registerExhibit } from '../../shell/registry';
 import {
   BLUISH_GREEN,
@@ -164,7 +165,7 @@ let presetButtons: TapButton[] = [];
 let activePresetIndex = DEFAULT_PRESET_INDEX;
 let saddleExtremaReadout: SaddleExtremaReadout | undefined;
 let camera: THREE.Camera | undefined;
-let controllers: readonly THREE.Object3D[] = [];
+let pointers: readonly Pointer[] = [];
 
 // Persistent scratch — allocated once at module scope, mutated each
 // frame in update(). One per-frame allocation hot path #177 introduces
@@ -180,10 +181,10 @@ const saddleExtremaExhibit: Exhibit = {
   title: 'Critical points',
   cluster: CLUSTER_CALCULUS3,
 
-  mount({ group, camera: cam, controllers: shellControllers }: ExhibitContext) {
+  mount({ group, camera: cam, pointers: shellPointers }: ExhibitContext) {
     exhibitGroup = group;
     camera = cam;
-    controllers = shellControllers;
+    pointers = shellPointers;
     activePresetIndex = DEFAULT_PRESET_INDEX;
     const initialPreset = PRESETS[activePresetIndex];
 
@@ -371,8 +372,8 @@ const saddleExtremaExhibit: Exhibit = {
     if (xSlider && ySlider) {
       // 1. Slider hover + drag tick. Order between the two sliders
       //    doesn't matter — each tracks its own grab/hover state.
-      xSlider.updateHover(controllers);
-      ySlider.updateHover(controllers);
+      xSlider.updateHover(pointers);
+      ySlider.updateHover(pointers);
       xSlider.update();
       ySlider.update();
 
@@ -425,7 +426,7 @@ const saddleExtremaExhibit: Exhibit = {
     //    labels stay readable at any user yaw, mirroring the slider-
     //    label and worldAxes billboarding contract.
     for (const btn of presetButtons) {
-      btn.updateHover(controllers);
+      btn.updateHover(pointers);
       btn.update();
       if (camera) btn.faceCamera(camera);
     }
@@ -436,11 +437,11 @@ const saddleExtremaExhibit: Exhibit = {
   },
 
   unmount() {
-    // 1. Release any active controller grabs so disposed sliders don't
-    //    leak grab references back into the shell's controller objects.
-    for (const c of controllers) {
-      xSlider?.releaseFromController(c);
-      ySlider?.releaseFromController(c);
+    // 1. Release any active pointer grabs so disposed sliders don't
+    //    leak grab references back into the shell's pointer instances.
+    for (const p of pointers) {
+      xSlider?.releaseFromPointer(p);
+      ySlider?.releaseFromPointer(p);
     }
 
     // 2. Dispose named handles — each resource has exactly one disposal
@@ -473,29 +474,29 @@ const saddleExtremaExhibit: Exhibit = {
     }
 
     // 3. Drop external references so a re-mount starts clean.
-    controllers = [];
+    pointers = [];
     camera = undefined;
     exhibitGroup = undefined;
     activePresetIndex = DEFAULT_PRESET_INDEX;
   },
 
-  onSelectStart(controller: THREE.Object3D) {
+  onSelectStart(pointer: Pointer) {
     // Sliders first (warm drag affordance), then the preset row. Spatially
     // disjoint regions, but explicit ordering keeps first-hit-wins
     // well-defined regardless of layout.
-    if (xSlider?.tryGrab(controller)) return;
-    if (ySlider?.tryGrab(controller)) return;
+    if (xSlider?.tryGrab(pointer)) return;
+    if (ySlider?.tryGrab(pointer)) return;
     for (let i = 0; i < presetButtons.length; i++) {
-      if (presetButtons[i].tryActivate(controller)) {
+      if (presetButtons[i].tryActivate(pointer)) {
         applyPreset(i);
         return;
       }
     }
   },
 
-  onSelectEnd(controller: THREE.Object3D) {
-    xSlider?.releaseFromController(controller);
-    ySlider?.releaseFromController(controller);
+  onSelectEnd(pointer: Pointer) {
+    xSlider?.releaseFromPointer(pointer);
+    ySlider?.releaseFromPointer(pointer);
   },
 };
 

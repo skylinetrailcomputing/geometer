@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Exhibit, ExhibitContext } from '../../shell/Exhibit';
 import { CLUSTER_CALCULUS3 } from '../../shell/clusters';
+import type { Pointer } from '../../shell/Pointer';
 import { registerExhibit } from '../../shell/registry';
 import { writeMathToWorld, type MathVec3 } from '@/scaffold/math/frames';
 import { createImplicitSurface } from '@/scaffold/render/ImplicitSurface';
@@ -179,7 +180,7 @@ let tangentPlaneReadout: TangentPlaneReadout | undefined;
 let thetaLabel: Label | undefined;
 let phiLabel: Label | undefined;
 let worldAxes: WorldAxes | undefined;
-let controllers: readonly THREE.Object3D[] = [];
+let pointers: readonly Pointer[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
 // yaw-billboarding in update().
 let camera: THREE.Camera | undefined;
@@ -193,8 +194,8 @@ const tangentPlanesExhibit: Exhibit = {
   title: 'Tangent planes',
   cluster: CLUSTER_CALCULUS3,
 
-  mount({ group, camera: cam, controllers: shellControllers }: ExhibitContext) {
-    controllers = shellControllers;
+  mount({ group, camera: cam, pointers: shellPointers }: ExhibitContext) {
+    pointers = shellPointers;
     camera = cam;
 
     // Ambient + directional lights matching quadrics' lighting setup.
@@ -337,8 +338,8 @@ const tangentPlanesExhibit: Exhibit = {
     if (!thetaSlider || !phiSlider || !indicator || !tangentPlane) return;
 
     // Slider hover + drag tick.
-    thetaSlider.updateHover(controllers);
-    phiSlider.updateHover(controllers);
+    thetaSlider.updateHover(pointers);
+    phiSlider.updateHover(pointers);
     thetaSlider.update();
     phiSlider.update();
 
@@ -407,11 +408,11 @@ const tangentPlanesExhibit: Exhibit = {
   },
 
   unmount() {
-    // 1. Release any active controller grabs so disposed sliders don't
-    //    leak grab references back into the shell's controller objects.
-    for (const c of controllers) {
-      thetaSlider?.releaseFromController(c);
-      phiSlider?.releaseFromController(c);
+    // 1. Release any active pointer grabs so disposed sliders don't
+    //    leak grab references back into the shell's pointer instances.
+    for (const p of pointers) {
+      thetaSlider?.releaseFromPointer(p);
+      phiSlider?.releaseFromPointer(p);
     }
 
     // 2. Dispose named handles — geometry + material per Three.js
@@ -448,18 +449,18 @@ const tangentPlanesExhibit: Exhibit = {
 
     // 3. Drop external references so a re-mount starts clean. The shell
     //    removes ctx.group and its descendants automatically.
-    controllers = [];
+    pointers = [];
     camera = undefined;
   },
 
-  onSelectStart(controller: THREE.Object3D) {
-    if (thetaSlider?.tryGrab(controller)) return;
-    phiSlider?.tryGrab(controller);
+  onSelectStart(pointer: Pointer) {
+    if (thetaSlider?.tryGrab(pointer)) return;
+    phiSlider?.tryGrab(pointer);
   },
 
-  onSelectEnd(controller: THREE.Object3D) {
-    thetaSlider?.releaseFromController(controller);
-    phiSlider?.releaseFromController(controller);
+  onSelectEnd(pointer: Pointer) {
+    thetaSlider?.releaseFromPointer(pointer);
+    phiSlider?.releaseFromPointer(pointer);
   },
 };
 
