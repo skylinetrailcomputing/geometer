@@ -45,8 +45,9 @@ interface ControllerWithGamepad extends THREE.Object3D {
  * `XRTargetRaySpace` (a plain `Group`) does not. Delegating would
  * flip the ray's sign and break hover / grab on every primitive once
  * #191 migrates them. We use the matching `(0,0,-1).applyQuaternion`
- * formula instead; the regression assertion in `shell.ts` compares
- * against the same formula and stays a meaningful tripwire for #191.
+ * formula instead. The yaw-180° unit test in
+ * `test/shell/VRPointer.test.ts` is the load-bearing regression
+ * guard against a future refactor reintroducing the sign flip.
  */
 export class VRPointer implements Pointer {
   readonly id: string;

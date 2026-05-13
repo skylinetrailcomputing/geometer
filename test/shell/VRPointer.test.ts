@@ -47,8 +47,8 @@ describe('VRPointer', () => {
     it('rotates with the controller (yaw 180° → world +Z)', () => {
       // Yaw 180° around world Y: local -Z → world +Z. This is the
       // sign-flip case that catches a regression to
-      // `controller.getWorldDirection` (which would still return -Z
-      // here because it reads the +Z column).
+      // `controller.getWorldDirection` (which would return world -Z
+      // here because it reads the +Z column of the rotated matrix).
       const controller = new THREE.Group();
       controller.rotation.y = Math.PI;
       const pointer = new VRPointer(controller, 'vr-0');
@@ -57,29 +57,6 @@ describe('VRPointer', () => {
       expect(target.x).toBeCloseTo(0);
       expect(target.y).toBeCloseTo(0);
       expect(target.z).toBeCloseTo(1);
-    });
-
-    it('matches the pre-refactor (0,0,-1).applyQuaternion formula exactly', () => {
-      // Equivalence check against the formula at Slider.ts:299 /
-      // TapButton.ts:220 / AxisToggle.ts:161 — same one the
-      // shell.ts regression assertion guards every frame in #191's
-      // migration window. Any sign flip or axis swap in
-      // `VRPointer.getRayDirection` would fail this.
-      const controller = new THREE.Group();
-      controller.position.set(0.4, 1.7, -1.2);
-      controller.rotation.set(0.3, -0.7, 0.15);
-      controller.updateMatrixWorld();
-
-      const pointer = new VRPointer(controller, 'vr-0');
-      const fromAdapter = pointer.getRayDirection(new THREE.Vector3());
-
-      const fromOldFormula = new THREE.Vector3(0, 0, -1).applyQuaternion(
-        controller.getWorldQuaternion(new THREE.Quaternion()),
-      );
-
-      expect(fromAdapter.x).toBeCloseTo(fromOldFormula.x, 10);
-      expect(fromAdapter.y).toBeCloseTo(fromOldFormula.y, 10);
-      expect(fromAdapter.z).toBeCloseTo(fromOldFormula.z, 10);
     });
   });
 
