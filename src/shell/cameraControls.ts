@@ -73,6 +73,21 @@ export function createCameraControls(
   camera.position.set(0, 1.6, 0);
   camera.lookAt(SURFACE_CENTER);
 
+  // Re-seed OrbitControls' internal `_lastPosition` from the corrected
+  // post-init position. Without this, the first render-loop update()
+  // sees `_lastPosition ≠ currentPosition` and fires a spurious
+  // `change` event on frame 1 — harmless under the unconditional
+  // `setAnimationLoop` render today, but a latent oddity if #193 ever
+  // wires a change-event listener. Idempotent for position because
+  // sphericalDelta + panOffset + scale are all at identity here.
+  controls.update();
+
+  // Snapshot the configured pose as the `reset()` baseline. Without
+  // this, `position0` / `target0` carry the constructor-time pre-
+  // overwrite values (default target = origin, pre-init camera
+  // position) and `controls.reset()` would teleport to the wrong pose.
+  controls.saveState();
+
   return controls;
 }
 

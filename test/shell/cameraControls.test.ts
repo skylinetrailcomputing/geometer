@@ -89,20 +89,20 @@ describe('first render-frame stability', () => {
     const positionBefore = camera.position.clone();
     const quaternionBefore = camera.quaternion.clone();
     controls.update();
-    expect(camera.position.distanceTo(positionBefore)).toBeLessThan(1e-3);
+    expect(camera.position.distanceTo(positionBefore)).toBeLessThan(1e-10);
     // Quaternion components compared individually — angleTo would
     // require both unit-length quaternions and we want a tight bound.
     expect(Math.abs(camera.quaternion.x - quaternionBefore.x)).toBeLessThan(
-      1e-3,
+      1e-10,
     );
     expect(Math.abs(camera.quaternion.y - quaternionBefore.y)).toBeLessThan(
-      1e-3,
+      1e-10,
     );
     expect(Math.abs(camera.quaternion.z - quaternionBefore.z)).toBeLessThan(
-      1e-3,
+      1e-10,
     );
     expect(Math.abs(camera.quaternion.w - quaternionBefore.w)).toBeLessThan(
-      1e-3,
+      1e-10,
     );
   });
 });
