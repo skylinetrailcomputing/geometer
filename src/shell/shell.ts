@@ -10,6 +10,7 @@ import {
   resolveExhibitId,
   type HistoryMode,
 } from './url-routing';
+import { VRPointer } from './VRPointer';
 
 // Vite HMR can re-execute module-level code in dev. `bootShell` is
 // idempotent against double-invocation: subsequent calls early-return
@@ -132,6 +133,17 @@ export function bootShell(): void {
   }
   const controllers: readonly THREE.Object3D[] = [controller0, controller1];
 
+  // `VRPointer`s wrapping the two XR controllers (#190, pancake plan v3
+  // §3.1 / §3.5 / S4). Constructed exactly once at boot so the
+  // reference-equality grab/release contract on UI primitives holds
+  // across frames; the shell hands the same two instances to every
+  // `ExhibitContext` it builds. UI primitives still consume
+  // `Object3D` here — the bundled migration is #191. `controllers`
+  // stays populated alongside `pointers` until then.
+  const vrPointer0 = new VRPointer(controller0, 'vr-0');
+  const vrPointer1 = new VRPointer(controller1, 'vr-1');
+  const pointers: readonly VRPointer[] = [vrPointer0, vrPointer1];
+
   // SceneRack (#150 step 5): one tab per cluster member, tap →
   // `requestSwitch(id, 'push')` so a SceneTab tap pushes a new
   // history entry the user can back-button out of. The rack's
@@ -188,7 +200,13 @@ export function bootShell(): void {
     const group = new THREE.Group();
     group.name = `exhibit:${targetId}`;
     scene.add(group);
-    const ctx: ExhibitContext = { group, renderer, camera, controllers };
+    const ctx: ExhibitContext = {
+      group,
+      renderer,
+      camera,
+      controllers,
+      pointers,
+    };
     target.mount(ctx);
     currentExhibit = target;
     currentCtx = ctx;
@@ -235,6 +253,7 @@ export function bootShell(): void {
       renderer,
       camera,
       controllers,
+      pointers,
     };
     e.mount(warmCtx);
     renderer.compile(scene, camera);
@@ -250,6 +269,50 @@ export function bootShell(): void {
   // resolver can keep the bare-URL boot silent.
   scheduler.requestSwitch(requestedParam, 'replace');
 
+  // Migration-window regression assertion (#190 / pancake plan v3 §5
+  // step 3 / G2). The pre-refactor formula `(0,0,-1).applyQuaternion(
+  // controller.getWorldQuaternion(...))` lives on at `Slider.ts:299`,
+  // `TapButton.ts:220`, and `AxisToggle.ts:161` during the migration
+  // window; #191 swaps those call-sites to `pointer.getRayDirection`.
+  // This assertion runs the old formula against the new adapter
+  // every frame and warns once per controller per session if they
+  // diverge. Cheap insurance against a silent refactor of
+  // `VRPointer.getRayDirection` between #190 and #191, when callers
+  // stop reading the controller directly. Retires alongside the
+  // deprecated `controllers` field in #191.
+  //
+  // (NB: the issue body suggested comparing against
+  // `controller.getWorldDirection`. That comparison is incorrect —
+  // `Object3D.getWorldDirection` returns the +Z axis, while the
+  // primitives use -Z. We compare against the actual pre-refactor
+  // formula instead so the tripwire stays meaningful.)
+  const regressionScratchOld = new THREE.Vector3();
+  const regressionScratchNew = new THREE.Vector3();
+  const regressionScratchQuat = new THREE.Quaternion();
+  const regressionWarned = [false, false];
+  const checkPointerRegression = (): void => {
+    if (!renderer.xr.isPresenting) return;
+    for (let i = 0; i < pointers.length; i++) {
+      if (regressionWarned[i]) continue;
+      const c = controllers[i];
+      const p = pointers[i];
+      c.getWorldQuaternion(regressionScratchQuat);
+      regressionScratchOld.set(0, 0, -1).applyQuaternion(regressionScratchQuat);
+      p.getRayDirection(regressionScratchNew);
+      if (regressionScratchOld.distanceToSquared(regressionScratchNew) > 1e-10) {
+        console.warn(
+          `geometer #190: VRPointer[${i}].getRayDirection diverged from ` +
+            `the pre-refactor (0,0,-1).applyQuaternion(getWorldQuaternion) ` +
+            `formula (` +
+            `${regressionScratchOld.toArray().join(',')} vs ` +
+            `${regressionScratchNew.toArray().join(',')}). ` +
+            `This regression check retires with #191.`,
+        );
+        regressionWarned[i] = true;
+      }
+    }
+  };
+
   const timer = new THREE.Timer();
   // Page Visibility integration: prevents huge delta spikes after the tab
   // (or Quest headset) is backgrounded and re-focused mid-session.
@@ -260,6 +323,7 @@ export function bootShell(): void {
     // dispatching. Coalescing means two `requestSwitch` calls in
     // the same tick mount only the latest target.
     scheduler.drain();
+    checkPointerRegression();
     timer.update();
     const delta = timer.getDelta();
     currentExhibit?.update({ delta });

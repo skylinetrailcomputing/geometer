@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { ClusterId } from './clusters';
+import type { Pointer } from './Pointer';
 
 export interface ExhibitContext {
   // Per-exhibit root group (#150). The shell creates this on mount and
@@ -9,9 +10,21 @@ export interface ExhibitContext {
   group: THREE.Group;
   renderer: THREE.WebGLRenderer;
   camera: THREE.PerspectiveCamera;
-  // Shell-owned XR controllers (#150). Listeners are registered once in
-  // `bootShell`; the shell dispatches `selectstart` / `selectend` to the
-  // currently-mounted exhibit via `onSelectStart` / `onSelectEnd`.
+  /**
+   * Shell-owned `Pointer` instances (#190, pancake plan v3 §3.1). Same
+   * reference per frame; consumers compare by reference for grab /
+   * release bookkeeping. `controllers` lives on alongside this field
+   * during the migration window (UI primitives are still
+   * `Object3D`-typed) and retires in #191 once the bundled migration
+   * lands.
+   */
+  pointers: readonly Pointer[];
+  /**
+   * @deprecated #190 — replaced by `pointers`. Removed in #191 once
+   * `Slider` / `TapButton` / `Preset` / `SectionTab` / `SceneTab` /
+   * `AxisToggle` migrate from `THREE.Object3D` to `Pointer`. Both
+   * fields populated in lockstep until then.
+   */
   controllers: readonly THREE.Object3D[];
 }
 
