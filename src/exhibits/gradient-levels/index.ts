@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Exhibit, ExhibitContext } from '../../shell/Exhibit';
 import { CLUSTER_CALCULUS3 } from '../../shell/clusters';
+import type { Pointer } from '../../shell/Pointer';
 import { registerExhibit } from '../../shell/registry';
 import { writeMathToWorld } from '@/scaffold/math/frames';
 import { directionFromAngles } from '@/scaffold/math/directionFromAngles';
@@ -235,7 +236,7 @@ let thetaLabel: Label | undefined;
 let phiLabel: Label | undefined;
 let kLabel: Label | undefined;
 let worldAxes: WorldAxes | undefined;
-let controllers: readonly THREE.Object3D[] = [];
+let pointers: readonly Pointer[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
 // yaw-billboarding in update().
 let camera: THREE.Camera | undefined;
@@ -249,8 +250,8 @@ const gradientLevelsExhibit: Exhibit = {
   title: 'Level surfaces',
   cluster: CLUSTER_CALCULUS3,
 
-  mount({ group, camera: cam, controllers: shellControllers }: ExhibitContext) {
-    controllers = shellControllers;
+  mount({ group, camera: cam, pointers: shellPointers }: ExhibitContext) {
+    pointers = shellPointers;
     camera = cam;
 
     // Ambient + directional lights matching cluster siblings.
@@ -447,9 +448,9 @@ const gradientLevelsExhibit: Exhibit = {
 
     // 1. Slider hover + drag tick. Order doesn't matter across the
     //    three sliders (each tracks its own grab/hover state).
-    kSlider.updateHover(controllers);
-    thetaSlider.updateHover(controllers);
-    phiSlider.updateHover(controllers);
+    kSlider.updateHover(pointers);
+    thetaSlider.updateHover(pointers);
+    phiSlider.updateHover(pointers);
     kSlider.update();
     thetaSlider.update();
     phiSlider.update();
@@ -539,12 +540,12 @@ const gradientLevelsExhibit: Exhibit = {
   },
 
   unmount() {
-    // 1. Release any active controller grabs so disposed sliders don't
-    //    leak grab references back into the shell's controller objects.
-    for (const c of controllers) {
-      kSlider?.releaseFromController(c);
-      thetaSlider?.releaseFromController(c);
-      phiSlider?.releaseFromController(c);
+    // 1. Release any active pointer grabs so disposed sliders don't
+    //    leak grab references back into the shell's pointer instances.
+    for (const p of pointers) {
+      kSlider?.releaseFromPointer(p);
+      thetaSlider?.releaseFromPointer(p);
+      phiSlider?.releaseFromPointer(p);
     }
 
     // 2. Dispose named handles — geometry + material per Three.js
@@ -590,23 +591,23 @@ const gradientLevelsExhibit: Exhibit = {
 
     // 3. Drop external references so a re-mount starts clean. The shell
     //    removes ctx.group and its descendants automatically.
-    controllers = [];
+    pointers = [];
     camera = undefined;
   },
 
-  onSelectStart(controller: THREE.Object3D) {
+  onSelectStart(pointer: Pointer) {
     // Try sliders in rack order; first hit wins. Rack-first-refusal
     // arbitration happens upstream in the shell — by the time this
     // fires, SceneRack didn't consume the event.
-    if (thetaSlider?.tryGrab(controller)) return;
-    if (phiSlider?.tryGrab(controller)) return;
-    kSlider?.tryGrab(controller);
+    if (thetaSlider?.tryGrab(pointer)) return;
+    if (phiSlider?.tryGrab(pointer)) return;
+    kSlider?.tryGrab(pointer);
   },
 
-  onSelectEnd(controller: THREE.Object3D) {
-    thetaSlider?.releaseFromController(controller);
-    phiSlider?.releaseFromController(controller);
-    kSlider?.releaseFromController(controller);
+  onSelectEnd(pointer: Pointer) {
+    thetaSlider?.releaseFromPointer(pointer);
+    phiSlider?.releaseFromPointer(pointer);
+    kSlider?.releaseFromPointer(pointer);
   },
 };
 

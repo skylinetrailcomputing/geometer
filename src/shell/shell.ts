@@ -80,7 +80,7 @@ export function bootShell(): void {
   // registered once at boot; controller events route through
   // rack-first-refusal (step 5) and then dispatch to the
   // currently-mounted exhibit. The `selectstart` listener checks
-  // `rack.tryActivate(c)` first — if the rack consumed the event
+  // `rack.tryActivate(pointer)` first — if the rack consumed the event
   // (a tab was tapped), the exhibit's `onSelectStart` is skipped
   // for that frame, preventing a slider grab from also firing the
   // navigation switch.
@@ -89,12 +89,26 @@ export function bootShell(): void {
   // Iterate over the literal tuple so each `c` keeps its
   // `renderer.xr.getController` return type — the XR event overload
   // (`'connected'` / `'disconnected'` / `'selectstart'` / `'selectend'`)
-  // lives on that type, not on the wider `Object3D`. The widening to
-  // `readonly Object3D[]` for the ctx happens after listeners are set up.
+  // lives on that type, not on the wider `Object3D`.
   const controller0 = renderer.xr.getController(0);
   const controller1 = renderer.xr.getController(1);
   scene.add(controller0);
   scene.add(controller1);
+  // `VRPointer`s wrapping the two XR controllers (#190 + #191 bundled
+  // migration, pancake plan v3 §3.1 / §3.5 / S4). Constructed exactly
+  // once at boot so the reference-equality grab/release contract on UI
+  // primitives holds across frames; the shell hands the same two
+  // instances to every `ExhibitContext` it builds. The selectstart /
+  // selectend listeners on each controller group dispatch the matching
+  // `VRPointer` via the controller→pointer map below (plan v3 §3.5,
+  // D4).
+  const vrPointer0 = new VRPointer(controller0, 'vr-0');
+  const vrPointer1 = new VRPointer(controller1, 'vr-1');
+  const pointers: readonly Pointer[] = [vrPointer0, vrPointer1];
+  const controllerToPointer = new Map<THREE.Group, Pointer>([
+    [controller0, vrPointer0],
+    [controller1, vrPointer1],
+  ]);
   // Visible 1 m laser line along controller −Z. One geometry + material
   // shared across both controllers (matches the pre-#150 quadrics setup,
   // which also shared the rayGeom + rayMat instances rather than
@@ -125,25 +139,15 @@ export function bootShell(): void {
       // returning, so the highlight switches in the same render
       // frame even though the actual mount swap is deferred to
       // the next animation frame by the scheduler.
-      if (rack.tryActivate(c)) return;
-      currentExhibit?.onSelectStart(c);
+      const pointer = controllerToPointer.get(c)!;
+      if (rack.tryActivate(pointer)) return;
+      currentExhibit?.onSelectStart(pointer);
     });
     c.addEventListener('selectend', () => {
-      currentExhibit?.onSelectEnd(c);
+      const pointer = controllerToPointer.get(c)!;
+      currentExhibit?.onSelectEnd(pointer);
     });
   }
-  const controllers: readonly THREE.Object3D[] = [controller0, controller1];
-
-  // `VRPointer`s wrapping the two XR controllers (#190, pancake plan v3
-  // §3.1 / §3.5 / S4). Constructed exactly once at boot so the
-  // reference-equality grab/release contract on UI primitives holds
-  // across frames; the shell hands the same two instances to every
-  // `ExhibitContext` it builds. UI primitives still consume
-  // `Object3D` here — the bundled migration is #191. `controllers`
-  // stays populated alongside `pointers` until then.
-  const vrPointer0 = new VRPointer(controller0, 'vr-0');
-  const vrPointer1 = new VRPointer(controller1, 'vr-1');
-  const pointers: readonly Pointer[] = [vrPointer0, vrPointer1];
 
   // SceneRack (#150 step 5): one tab per cluster member, tap →
   // `requestSwitch(id, 'push')` so a SceneTab tap pushes a new
@@ -205,7 +209,6 @@ export function bootShell(): void {
       group,
       renderer,
       camera,
-      controllers,
       pointers,
     };
     target.mount(ctx);
@@ -253,7 +256,6 @@ export function bootShell(): void {
       group: warmGroup,
       renderer,
       camera,
-      controllers,
       pointers,
     };
     e.mount(warmCtx);
@@ -284,7 +286,7 @@ export function bootShell(): void {
     const delta = timer.getDelta();
     currentExhibit?.update({ delta });
     rack.faceCamera(camera);
-    rack.updateHover(controllers);
+    rack.updateHover(pointers);
     rack.update();
     renderer.render(scene, camera);
   });

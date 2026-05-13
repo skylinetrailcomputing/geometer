@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { raySphereHit } from '@/scaffold/ui/rayHit';
+import type { Pointer } from '@/shell/Pointer';
 
 // Per-axis on/off toggle for the Cross sections slicing rack (#134).
 // Sits at the inside end of each cross-section slider's track, lit in
@@ -55,10 +56,6 @@ const TOGGLE_ENABLED_SCALE = 0.5;
 
 const PRESS_FLASH_DURATION_MS = 150;
 
-interface ControllerWithGamepad extends THREE.Object3D {
-  userData: { gamepad?: Gamepad };
-}
-
 export class AxisToggle {
   readonly group: THREE.Group;
 
@@ -70,6 +67,9 @@ export class AxisToggle {
   private readonly pressEmissive: THREE.Color;
   private readonly enabledEmissive: THREE.Color;
   private readonly worldPos = new THREE.Vector3();
+  // Ray-sphere hit-test scratches (allocated once per AxisToggle).
+  private readonly rayOrigin = new THREE.Vector3();
+  private readonly rayDirection = new THREE.Vector3();
 
   private enabled: boolean;
   private hovered = false;
@@ -108,21 +108,21 @@ export class AxisToggle {
   }
 
   /**
-   * Test whether `controller`'s forward ray hits the toggle. On hit, flip
-   * enabled, fire haptics + press flash, and return true. The caller
-   * doesn't need to know about peers — each toggle owns its own state.
+   * Test whether `pointer`'s ray hits the toggle. On hit, flip enabled,
+   * fire haptics + press flash, and return true. The caller doesn't need
+   * to know about peers — each toggle owns its own state.
    */
-  tryToggle(controller: THREE.Object3D): boolean {
-    if (!this.rayHits(controller)) return false;
+  tryToggle(pointer: Pointer): boolean {
+    if (!this.rayHits(pointer)) return false;
     this.enabled = !this.enabled;
     this.pressedUntilMs = performance.now() + PRESS_FLASH_DURATION_MS;
     this.refreshVisual();
-    pulse(controller);
+    pointer.pulse(HAPTIC_AMPLITUDE, HAPTIC_DURATION_MS);
     return true;
   }
 
-  updateHover(controllers: readonly THREE.Object3D[]): void {
-    const hovered = controllers.some((c) => this.rayHits(c));
+  updateHover(pointers: readonly Pointer[]): void {
+    const hovered = pointers.some((p) => this.rayHits(p));
     if (hovered === this.hovered) return;
     this.hovered = hovered;
     this.refreshVisual();
@@ -154,25 +154,11 @@ export class AxisToggle {
     }
   }
 
-  private rayHits(controller: THREE.Object3D): boolean {
-    const rayOrigin = new THREE.Vector3();
-    const rayDir = new THREE.Vector3();
-    controller.getWorldPosition(rayOrigin);
-    rayDir.set(0, 0, -1).applyQuaternion(
-      controller.getWorldQuaternion(new THREE.Quaternion()),
-    );
+  private rayHits(pointer: Pointer): boolean {
+    pointer.getRayOrigin(this.rayOrigin);
+    pointer.getRayDirection(this.rayDirection);
     this.mesh.getWorldPosition(this.worldPos);
     const r = TOGGLE_RADIUS * this.grabRadiusMultiplier;
-    return raySphereHit(rayOrigin, rayDir, this.worldPos, r);
+    return raySphereHit(this.rayOrigin, this.rayDirection, this.worldPos, r);
   }
-}
-
-function pulse(controller: THREE.Object3D): void {
-  const gamepad = (controller as ControllerWithGamepad).userData.gamepad;
-  const actuator = gamepad?.hapticActuators?.[0];
-  if (!actuator) return;
-  (actuator as { pulse?: (a: number, d: number) => void }).pulse?.(
-    HAPTIC_AMPLITUDE,
-    HAPTIC_DURATION_MS,
-  );
 }
