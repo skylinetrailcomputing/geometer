@@ -90,10 +90,13 @@ async function bootShellAsync(): Promise<void> {
   const mode = await resolveBootMode();
 
   let pointers: readonly Pointer[];
-  // Desktop mode populates this; VR mode leaves it null. The animation
-  // loop checks for it to drive damping + matrix update before the
-  // hover dispatch reads pointer rays (per plan v3 §3.6 frame order).
+  // Desktop mode populates these; VR mode leaves them null. The animation
+  // loop checks for them to drive damping + matrix update before the
+  // hover dispatch reads pointer rays (per plan v3 §3.6 frame order),
+  // and to invalidate the desktop pointer's per-frame ray cache after
+  // the camera moves.
   let cameraControls: OrbitControls | null = null;
+  let desktopPointerRef: DesktopPointer | null = null;
 
   if (mode === 'vr') {
     // ── VR mode ─────────────────────────────────────────────────
@@ -188,6 +191,7 @@ async function bootShellAsync(): Promise<void> {
     // v3 §3.6.
     cameraControls = createCameraControls(camera, renderer.domElement);
     const desktopPointer = new DesktopPointer(camera, 'desktop');
+    desktopPointerRef = desktopPointer;
     pointers = [desktopPointer];
 
     // Convert a `MouseEvent`'s clientX/clientY (top-left origin,
@@ -200,13 +204,17 @@ async function bootShellAsync(): Promise<void> {
       desktopPointer.setNDC(x, y);
     };
 
-    // OrbitControls gesture state machine (plan v3 §3.5 / G3 / D1):
-    // hit-test SceneRack/exhibit UI first on `pointerdown`. If a UI
-    // primitive grabbed the pointer, capture the pointer to the
-    // canvas (so off-canvas release still releases the grab), record
-    // the pointer id (so we only release on its events), and disable
-    // OrbitControls until the grab releases. Without this, dragging
-    // a slider would simultaneously rotate the camera.
+    // OrbitControls gesture state machine (plan v3 §3.5 / G3 / D1).
+    //
+    // `OrbitControls.connect()` registers its own `pointerdown` on
+    // `domElement` in bubble phase from inside its constructor —
+    // which runs *before* this listener is added. The shell therefore
+    // registers in **capture phase** so it fires first, and calls
+    // `e.stopImmediatePropagation()` whenever it consumes the down.
+    // Without this, OrbitControls' down handler would still claim
+    // pointer-capture and register a `document.pointermove`, leaving
+    // the camera-rotation state machine partially primed even with
+    // `cameraControls.enabled = false` (per the spar review of #193).
     //
     // `activeGrabbed` is the primary idempotence guard. The
     // `pointerId` mismatch guard on `releaseFromPointerEvent`
@@ -216,6 +224,13 @@ async function bootShellAsync(): Promise<void> {
     // reference-equality-guarded already (plan v3 S4).
     let activePointerId: number | null = null;
     let activeGrabbed = false;
+    // `Exhibit` instance that received the grab's `onSelectStart`.
+    // Captured at grab time so an in-flight gesture's release routes
+    // to the same exhibit even if a mount swap intervened (e.g.,
+    // `window.blur` fires outside the animation loop where the
+    // scheduler's drain happens, so a SceneRack-driven swap could
+    // change `currentExhibit` between grab and release).
+    let exhibitAtGrab: Exhibit | null = null;
 
     const releaseDesktopPointer = (): void => {
       if (!activeGrabbed) return; // idempotent guard
@@ -230,7 +245,8 @@ async function bootShellAsync(): Promise<void> {
         renderer.domElement.releasePointerCapture(activePointerId);
       }
       activePointerId = null;
-      currentExhibit?.onSelectEnd(desktopPointer);
+      exhibitAtGrab?.onSelectEnd(desktopPointer);
+      exhibitAtGrab = null;
       if (cameraControls) cameraControls.enabled = true;
     };
 
@@ -239,36 +255,47 @@ async function bootShellAsync(): Promise<void> {
       releaseDesktopPointer();
     };
 
-    renderer.domElement.addEventListener('pointerdown', (e: PointerEvent) => {
-      // Primary button only. Right-click / middle-click belong to
-      // OrbitControls (pan / zoom alternates) — we don't want to
-      // hit-test UI on those.
-      if (e.button !== 0) return;
-      // Update NDC before dispatching select; the down-event may be
-      // the very first pointer event the page has seen, in which case
-      // there's no prior `pointermove` to have set NDC.
-      updateNdcFromEvent(e);
-      if (rack.tryActivate(desktopPointer)) {
-        // SceneTab taps fire activate-and-immediately-release: there's
-        // no drag affordance on a tab. The rack's own update runs the
-        // press flash; we don't need to disable OrbitControls.
-        return;
-      }
-      const grabbed = currentExhibit?.onSelectStart(desktopPointer) ?? false;
-      if (!grabbed) return;
-      // UI captured the gesture: take ownership at the shell + browser
-      // layer so the rest of the gesture (drag → release) is ours.
-      try {
-        renderer.domElement.setPointerCapture(e.pointerId);
-      } catch {
-        // Some browsers throw if the pointer id is no longer active
-        // (e.g., synthesized event during teardown). Treat as best-
-        // effort; the activeGrabbed flag still gates release correctly.
-      }
-      activePointerId = e.pointerId;
-      activeGrabbed = true;
-      if (cameraControls) cameraControls.enabled = false;
-    });
+    renderer.domElement.addEventListener(
+      'pointerdown',
+      (e: PointerEvent) => {
+        // Primary button only. Right-click / middle-click belong to
+        // OrbitControls (pan / zoom alternates) — we don't want to
+        // hit-test UI on those.
+        if (e.button !== 0) return;
+        // Update NDC before dispatching select; the down-event may be
+        // the very first pointer event the page has seen, in which case
+        // there's no prior `pointermove` to have set NDC.
+        updateNdcFromEvent(e);
+        if (rack.tryActivate(desktopPointer)) {
+          // SceneTab taps are activate-and-immediately-release; the
+          // rack runs its own press flash. Stop propagation so
+          // OrbitControls' bubble-phase pointerdown doesn't start a
+          // spurious orbit gesture for a tap on a tab.
+          e.stopImmediatePropagation();
+          return;
+        }
+        const grabbed =
+          currentExhibit?.onSelectStart(desktopPointer) ?? false;
+        if (!grabbed) return; // empty click — let OrbitControls orbit
+        // UI captured the gesture: take ownership at the shell + browser
+        // layer so the rest of the gesture (drag → release) is ours,
+        // and stop propagation so OrbitControls' down handler never
+        // primes its rotation state.
+        e.stopImmediatePropagation();
+        try {
+          renderer.domElement.setPointerCapture(e.pointerId);
+        } catch {
+          // Some browsers throw if the pointer id is no longer active
+          // (e.g., synthesized event during teardown). Treat as best-
+          // effort; the activeGrabbed flag still gates release correctly.
+        }
+        activePointerId = e.pointerId;
+        activeGrabbed = true;
+        exhibitAtGrab = currentExhibit;
+        if (cameraControls) cameraControls.enabled = false;
+      },
+      { capture: true },
+    );
 
     renderer.domElement.addEventListener('pointermove', (e: PointerEvent) => {
       updateNdcFromEvent(e);
@@ -435,9 +462,15 @@ async function bootShellAsync(): Promise<void> {
     // (exhibit.update + rack.updateHover). Skipped in VR — the
     // ArrayCamera's matrices are driven by the XR session's HMD
     // pose update, not this `PerspectiveCamera`.
+    //
+    // `desktopPointerRef.invalidate()` clears the per-frame ray cache
+    // — the cache is keyed on NDC alone, but the camera moved this
+    // tick (damping), so reads in the rest of this frame must
+    // recompute against the new matrices.
     if (cameraControls) {
       cameraControls.update();
       camera.updateMatrixWorld();
+      desktopPointerRef?.invalidate();
     }
     currentExhibit?.update({ delta });
     rack.faceCamera(camera);

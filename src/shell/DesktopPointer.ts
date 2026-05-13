@@ -34,6 +34,19 @@ export class DesktopPointer implements Pointer {
   // the first `pointermove` therefore lands on whatever the camera is
   // staring at, not at a stale corner.
   private readonly ndc = new THREE.Vector2(0, 0);
+  // Cache flag for the per-frame ray. `setFromCamera` does an unproject
+  // + matrix multiply; UI hit-tests call `getRayOrigin` AND
+  // `getRayDirection` for every primitive (sliders, buttons, tabs),
+  // so without a cache each frame's hover dispatch pays the full cost
+  // dozens of times for a ray that hasn't actually changed.
+  //
+  // Invalidated by:
+  //   - `setNDC` when the value actually changes (pointer moved).
+  //   - `invalidate()` called from the shell's per-frame loop after
+  //     `cameraControls.update()` — the camera's matrices are damped
+  //     between frames so the ray must be recomputed even when NDC
+  //     is unchanged.
+  private rayValid = false;
 
   constructor(camera: THREE.Camera, id = 'desktop') {
     this.camera = camera;
@@ -52,16 +65,33 @@ export class DesktopPointer implements Pointer {
    * reference and calls this; primitives see only the `Pointer` shape.
    */
   setNDC(x: number, y: number): void {
+    if (this.ndc.x === x && this.ndc.y === y) return;
     this.ndc.set(x, y);
+    this.rayValid = false;
+  }
+
+  /**
+   * Mark the cached ray stale. Called by the shell's per-frame loop
+   * after `cameraControls.update()` so the next `getRay*` recomputes
+   * against the post-damping camera matrices. Cheap; sets one flag.
+   */
+  invalidate(): void {
+    this.rayValid = false;
+  }
+
+  private ensureRay(): void {
+    if (this.rayValid) return;
+    this.raycaster.setFromCamera(this.ndc, this.camera);
+    this.rayValid = true;
   }
 
   getRayOrigin(target: THREE.Vector3): THREE.Vector3 {
-    this.raycaster.setFromCamera(this.ndc, this.camera);
+    this.ensureRay();
     return target.copy(this.raycaster.ray.origin);
   }
 
   getRayDirection(target: THREE.Vector3): THREE.Vector3 {
-    this.raycaster.setFromCamera(this.ndc, this.camera);
+    this.ensureRay();
     return target.copy(this.raycaster.ray.direction);
   }
 

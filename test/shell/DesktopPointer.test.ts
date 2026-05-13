@@ -165,4 +165,92 @@ describe('DesktopPointer', () => {
       expect(() => pointer.pulse(0.4, 25)).not.toThrow();
     });
   });
+
+  describe('ray cache', () => {
+    // Per-frame perf: hit-test call sites read both `getRayOrigin` and
+    // `getRayDirection` for every primitive. Without a cache, each
+    // primitive pays two `Raycaster.setFromCamera` calls (each does
+    // an unproject + matrix multiply). Cache invariants pinned here so
+    // a future tweak can't silently re-introduce the cost.
+
+    it('reuses the cached ray when NDC and camera are unchanged', () => {
+      // Two same-NDC reads should hit the cache. Verify by mutating
+      // the camera position AFTER the first read (without invalidating)
+      // — if the cache works, the second read returns the stale origin.
+      const camera = makeCamera();
+      camera.position.set(0, 0, 0);
+      camera.updateMatrixWorld(true);
+      const pointer = new DesktopPointer(camera);
+      pointer.setNDC(0.5, 0.25);
+
+      const target = new THREE.Vector3();
+      pointer.getRayOrigin(target);
+      const firstX = target.x;
+
+      // Move the camera silently — no NDC change, no invalidate().
+      // The cache should serve the same origin as the first read.
+      camera.position.set(10, 0, 0);
+      camera.updateMatrixWorld(true);
+      pointer.getRayOrigin(target);
+      expect(target.x).toBeCloseTo(firstX);
+    });
+
+    it('refreshes the ray when invalidate() is called between reads', () => {
+      // Same setup, but with invalidate() between camera moves. The
+      // shell's per-frame loop calls invalidate() after cameraControls
+      // damping, so the next read sees the new matrices.
+      const camera = makeCamera();
+      camera.position.set(0, 0, 0);
+      camera.updateMatrixWorld(true);
+      const pointer = new DesktopPointer(camera);
+      pointer.setNDC(0.5, 0.25);
+
+      const target = new THREE.Vector3();
+      pointer.getRayOrigin(target);
+      const firstX = target.x;
+
+      camera.position.set(10, 0, 0);
+      camera.updateMatrixWorld(true);
+      pointer.invalidate();
+      pointer.getRayOrigin(target);
+      expect(target.x).toBeCloseTo(firstX + 10);
+    });
+
+    it('refreshes the ray when setNDC changes the value', () => {
+      // setNDC invalidates the cache when the value actually changes.
+      const camera = makeCamera();
+      const pointer = new DesktopPointer(camera);
+      const target = new THREE.Vector3();
+
+      pointer.setNDC(0.5, 0);
+      pointer.getRayDirection(target);
+      const firstX = target.x;
+
+      pointer.setNDC(-0.5, 0);
+      pointer.getRayDirection(target);
+      expect(target.x).not.toBeCloseTo(firstX);
+      expect(Math.sign(target.x)).toBe(-Math.sign(firstX));
+    });
+
+    it('does not invalidate when setNDC is called with the same value', () => {
+      // No-op setNDC keeps the cache. Same trick as the first cache
+      // test: move the camera silently, call setNDC with unchanged
+      // NDC, and verify the read returns the stale origin.
+      const camera = makeCamera();
+      camera.position.set(0, 0, 0);
+      camera.updateMatrixWorld(true);
+      const pointer = new DesktopPointer(camera);
+      pointer.setNDC(0.3, -0.1);
+
+      const target = new THREE.Vector3();
+      pointer.getRayOrigin(target);
+      const firstX = target.x;
+
+      camera.position.set(7, 0, 0);
+      camera.updateMatrixWorld(true);
+      pointer.setNDC(0.3, -0.1); // same value — should NOT invalidate
+      pointer.getRayOrigin(target);
+      expect(target.x).toBeCloseTo(firstX);
+    });
+  });
 });
