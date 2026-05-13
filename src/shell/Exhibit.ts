@@ -42,6 +42,14 @@ export interface Exhibit {
   // pointer in pancake mode, #105) to a stable `Pointer` instance and
   // hands it to the current exhibit. Quadrics implements the full
   // grab-tab-toggle dispatch in `onSelectStart`; `hello` is a no-op.
-  onSelectStart(pointer: Pointer): void;
+  //
+  // `onSelectStart` returns `true` when a UI primitive consumed the
+  // event (slider grab, preset/section/canonical-forms tap, axis
+  // toggle), `false` otherwise. Desktop mode (#193) reads this to
+  // decide whether to suspend the orbit-camera controls for the
+  // duration of the grab — without it, dragging a slider would also
+  // rotate the camera. VR mode ignores the return value: there's no
+  // shared input device contending for the same gesture.
+  onSelectStart(pointer: Pointer): boolean;
   onSelectEnd(pointer: Pointer): void;
 }

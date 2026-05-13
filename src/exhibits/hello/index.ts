@@ -59,6 +59,7 @@ const helloExhibit: Exhibit = {
 
   onSelectStart() {
     // Hello has no interactive controls.
+    return false;
   },
 
   onSelectEnd() {

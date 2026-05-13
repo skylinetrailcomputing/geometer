@@ -25,7 +25,7 @@ function stubExhibit(id: string, cluster?: string): Exhibit {
     mount: () => {},
     update: () => {},
     unmount: () => {},
-    onSelectStart: () => {},
+    onSelectStart: () => false,
     onSelectEnd: () => {},
   };
 }

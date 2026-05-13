@@ -595,13 +595,13 @@ const gradientLevelsExhibit: Exhibit = {
     camera = undefined;
   },
 
-  onSelectStart(pointer: Pointer) {
+  onSelectStart(pointer: Pointer): boolean {
     // Try sliders in rack order; first hit wins. Rack-first-refusal
     // arbitration happens upstream in the shell — by the time this
     // fires, SceneRack didn't consume the event.
-    if (thetaSlider?.tryGrab(pointer)) return;
-    if (phiSlider?.tryGrab(pointer)) return;
-    kSlider?.tryGrab(pointer);
+    if (thetaSlider?.tryGrab(pointer)) return true;
+    if (phiSlider?.tryGrab(pointer)) return true;
+    return kSlider?.tryGrab(pointer) ?? false;
   },
 
   onSelectEnd(pointer: Pointer) {

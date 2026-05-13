@@ -480,18 +480,19 @@ const saddleExtremaExhibit: Exhibit = {
     activePresetIndex = DEFAULT_PRESET_INDEX;
   },
 
-  onSelectStart(pointer: Pointer) {
+  onSelectStart(pointer: Pointer): boolean {
     // Sliders first (warm drag affordance), then the preset row. Spatially
     // disjoint regions, but explicit ordering keeps first-hit-wins
     // well-defined regardless of layout.
-    if (xSlider?.tryGrab(pointer)) return;
-    if (ySlider?.tryGrab(pointer)) return;
+    if (xSlider?.tryGrab(pointer)) return true;
+    if (ySlider?.tryGrab(pointer)) return true;
     for (let i = 0; i < presetButtons.length; i++) {
       if (presetButtons[i].tryActivate(pointer)) {
         applyPreset(i);
-        return;
+        return true;
       }
     }
+    return false;
   },
 
   onSelectEnd(pointer: Pointer) {
