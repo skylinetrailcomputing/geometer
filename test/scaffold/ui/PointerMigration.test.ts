@@ -126,14 +126,23 @@ describe('Slider — Pointer contract', () => {
     expect(grabber.pulse).toHaveBeenCalledTimes(2);
   });
 
-  it('updateHover with a hitting pointer enables hover state (drag-gain bit-identity probe)', () => {
-    // A direct way to assert the hover edge without poking the material:
-    // updateHover is a no-op while grabbed, and tryGrab only succeeds on
-    // an actual hit. Grabbing immediately after a hovering updateHover
-    // succeeds → ray-hit path is the same.
+  it('updateHover flips isHovered on hit and back off on miss', () => {
     const slider = makeSlider();
+    expect(slider.isHovered).toBe(false);
     slider.updateHover([HITTING_RAY()]);
+    expect(slider.isHovered).toBe(true);
+    slider.updateHover([MISSING_RAY()]);
+    expect(slider.isHovered).toBe(false);
+  });
+
+  it('updateHover short-circuits while grabbed (hover bit stays cleared)', () => {
+    // While a grab is active, the hover affordance is subordinate to the
+    // grab visual — updateHover must not toggle `hovered` to true even if
+    // the same ray is hitting.
+    const slider = makeSlider();
     expect(slider.tryGrab(HITTING_RAY())).toBe(true);
+    slider.updateHover([HITTING_RAY()]);
+    expect(slider.isHovered).toBe(false);
   });
 
   it('drag updates value across frames (delta accumulation contract preserved)', () => {
@@ -187,14 +196,18 @@ describe('TapButton — Pointer contract', () => {
     expect(miss.pulse).not.toHaveBeenCalled();
   });
 
-  it('updateHover accepts a Pointer array (uniform across modes)', () => {
+  it('updateHover flips isHovered when ANY pointer in the array hits', () => {
+    // Two-pointer (VR) and one-pointer (desktop / mobile) array shapes
+    // both flip on hit. Multi-pointer array with one hitting member
+    // exercises the `.some(...)` semantics.
     const button = makeButton();
-    // Two pointers (VR shape) — primitive must iterate without throwing.
-    expect(() =>
-      button.updateHover([HITTING_RAY(), MISSING_RAY()]),
-    ).not.toThrow();
-    // Single pointer (desktop / mobile shape).
-    expect(() => button.updateHover([HITTING_RAY()])).not.toThrow();
+    expect(button.isHovered).toBe(false);
+    button.updateHover([MISSING_RAY(), HITTING_RAY()]);
+    expect(button.isHovered).toBe(true);
+    button.updateHover([MISSING_RAY()]);
+    expect(button.isHovered).toBe(false);
+    button.updateHover([HITTING_RAY()]);
+    expect(button.isHovered).toBe(true);
   });
 });
 

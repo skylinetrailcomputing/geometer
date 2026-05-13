@@ -178,6 +178,14 @@ export class Slider {
     return this.grabbedBy !== null;
   }
 
+  // True while any pointer's ray is within the grab region and the slider
+  // isn't already grabbed. Exposed for tests (and would-be debug overlays)
+  // so the hover transition driven by `updateHover` can be asserted
+  // directly; the emissive material change is the user-facing signal.
+  get isHovered(): boolean {
+    return this.hovered;
+  }
+
   dispose(): void {
     this.track.geometry.dispose();
     (this.track.material as THREE.Material).dispose();

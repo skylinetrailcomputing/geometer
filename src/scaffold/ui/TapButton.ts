@@ -132,6 +132,13 @@ export class TapButton {
     return this.active && this.activeEmissive !== undefined;
   }
 
+  // True while any pointer's ray is within the hit-test sphere. Exposed
+  // for tests (and would-be debug overlays); the emissive material change
+  // is the user-facing signal.
+  get isHovered(): boolean {
+    return this.hovered;
+  }
+
   setActive(active: boolean): void {
     if (active === this.active) return;
     this.active = active;
