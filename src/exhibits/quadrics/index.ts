@@ -1428,15 +1428,19 @@ const quadricsExhibit: Exhibit = {
     presetTween = undefined;
   },
 
-  onSelectStart(pointer: Pointer): void {
+  onSelectStart(pointer: Pointer): boolean {
     // Dispatch in z-order from rack-local outward: active section's
     // sliders first (the warm drag affordance), then the global preset
     // row (only when expanded), then the section tabs and canonical-
     // forms heading. These regions are spatially disjoint but the
     // explicit ordering keeps the first-hit-wins contract well-defined
     // regardless of layout.
+    //
+    // Returns `true` when any UI primitive consumed the event.
+    // Desktop mode (#193) reads this so it can suspend the orbit-
+    // camera controls for the duration of the grab.
     const activeSection = sections[activeSectionIndex];
-    if (!activeSection) return;
+    if (!activeSection) return false;
     // Per-axis toggles (#134) dispatch *before* the section's sliders
     // so the toggle stays reachable at thumb-extreme. At default and
     // near-default thumb values the toggle's grab sphere is disjoint
@@ -1451,7 +1455,7 @@ const quadricsExhibit: Exhibit = {
     // focused — toggles belong to that section.
     if (activeSection.name === CROSS_SECTION_SECTION_NAME) {
       for (const t of crossSectionToggles) {
-        if (t.tryToggle(pointer)) return;
+        if (t.tryToggle(pointer)) return true;
       }
     }
     for (const s of activeSection.sliders) {
@@ -1461,7 +1465,7 @@ const quadricsExhibit: Exhibit = {
         // "interrupt" interaction policy).
         presetTween?.cancel();
         presetTween = undefined;
-        return;
+        return true;
       }
     }
     // Slider `d` is shared across Squared and Linear (#140) and lives
@@ -1475,7 +1479,7 @@ const quadricsExhibit: Exhibit = {
     ) {
       presetTween?.cancel();
       presetTween = undefined;
-      return;
+      return true;
     }
     if (presetsExpanded) for (const p of presets) {
       if (p.tryActivate(pointer)) {
@@ -1519,19 +1523,20 @@ const quadricsExhibit: Exhibit = {
             sliders: linearSliders,
           },
         });
-        return;
+        return true;
       }
     }
     for (let i = 0; i < tabs.length; i++) {
       if (tabs[i].tryActivate(pointer)) {
         switchToSection(i);
-        return;
+        return true;
       }
     }
     if (canonicalFormsHeading?.tryActivate(pointer)) {
       togglePresetsExpanded();
-      return;
+      return true;
     }
+    return false;
   },
 
   onSelectEnd(pointer: Pointer): void {

@@ -453,9 +453,9 @@ const tangentPlanesExhibit: Exhibit = {
     camera = undefined;
   },
 
-  onSelectStart(pointer: Pointer) {
-    if (thetaSlider?.tryGrab(pointer)) return;
-    phiSlider?.tryGrab(pointer);
+  onSelectStart(pointer: Pointer): boolean {
+    if (thetaSlider?.tryGrab(pointer)) return true;
+    return phiSlider?.tryGrab(pointer) ?? false;
   },
 
   onSelectEnd(pointer: Pointer) {
