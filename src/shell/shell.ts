@@ -10,6 +10,8 @@ import {
   resolveExhibitId,
   type HistoryMode,
 } from './url-routing';
+import type { Pointer } from './Pointer';
+import { VRPointer } from './VRPointer';
 
 // Vite HMR can re-execute module-level code in dev. `bootShell` is
 // idempotent against double-invocation: subsequent calls early-return
@@ -132,6 +134,17 @@ export function bootShell(): void {
   }
   const controllers: readonly THREE.Object3D[] = [controller0, controller1];
 
+  // `VRPointer`s wrapping the two XR controllers (#190, pancake plan v3
+  // §3.1 / §3.5 / S4). Constructed exactly once at boot so the
+  // reference-equality grab/release contract on UI primitives holds
+  // across frames; the shell hands the same two instances to every
+  // `ExhibitContext` it builds. UI primitives still consume
+  // `Object3D` here — the bundled migration is #191. `controllers`
+  // stays populated alongside `pointers` until then.
+  const vrPointer0 = new VRPointer(controller0, 'vr-0');
+  const vrPointer1 = new VRPointer(controller1, 'vr-1');
+  const pointers: readonly Pointer[] = [vrPointer0, vrPointer1];
+
   // SceneRack (#150 step 5): one tab per cluster member, tap →
   // `requestSwitch(id, 'push')` so a SceneTab tap pushes a new
   // history entry the user can back-button out of. The rack's
@@ -188,7 +201,13 @@ export function bootShell(): void {
     const group = new THREE.Group();
     group.name = `exhibit:${targetId}`;
     scene.add(group);
-    const ctx: ExhibitContext = { group, renderer, camera, controllers };
+    const ctx: ExhibitContext = {
+      group,
+      renderer,
+      camera,
+      controllers,
+      pointers,
+    };
     target.mount(ctx);
     currentExhibit = target;
     currentCtx = ctx;
@@ -235,6 +254,7 @@ export function bootShell(): void {
       renderer,
       camera,
       controllers,
+      pointers,
     };
     e.mount(warmCtx);
     renderer.compile(scene, camera);
