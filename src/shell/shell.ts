@@ -25,11 +25,47 @@ import { createCameraControls } from './cameraControls';
 //
 // **`booted = true` is set synchronously, before the async mode probe
 // awaits.** A second `bootShell()` call during the probe window (e.g.,
-// Vite HMR re-execute mid-probe) sees `booted = true` and bails
-// immediately, preventing a second renderer / VRButton / event-listener
-// stack from being constructed concurrently with the first (#193,
-// pancake plan v3 §3.2 / N3).
+// Vite HMR re-execute against the same module instance) sees
+// `booted = true` and bails immediately, preventing a second renderer /
+// VRButton / event-listener stack from being constructed concurrently
+// with the first (#193, pancake plan v3 §3.2 / N3).
+//
+// **Full module-replacement HMR (#207)** — when Vite replaces this
+// module wholesale (the typical edit-save case), the new module
+// instance starts with `booted = false` and would otherwise launch a
+// second `bootShellAsync()` while the prior instance's renderer, DOM
+// canvas, OrbitControls, and pending probe are still alive. The
+// `import.meta.hot.dispose` hook below tears those down before the
+// replacement runs. `disposers` accumulates per-resource teardown
+// closures as `bootShellAsync` allocates them, so a mid-probe dispose
+// still cleans up the pre-await state (renderer + canvas + resize
+// listener). `bootGeneration` is bumped on dispose; the in-flight
+// async continuation reads it post-await and bails if its generation
+// is no longer current — preventing the disposed module's continuation
+// from pushing more disposers / mounting an exhibit after the new
+// module has taken over.
 let booted = false;
+let bootGeneration = 0;
+const disposers: Array<() => void> = [];
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    bootGeneration++;
+    // LIFO: dispose dependents (animation loop, current exhibit, mode-
+    // specific listeners) before what they depend on (renderer + canvas
+    // + window listeners). Wrap each call so a thrown disposer doesn't
+    // skip the rest of the chain.
+    while (disposers.length > 0) {
+      const dispose = disposers.pop()!;
+      try {
+        dispose();
+      } catch (err) {
+        console.error('[geometer] HMR dispose error:', err);
+      }
+    }
+    booted = false;
+  });
+}
 
 export function bootShell(): void {
   if (booted) return;
@@ -38,6 +74,11 @@ export function bootShell(): void {
 }
 
 async function bootShellAsync(): Promise<void> {
+  // Snapshot the generation we booted on. Bumped by the HMR dispose
+  // hook above; the post-await check at the end of mode resolution
+  // bails if a dispose fired during the probe window (#207).
+  const myGeneration = bootGeneration;
+
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x111122);
 
@@ -56,12 +97,18 @@ async function bootShellAsync(): Promise<void> {
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
   document.body.appendChild(renderer.domElement);
+  disposers.push(() => {
+    renderer.dispose();
+    renderer.domElement.remove();
+  });
 
-  window.addEventListener('resize', () => {
+  const resizeHandler = (): void => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-  });
+  };
+  window.addEventListener('resize', resizeHandler);
+  disposers.push(() => window.removeEventListener('resize', resizeHandler));
 
   // Cluster filter (#150 step 5). The SceneRack and the URL-param
   // resolver both operate over cluster members only; non-cluster
@@ -88,6 +135,11 @@ async function bootShellAsync(): Promise<void> {
   // VR-capable browser; the alternative (showing `VRButton` on a
   // browser without a headset) is a dead end.
   const mode = await resolveBootMode();
+  // HMR fired during the probe (#207). Pre-await allocations
+  // (renderer, canvas, resize listener) were already cleaned up by
+  // the dispose hook via `disposers`; bail before allocating any
+  // post-await resources that would race the new module instance.
+  if (myGeneration !== bootGeneration) return;
 
   let pointers: readonly Pointer[];
   // Desktop mode populates these; VR mode leaves them null. The animation
@@ -119,7 +171,9 @@ async function bootShellAsync(): Promise<void> {
     // in motion at the Quest 3S panel's pixel density. SPEC.md `## Frame-pacing
     // knobs` named this as the next deferred knob; this is its first land.
     renderer.xr.setFramebufferScaleFactor(0.85);
-    document.body.appendChild(VRButton.createButton(renderer));
+    const vrButton = VRButton.createButton(renderer);
+    document.body.appendChild(vrButton);
+    disposers.push(() => vrButton.remove());
 
     // Iterate over the literal tuple so each `c` keeps its
     // `renderer.xr.getController` return type — the XR event overload
@@ -190,6 +244,8 @@ async function bootShellAsync(): Promise<void> {
     // pointer-event lifecycle handled at the shell layer per plan
     // v3 §3.6.
     cameraControls = createCameraControls(camera, renderer.domElement);
+    const cameraControlsRef = cameraControls;
+    disposers.push(() => cameraControlsRef.dispose());
     const desktopPointer = new DesktopPointer(camera, 'desktop');
     desktopPointerRef = desktopPointer;
     pointers = [desktopPointer];
@@ -316,11 +372,27 @@ async function bootShellAsync(): Promise<void> {
     // alt-tab during a drag should drop the grab cleanly so the slider
     // doesn't stay welded to the cursor when the tab regains focus.
     window.addEventListener('blur', releaseDesktopPointer);
+    disposers.push(() =>
+      window.removeEventListener('blur', releaseDesktopPointer),
+    );
   }
 
   // ── Mode-independent post-mode wiring ─────────────────────────
   let currentExhibit: Exhibit | null = null;
   let currentCtx: ExhibitContext | null = null;
+  // Unmount the live exhibit on HMR dispose so its scene-graph
+  // resources (geometries, materials, shader programs) release
+  // before `renderer.dispose()` runs. Closure reads `currentExhibit`
+  // lazily so it sees whatever's mounted at dispose time.
+  disposers.push(() => {
+    if (currentExhibit && currentCtx) {
+      try {
+        currentExhibit.unmount(currentCtx);
+      } catch (err) {
+        console.error('[geometer] HMR exhibit unmount error:', err);
+      }
+    }
+  });
 
   // SceneRack (#150 step 5): one tab per cluster member, tap →
   // `requestSwitch(id, 'push')` so a SceneTab tap pushes a new
@@ -398,10 +470,12 @@ async function bootShellAsync(): Promise<void> {
   // bare URL or '' for `?exhibit=` with no value) rides through
   // to the resolver, which distinguishes the two: bare URL is
   // silent, empty value warns.
-  window.addEventListener('popstate', () => {
+  const popstateHandler = (): void => {
     const id = new URLSearchParams(window.location.search).get('exhibit');
     scheduler.requestSwitch(id, 'none');
-  });
+  };
+  window.addEventListener('popstate', popstateHandler);
+  disposers.push(() => window.removeEventListener('popstate', popstateHandler));
 
   // Best-effort shader pre-warm (#150 plan §4.4). Walks the
   // non-default cluster exhibits at boot and runs a mount → compile
@@ -449,6 +523,7 @@ async function bootShellAsync(): Promise<void> {
   // Page Visibility integration: prevents huge delta spikes after the tab
   // (or Quest headset) is backgrounded and re-focused mid-session.
   timer.connect(document);
+  disposers.push(() => timer.disconnect());
   renderer.setAnimationLoop(() => {
     // Drain a pending switch at frame start, before update / render,
     // so a controller event never unmounts the exhibit currently
@@ -478,6 +553,10 @@ async function bootShellAsync(): Promise<void> {
     rack.update();
     renderer.render(scene, camera);
   });
+  // Stop the loop FIRST on HMR dispose — pushed last so it pops first
+  // (LIFO). Without this, the loop would render against half-disposed
+  // state during the rest of the teardown chain.
+  disposers.push(() => renderer.setAnimationLoop(null));
 }
 
 /**
