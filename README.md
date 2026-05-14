@@ -6,14 +6,11 @@
 
 A free, open-source WebXR sandbox of geometry exhibits aimed at undergraduate students of calculus, linear algebra, and differential equations. The thesis: VR earns its keep on math where the bottleneck for the learner is *3D spatial intuition* — quadric surfaces, vector fields, eigenvectors and eigenspaces, ODE phase portraits in 3D.
 
-**Status:** v0.4 — `quadrics` exhibit shipped. Slider-driven
-`ax² + by² + cz² = d` explorer with live family classification, a
-two-line equation readout, a canonical-pose preset grid with
-animated family-transition tweens, parametric / world-axis
-gridlines for depth cues, and a section rack covering cross-sections
-(a sliding intersection plane that traces a glowing curve through
-the surface) and linear terms (`u`, `v`, `w` sliders that translate
-the surface off-center).
+**Status:** v0.8 — the four scenes of the v1.0 quadrics cluster have
+shipped (quadrics manipulator, tangent planes, gradient + level
+surfaces, saddle / extrema). v0.9 is in progress: the native pancake
+build for desktop has shipped; cross-cluster polish is the remaining
+v0.9 work, and a touch-driven mobile build is a follow-up.
 
 ## Demo
 
@@ -66,10 +63,10 @@ The roadmap sequences exhibits around specific undergraduate courses where 3D sp
 v1.0 ships a cluster of programmatically separate scenes — each focused on a distinct early-course stuck-point — that share infrastructure (camera, design language, scene navigation):
 
 - **Quadrics manipulator** *(shipped through v0.5)* — slider-driven implicit-surface explorer with live family classification, cross-sections, and linear-term translation. §10.6.
-- **Tangent planes** *(v0.6)* — moving tangent plane attached to the surface, sliding the contact point continuously. §11.4.
-- **Gradient / level surfaces** *(v0.7)* — §11.6.
-- **Saddle / extrema** *(v0.8)* — §11.7–11.8.
-- **Basic pancake build** *(v0.9)* — desktop + mobile non-VR scaffolded alongside the Quest experience.
+- **Tangent planes** *(shipped, v0.6)* — moving tangent plane attached to the surface, sliding the contact point continuously. §11.4.
+- **Gradient / level surfaces** *(shipped, v0.7)* — §11.6.
+- **Saddle / extrema** *(shipped, v0.8)* — §11.7–11.8.
+- **Native pancake build** *(v0.9, desktop shipped)* — non-VR form factor scaffolded alongside the Quest experience; touch-driven mobile is a follow-up ([#196](https://github.com/skylinetrailcomputing/geometer/issues/196)).
 
 ### Beyond v1.0 (still APPM 2350)
 
@@ -85,7 +82,7 @@ Targeting spring or summer 2027. Eigenvectors visualized as the unit-sphere → 
 ### Reach (form factors)
 
 - **Headset** — Quest 3, 3S, 2, Pro. Current default.
-- **Native pancake build** ([#105](https://github.com/skylinetrailcomputing/geometer/issues/105)) — desktop + mobile, scaffolded in v0.9 for v1.0 and polished post-1.0.
+- **Native pancake build** ([#105](https://github.com/skylinetrailcomputing/geometer/issues/105)) — desktop shipped in v0.9; touch-driven mobile is a follow-up ([#196](https://github.com/skylinetrailcomputing/geometer/issues/196)).
 
 ## Contributing
 
