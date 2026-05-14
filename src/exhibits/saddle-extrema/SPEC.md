@@ -427,11 +427,16 @@ shared across all markers of one preset and disposed once per swap.
 
 ### Out of scope for #179
 
-- **Slider snap-detents on the critical points.** Visual-only per the
-  issue. The `(x, y)` domain is small enough that the existing
-  origin-snap detent (`SLIDER_SNAP_POINTS = [0]`) lands on every v0.8
-  preset's CP anyway; critical-point-aware snap is a quadric-tuned
-  scaffold knob and defers to v0.9 polish.
+- **Slider snap-detents on the critical points.** ~~Visual-only per the
+  issue. … critical-point-aware snap is a quadric-tuned scaffold knob
+  and defers to v0.9 polish.~~ Landed in v0.9 via #200: the slider's
+  `snapPoints` array is now rebuilt on every preset swap from
+  `preset.criticalPoints` (projected per axis, origin always seeded).
+  Visible behavior is unchanged for every v0.8 preset (all CPs at
+  origin → projected snap set is `[0]` per axis), but the mechanism is
+  in place for future off-origin presets. `Slider` grew the
+  `setSnapPoints` method and a shared `validateSnapPoints` validator
+  that the constructor also routes through.
 - **Numerical critical-point solver.** Preset-supplied analytical CPs
   only.
 
