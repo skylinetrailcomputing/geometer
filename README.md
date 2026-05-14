@@ -29,18 +29,18 @@ boundaries (Ellipsoid → Hyperboloid → Cone → ...).
 
 ## Try it
 
-Live at <https://skylinetrailcomputing.github.io/geometer/>. Click **Enter VR** once the page loads.
+Live at <https://skylinetrailcomputing.github.io/geometer/>. The bare URL auto-detects whether to boot in immersive (Quest headset) or desktop mode; visit it on any modern browser without setup. To force a mode explicitly, append `?mode=vr` or `?mode=desktop`.
 
-Headset paths that work today:
+Headset paths:
 
-- **Quest browser** (Quest 3, 3S, 2, Pro) — open the link directly on the headset. See [`DEV_QUEST_SETUP.md`](DEV_QUEST_SETUP.md) for first-run guidance.
+- **Quest browser** (Quest 3, 3S, 2, Pro) — open the link directly on the headset, then tap **Enter VR**. See [`DEV_QUEST_SETUP.md`](DEV_QUEST_SETUP.md) for first-run guidance.
 - **Desktop Chrome with a tethered headset** — useful for development and inspection.
 
 ### Without a headset
 
-A first-class **native pancake build** — desktop (mouse + keyboard, WASD or orbit) and mobile (touch), designed from the ground up for non-VR rather than emulating headset controllers — is on the roadmap. Tracked in [#105](https://github.com/skylinetrailcomputing/geometer/issues/105).
+A laptop or desktop browser with no immersive device gets the **native pancake build**: an orbit camera around the cluster envelope (drag empty space to rotate, scroll to zoom), and a mouse-driven pointer that drags sliders, taps presets, and switches section tabs through the same UI primitives the VR controllers drive. Designed from the ground up for non-VR; not a headset-emulator shim. Tracked in [#105](https://github.com/skylinetrailcomputing/geometer/issues/105).
 
-WebXR emulator extensions (Meta's Immersive Web Emulator, Mozilla's WebXR API Emulator) are **not a supported path**. As discussed in [#80](https://github.com/skylinetrailcomputing/geometer/issues/80), Meta's IWE structurally can't render Three.js content in current Chromium because it doesn't polyfill the WebXR Layers API — Chromium ≥147 forces Three.js down the `XRWebGLBinding` path regardless of the `'layers'` feature flag, and there's no three.js-side fix. Even when emulators do work mechanically, headset-controller emulation isn't an intuitive desktop UX. For now, a real Quest (3 / 3S / 2 / Pro) is the headset path.
+WebXR emulator extensions (Meta's Immersive Web Emulator, Mozilla's WebXR API Emulator) remain **unsupported** — see [#80](https://github.com/skylinetrailcomputing/geometer/issues/80) for the structural reason (Meta's IWE doesn't polyfill the WebXR Layers API, which Chromium ≥147 forces Three.js to use). Use pancake mode for non-headset access; use a real Quest (3 / 3S / 2 / Pro) for the headset experience. A touch-driven mobile build is a follow-up.
 
 ## Run locally
 
