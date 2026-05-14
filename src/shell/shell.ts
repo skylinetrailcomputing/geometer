@@ -16,7 +16,6 @@ import {
 import type { Pointer } from './Pointer';
 import { VRPointer } from './VRPointer';
 import { DesktopPointer } from './DesktopPointer';
-import { MobilePointer } from './MobilePointer';
 import { createCameraControls } from './cameraControls';
 
 // Vite HMR can re-execute module-level code in dev. `bootShell` is
@@ -147,9 +146,8 @@ async function bootShellAsync(): Promise<void> {
   // them null. The animation loop checks for them to drive damping +
   // matrix update before the hover dispatch reads pointer rays (per
   // plan v3 §3.6 frame order), and to invalidate the pancake pointer's
-  // per-frame ray cache after the camera moves. `MobilePointer`
-  // extends `DesktopPointer`, so the `DesktopPointer | null` typing
-  // covers both pancake adapters without a union widening.
+  // per-frame ray cache after the camera moves. One `DesktopPointer`
+  // (with `id` `'desktop'` or `'mobile'`) covers both pancake modes.
   let cameraControls: OrbitControls | null = null;
   let pancakePointerRef: DesktopPointer | null = null;
 
@@ -245,19 +243,26 @@ async function bootShellAsync(): Promise<void> {
     // No `VRButton`. `OrbitControls` orbits around the cluster
     // anchor (#192) and handles touch (single-touch rotate +
     // two-touch pinch-zoom) natively against the same `domElement`.
-    // One `Pointer` adapter driven by pointer events — which fire
+    // One `DesktopPointer` driven by pointer events — which fire
     // for both mouse and touch input — handles UI hit-tests + drag
-    // per plan v3 §3.6. The `mode === 'mobile'` branch only swaps
-    // in `MobilePointer` (id `'mobile'`); plan v3 §3.4's "Pointer
-    // abstraction tolerates the divergence" cashes out as a single
-    // shell branch here.
+    // per plan v3 §3.6. `mode === 'mobile'` only changes the
+    // pointer's diagnostic `id`; plan v3 §3.4's "Pointer abstraction
+    // tolerates the divergence" cashes out as a single shell branch
+    // here.
     cameraControls = createCameraControls(camera, renderer.domElement);
     const cameraControlsRef = cameraControls;
     disposers.push(() => cameraControlsRef.dispose());
-    const pancakePointer =
-      mode === 'mobile'
-        ? new MobilePointer(camera)
-        : new DesktopPointer(camera, 'desktop');
+    // `DesktopPointer` is the camera-NDC `Pointer` adapter; the `id`
+    // string is the only mobile-vs-desktop divergence today. If a
+    // future feature ever earns a real subclass — `navigator.vibrate`
+    // on `pulse` is the obvious candidate — it grows here, not in a
+    // separate vestigial file. Plan v3 §3.4 originally specced a
+    // `MobilePointer` class; spar feedback on #196 collapsed it
+    // because there was no behavioral delta to test against.
+    const pancakePointer = new DesktopPointer(
+      camera,
+      mode === 'mobile' ? 'mobile' : 'desktop',
+    );
     pancakePointerRef = pancakePointer;
     pointers = [pancakePointer];
 
@@ -365,6 +370,14 @@ async function bootShellAsync(): Promise<void> {
     );
 
     renderer.domElement.addEventListener('pointermove', (e: PointerEvent) => {
+      // Mid-grab, ignore moves from any pointer other than the one
+      // that initiated the grab. Mostly defensive against a second
+      // finger on mobile (single-pointer per plan v3 §3.4) — without
+      // the guard, finger-2's coords would overwrite NDC and the
+      // grabbed slider would jump to finger-2's position next frame.
+      // Idle (`activePointerId === null`) is the hover dispatch path
+      // and tracks whichever pointer is moving.
+      if (activePointerId !== null && e.pointerId !== activePointerId) return;
       updateNdcFromEvent(e);
       // Hover dispatch happens in the main loop, post `controls.update()`,
       // so it reads the post-update camera matrices (per plan v3 §3.6 G9).
@@ -580,6 +593,13 @@ async function bootShellAsync(): Promise<void> {
  * without `'xr' in navigator`. Per G5 the alternative — showing
  * `VRButton` on a desktop browser without a headset — is the worse
  * failure mode: it's a dead end the audience can't recover from.
+ *
+ * **Mobile auto-detect is deliberately not wired** (plan v3 §6.6,
+ * #196): `'mobile'` only returns from the explicit-`?mode=mobile`
+ * branch. A phone hitting the bare URL gets `'desktop'` mode,
+ * which is interactable (pointer events synthesize from touch and
+ * `OrbitControls` handles touch natively against `domElement`).
+ * Touch-capability auto-detect is the v1.x follow-up.
  */
 async function resolveBootMode(): Promise<Mode> {
   const requested = new URLSearchParams(window.location.search).get('mode');
