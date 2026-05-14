@@ -142,13 +142,14 @@ async function bootShellAsync(): Promise<void> {
   if (myGeneration !== bootGeneration) return;
 
   let pointers: readonly Pointer[];
-  // Desktop mode populates these; VR mode leaves them null. The animation
-  // loop checks for them to drive damping + matrix update before the
-  // hover dispatch reads pointer rays (per plan v3 §3.6 frame order),
-  // and to invalidate the desktop pointer's per-frame ray cache after
-  // the camera moves.
+  // Pancake (desktop / mobile) modes populate these; VR mode leaves
+  // them null. The animation loop checks for them to drive damping +
+  // matrix update before the hover dispatch reads pointer rays (per
+  // plan v3 §3.6 frame order), and to invalidate the pancake pointer's
+  // per-frame ray cache after the camera moves. One `DesktopPointer`
+  // (with `id` `'desktop'` or `'mobile'`) covers both pancake modes.
   let cameraControls: OrbitControls | null = null;
-  let desktopPointerRef: DesktopPointer | null = null;
+  let pancakePointerRef: DesktopPointer | null = null;
 
   if (mode === 'vr') {
     // ── VR mode ─────────────────────────────────────────────────
@@ -238,17 +239,32 @@ async function bootShellAsync(): Promise<void> {
       });
     }
   } else {
-    // ── Desktop mode ────────────────────────────────────────────
+    // ── Pancake mode (desktop / mobile) ─────────────────────────
     // No `VRButton`. `OrbitControls` orbits around the cluster
-    // anchor (#192). One `DesktopPointer` driven by the mouse; full
-    // pointer-event lifecycle handled at the shell layer per plan
-    // v3 §3.6.
+    // anchor (#192) and handles touch (single-touch rotate +
+    // two-touch pinch-zoom) natively against the same `domElement`.
+    // One `DesktopPointer` driven by pointer events — which fire
+    // for both mouse and touch input — handles UI hit-tests + drag
+    // per plan v3 §3.6. `mode === 'mobile'` only changes the
+    // pointer's diagnostic `id`; plan v3 §3.4's "Pointer abstraction
+    // tolerates the divergence" cashes out as a single shell branch
+    // here.
     cameraControls = createCameraControls(camera, renderer.domElement);
     const cameraControlsRef = cameraControls;
     disposers.push(() => cameraControlsRef.dispose());
-    const desktopPointer = new DesktopPointer(camera, 'desktop');
-    desktopPointerRef = desktopPointer;
-    pointers = [desktopPointer];
+    // `DesktopPointer` is the camera-NDC `Pointer` adapter; the `id`
+    // string is the only mobile-vs-desktop divergence today. If a
+    // future feature ever earns a real subclass — `navigator.vibrate`
+    // on `pulse` is the obvious candidate — it grows here, not in a
+    // separate vestigial file. Plan v3 §3.4 originally specced a
+    // `MobilePointer` class; spar feedback on #196 collapsed it
+    // because there was no behavioral delta to test against.
+    const pancakePointer = new DesktopPointer(
+      camera,
+      mode === 'mobile' ? 'mobile' : 'desktop',
+    );
+    pancakePointerRef = pancakePointer;
+    pointers = [pancakePointer];
 
     // Convert a `MouseEvent`'s clientX/clientY (top-left origin,
     // y-down pixels) into the canvas-local NDC `Raycaster.setFromCamera`
@@ -257,7 +273,7 @@ async function bootShellAsync(): Promise<void> {
       const rect = renderer.domElement.getBoundingClientRect();
       const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      desktopPointer.setNDC(x, y);
+      pancakePointer.setNDC(x, y);
     };
 
     // OrbitControls gesture state machine (plan v3 §3.5 / G3 / D1).
@@ -288,7 +304,7 @@ async function bootShellAsync(): Promise<void> {
     // change `currentExhibit` between grab and release).
     let exhibitAtGrab: Exhibit | null = null;
 
-    const releaseDesktopPointer = (): void => {
+    const releasePancakePointer = (): void => {
       if (!activeGrabbed) return; // idempotent guard
       activeGrabbed = false;
       if (
@@ -301,14 +317,14 @@ async function bootShellAsync(): Promise<void> {
         renderer.domElement.releasePointerCapture(activePointerId);
       }
       activePointerId = null;
-      exhibitAtGrab?.onSelectEnd(desktopPointer);
+      exhibitAtGrab?.onSelectEnd(pancakePointer);
       exhibitAtGrab = null;
       if (cameraControls) cameraControls.enabled = true;
     };
 
     const releaseFromPointerEvent = (e: PointerEvent): void => {
       if (activePointerId === null || e.pointerId !== activePointerId) return;
-      releaseDesktopPointer();
+      releasePancakePointer();
     };
 
     renderer.domElement.addEventListener(
@@ -322,7 +338,7 @@ async function bootShellAsync(): Promise<void> {
         // the very first pointer event the page has seen, in which case
         // there's no prior `pointermove` to have set NDC.
         updateNdcFromEvent(e);
-        if (rack.tryActivate(desktopPointer)) {
+        if (rack.tryActivate(pancakePointer)) {
           // SceneTab taps are activate-and-immediately-release; the
           // rack runs its own press flash. Stop propagation so
           // OrbitControls' bubble-phase pointerdown doesn't start a
@@ -331,7 +347,7 @@ async function bootShellAsync(): Promise<void> {
           return;
         }
         const grabbed =
-          currentExhibit?.onSelectStart(desktopPointer) ?? false;
+          currentExhibit?.onSelectStart(pancakePointer) ?? false;
         if (!grabbed) return; // empty click — let OrbitControls orbit
         // UI captured the gesture: take ownership at the shell + browser
         // layer so the rest of the gesture (drag → release) is ours,
@@ -354,6 +370,14 @@ async function bootShellAsync(): Promise<void> {
     );
 
     renderer.domElement.addEventListener('pointermove', (e: PointerEvent) => {
+      // Mid-grab, ignore moves from any pointer other than the one
+      // that initiated the grab. Mostly defensive against a second
+      // finger on mobile (single-pointer per plan v3 §3.4) — without
+      // the guard, finger-2's coords would overwrite NDC and the
+      // grabbed slider would jump to finger-2's position next frame.
+      // Idle (`activePointerId === null`) is the hover dispatch path
+      // and tracks whichever pointer is moving.
+      if (activePointerId !== null && e.pointerId !== activePointerId) return;
       updateNdcFromEvent(e);
       // Hover dispatch happens in the main loop, post `controls.update()`,
       // so it reads the post-update camera matrices (per plan v3 §3.6 G9).
@@ -371,9 +395,9 @@ async function bootShellAsync(): Promise<void> {
     // `FocusEvent` carries no `pointerId`. Releases whatever is active —
     // alt-tab during a drag should drop the grab cleanly so the slider
     // doesn't stay welded to the cursor when the tab regains focus.
-    window.addEventListener('blur', releaseDesktopPointer);
+    window.addEventListener('blur', releasePancakePointer);
     disposers.push(() =>
-      window.removeEventListener('blur', releaseDesktopPointer),
+      window.removeEventListener('blur', releasePancakePointer),
     );
   }
 
@@ -538,14 +562,14 @@ async function bootShellAsync(): Promise<void> {
     // ArrayCamera's matrices are driven by the XR session's HMD
     // pose update, not this `PerspectiveCamera`.
     //
-    // `desktopPointerRef.invalidate()` clears the per-frame ray cache
+    // `pancakePointerRef.invalidate()` clears the per-frame ray cache
     // — the cache is keyed on NDC alone, but the camera moved this
     // tick (damping), so reads in the rest of this frame must
     // recompute against the new matrices.
     if (cameraControls) {
       cameraControls.update();
       camera.updateMatrixWorld();
-      desktopPointerRef?.invalidate();
+      pancakePointerRef?.invalidate();
     }
     currentExhibit?.update({ delta });
     rack.faceCamera(camera);
@@ -569,6 +593,13 @@ async function bootShellAsync(): Promise<void> {
  * without `'xr' in navigator`. Per G5 the alternative — showing
  * `VRButton` on a desktop browser without a headset — is the worse
  * failure mode: it's a dead end the audience can't recover from.
+ *
+ * **Mobile auto-detect is deliberately not wired** (plan v3 §6.6,
+ * #196): `'mobile'` only returns from the explicit-`?mode=mobile`
+ * branch. A phone hitting the bare URL gets `'desktop'` mode,
+ * which is interactable (pointer events synthesize from touch and
+ * `OrbitControls` handles touch natively against `domElement`).
+ * Touch-capability auto-detect is the v1.x follow-up.
  */
 async function resolveBootMode(): Promise<Mode> {
   const requested = new URLSearchParams(window.location.search).get('mode');
