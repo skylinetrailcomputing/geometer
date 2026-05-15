@@ -117,6 +117,12 @@ export class Slider {
   private hovered = false;
 
   constructor(options: SliderOptions) {
+    const validatedSnapPoints = validateSnapPoints(
+      options.snapPoints,
+      options.snapDetent,
+      options.min,
+      options.max,
+    );
     this.opts = {
       trackLength: DEFAULT_TRACK_LENGTH,
       thumbRadius: DEFAULT_THUMB_RADIUS,
@@ -124,6 +130,12 @@ export class Slider {
       baseColor: DEFAULT_BASE_COLOR,
       thumbShape: DEFAULT_THUMB_SHAPE,
       ...options,
+      // Load-bearing: this trailing override swaps the raw
+      // `options.snapPoints` (pulled in by the spread above) for the
+      // sorted+validated copy. Do not "simplify" by removing — without
+      // this line `this.opts.snapPoints` would be the unsorted,
+      // unvalidated input array.
+      snapPoints: validatedSnapPoints,
     };
     this.rawValue = clamp(options.initial, options.min, options.max);
     this.currentValue = applySnap(
@@ -239,6 +251,13 @@ export class Slider {
    * windows (#178). `snapDetent` and `snapPoints` are unchanged; callers
    * are responsible for keeping snap points inside the new range.
    * Throws if `min >= max` or either bound is non-finite.
+   *
+   * Note: shrinking the range below an existing in-range snap point
+   * leaves the snap point stored but no longer satisfying the in-range
+   * invariant the constructor + `setSnapPoints` enforce. Scenes that
+   * combine `setRange` with `setSnapPoints` (e.g., saddle-extrema's
+   * `applyPreset`) should pass a fresh array via `setSnapPoints` after
+   * the `setRange` call to keep the invariant whole.
    */
   setRange(min: number, max: number): void {
     if (!Number.isFinite(min) || !Number.isFinite(max) || !(min < max)) {
@@ -249,6 +268,47 @@ export class Slider {
     this.opts.min = min;
     this.opts.max = max;
     this.rawValue = clamp(this.rawValue, min, max);
+    this.currentValue = applySnap(
+      this.rawValue,
+      this.opts.snapPoints,
+      this.opts.snapDetent,
+    );
+    this.syncThumbPosition();
+  }
+
+  /**
+   * Update the slider's snap-point set. The current value re-snaps in
+   * place — a value inside a new detent window snaps to that point; a
+   * value that had been snapped to an old point releases if the new
+   * set no longer contains that point. The new array is sorted and
+   * validated through `validateSnapPoints` (#200); same throw
+   * conditions as the constructor.
+   *
+   * Used by scenes whose snap-point set shifts at runtime — e.g.,
+   * saddle-extrema's per-preset critical points. `snapDetent` is
+   * unchanged; callers retune detent width at construction.
+   *
+   * Throws if any point is non-finite, outside the current `[min, max]`,
+   * or within `2 * snapDetent` of an adjacent point (detent windows
+   * would overlap; see `applySnap`'s no-overlap invariant). Pass a
+   * deduplicated array — duplicate values trip the overlap check
+   * (gap = 0).
+   *
+   * Safe mid-drag: does NOT rebase `lastPointerAxisX`. The drag-tick
+   * integrates pointer motion into `rawValue` independently of snap
+   * state, so no projection baseline shift is needed. In multi-pointer
+   * VR a controller-B preset tap during a controller-A slider drag IS
+   * reachable; the visible thumb may jump to a new snap point if
+   * `rawValue` lands inside a new detent window. The drag continues
+   * smoothly; only `currentValue` and the thumb render change.
+   */
+  setSnapPoints(points: readonly number[]): void {
+    this.opts.snapPoints = validateSnapPoints(
+      points,
+      this.opts.snapDetent,
+      this.opts.min,
+      this.opts.max,
+    );
     this.currentValue = applySnap(
       this.rawValue,
       this.opts.snapPoints,
@@ -498,4 +558,41 @@ function applySnap(
     if (Math.abs(v - p) < halfWidth) return p;
   }
   return v;
+}
+
+// Validate a snap-points array against `[min, max]` and `snapDetent`.
+// Returns a sorted copy. Throws on non-finite, out-of-range, or
+// detent-overlapping points. Shared between the Slider constructor
+// and `setSnapPoints` so the same invariants hold at both lifecycle
+// points (#200). Adjacent points spaced *exactly* `2 * snapDetent`
+// apart are accepted — at the boundary the capture windows touch but
+// don't overlap, matching `applySnap`'s strict-`<` semantics.
+function validateSnapPoints(
+  points: readonly number[],
+  snapDetent: number,
+  min: number,
+  max: number,
+): readonly number[] {
+  for (const p of points) {
+    if (!Number.isFinite(p)) {
+      throw new Error(`Slider snap point ${p} is non-finite`);
+    }
+    if (p < min || p > max) {
+      throw new Error(
+        `Slider snap point ${p} is outside range [${min}, ${max}]`,
+      );
+    }
+  }
+  const sorted = [...points].sort((a, b) => a - b);
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = sorted[i] - sorted[i - 1];
+    if (gap < 2 * snapDetent) {
+      throw new Error(
+        `Slider snap points ${sorted[i - 1]} and ${sorted[i]} are ${gap} ` +
+          `apart; detent windows of half-width ${snapDetent} would ` +
+          `overlap (need gap >= ${2 * snapDetent}).`,
+      );
+    }
+  }
+  return sorted;
 }

@@ -27,6 +27,7 @@ import {
 } from './GraphSurface';
 import { DEFAULT_PRESET_INDEX, PRESETS } from './presets';
 import { SaddleExtremaReadout } from './SaddleExtremaReadout';
+import { buildAxisSnapPoints } from './snap-points';
 import {
   createTaylorOverlay,
   type TaylorOverlayHandles,
@@ -76,14 +77,14 @@ const X_SLIDER_Y = SLIDER_RACK_CENTER.y + SLIDER_ROW_PITCH / 2;
 const Y_SLIDER_Y = SLIDER_RACK_CENTER.y - SLIDER_ROW_PITCH / 2;
 
 // Slider design feel — quadric-tuned constants, ported from cluster
-// siblings. Snap detents at [0] only: slider-canonical origin, not
-// critical-point-aware (the coincidence that v0.8 preset critical points
-// sit at the origin makes origin-snap LAND on the critical point, but the
-// snap mechanism is preset-independent). #179's markers are visual-only;
-// critical-point-aware snap defers to v0.9 polish.
+// siblings. Snap detents combine the slider-canonical origin (always
+// seeded) with the active preset's critical-point coordinates,
+// projected per axis (#200). For every v0.8 preset the CPs sit at the
+// origin, so the projected snap set collapses to `[0]` and visible
+// behavior is unchanged from v0.7; future off-origin presets (or
+// user-supplied f(x, y) in v1.x) get correct CP-aware snaps for free.
 const SLIDER_SNAP_DETENT = 0.05;
 const GRAB_RADIUS_MULTIPLIER = 2.75;
-const SLIDER_SNAP_POINTS: readonly number[] = [0];
 
 // Initial pose — off origin-snap, off endpoints, off both axes,
 // non-equal — so first-frame drag responds in any direction.
@@ -248,7 +249,7 @@ const saddleExtremaExhibit: Exhibit = {
       max: initialPreset.domain.xMax,
       initial: X_INITIAL,
       snapDetent: SLIDER_SNAP_DETENT,
-      snapPoints: SLIDER_SNAP_POINTS,
+      snapPoints: buildAxisSnapPoints(initialPreset.criticalPoints, 0),
       grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
       baseColor: VERMILLION,
       thumbShape: 'sphere',
@@ -267,7 +268,7 @@ const saddleExtremaExhibit: Exhibit = {
       max: initialPreset.domain.yMax,
       initial: Y_INITIAL,
       snapDetent: SLIDER_SNAP_DETENT,
-      snapPoints: SLIDER_SNAP_POINTS,
+      snapPoints: buildAxisSnapPoints(initialPreset.criticalPoints, 1),
       grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
       baseColor: BLUISH_GREEN,
       thumbShape: 'sphere',
@@ -561,6 +562,17 @@ function applyPreset(idx: number): void {
   // (possibly clamped) value via the next update() tick.
   xSlider?.setRange(preset.domain.xMin, preset.domain.xMax);
   ySlider?.setRange(preset.domain.yMin, preset.domain.yMax);
+
+  // Slider snap-points follow the preset's critical-point set, projected
+  // per axis (#200). Two binding ordering constraints:
+  //   1. setRange must precede setSnapPoints — the new snap set is
+  //      validated against the post-setRange [min, max].
+  //   2. setSnapPoints must precede taylorOverlay.setPreset — the
+  //      overlay reads xSlider?.value / ySlider?.value and needs the
+  //      fully-reconciled currentValue (which setSnapPoints can shift
+  //      if rawValue lands inside a new detent window).
+  xSlider?.setSnapPoints(buildAxisSnapPoints(preset.criticalPoints, 0));
+  ySlider?.setSnapPoints(buildAxisSnapPoints(preset.criticalPoints, 1));
 
   // Quadratic overlay (#180) — swap the active preset reference,
   // recompute half-extent, rewrite the aLocal attribute, refresh
