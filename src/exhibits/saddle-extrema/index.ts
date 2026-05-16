@@ -11,6 +11,7 @@ import {
 } from '@/scaffold/design/tokens';
 import { Label } from '@/scaffold/ui/Label';
 import { Slider } from '@/scaffold/ui/Slider';
+import { Preset } from '@/scaffold/ui/Preset';
 import {
   GRAB_RADIUS_MULTIPLIER,
   SLIDER_LABEL_LINE_GAP,
@@ -21,10 +22,6 @@ import {
   SLIDER_SNAP_DETENT,
   createSliderRackCenter,
 } from '@/scaffold/ui/clusterRackTokens';
-import {
-  TapButton,
-  type TapButtonVisuals,
-} from '@/scaffold/ui/TapButton';
 import { WorldAxes } from '@/scaffold/ui/WorldAxes';
 import {
   createCriticalPointMarkers,
@@ -132,19 +129,11 @@ const PRESET_RES = 128;
 // preset is a persistent mode (the surface IS the preset's f), where the
 // manipulator's preset is a one-shot snap-to-pose. Sticky-active reads as
 // "this is the current archetype"; press flash layers on top as tap
-// feedback. Pattern echoes SectionTab (#57): press + active + hover, all
-// three managed by the shared TapButton base.
-const PRESET_BUTTON_VISUALS: TapButtonVisuals = {
-  groupNamePrefix: 'preset',
-  buttonRadius: 0.02,
-  baseColor: 0x44aabb,
-  hoverEmissive: 0x224455,
-  activeEmissive: 0x66ccdd,
-  pressEmissive: 0x88ddff,
-  labelFontSize: 0.022,
-  labelOffsetY: -0.025,
-  labelAnchorY: 'top',
-};
+// feedback. After #201 PR 6 this scene uses Preset with the optional
+// `activeEmissive` field rather than constructing a raw TapButton with
+// its own visuals constant; the shared Preset class owns the cool-blue
+// identity, this scene only overrides the active emissive color.
+const PRESET_ACTIVE_EMISSIVE = 0x66ccdd;
 
 // Local linear-decimal formatter for the per-slider value labels.
 // Identical in shape to gradient-levels' local helper (#170 history);
@@ -171,7 +160,7 @@ let ySlider: Slider | undefined;
 let xLabel: Label | undefined;
 let yLabel: Label | undefined;
 let indicator: THREE.Mesh | undefined;
-let presetButtons: TapButton[] = [];
+let presetButtons: Preset[] = [];
 let activePresetIndex = DEFAULT_PRESET_INDEX;
 let saddleExtremaReadout: SaddleExtremaReadout | undefined;
 let camera: THREE.Camera | undefined;
@@ -360,10 +349,10 @@ const saddleExtremaExhibit: Exhibit = {
     // PRESETS array order. The starter (saddle, DEFAULT_PRESET_INDEX) is
     // marked sticky-active so the user reads which archetype is current.
     presetButtons = PRESETS.map((preset, i) => {
-      const btn = new TapButton({
+      const btn = new Preset({
         name: preset.label,
         grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
-        visuals: PRESET_BUTTON_VISUALS,
+        activeEmissive: PRESET_ACTIVE_EMISSIVE,
       });
       btn.group.position.set(
         PRESET_ROW_START_X + i * PRESET_HORIZONTAL_PITCH,
