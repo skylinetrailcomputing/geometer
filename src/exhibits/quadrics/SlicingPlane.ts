@@ -3,6 +3,13 @@ import {
   createTranslucentRect,
   type TranslucentRectHandles,
 } from '@/scaffold/render/TranslucentRect';
+import {
+  LOCKED_113_BODY_ALPHA,
+  LOCKED_113_RIM_ALPHA,
+  LOCKED_113_RIM_WIDTH_DEFAULT,
+  createLocked113BodyColor,
+  createLocked113RimColor,
+} from '@/scaffold/render/translucentRectTokens';
 
 // Translucent slicing-plane meshes for the Cross sections section
 // (#113). Layers above the on-surface intersection ring shipped in
@@ -24,19 +31,13 @@ import {
 // Per-axis rim color differentiation is explicitly out of scope per
 // #113 — the slider thumbs and per-axis on-surface ring colors already
 // carry the per-axis identity.
-
-// Locked #113 visual recipe — keep in sync with
-// src/exhibits/tangent-planes/TangentPlane.ts.
-const PLANE_BODY_COLOR = new THREE.Color(0.34, 0.71, 0.91);
-const PLANE_BODY_ALPHA = 0.10;
-// One step lighter than PLANE_BODY_COLOR / the on-surface ring color
-// so the two glow tiers stay visibly distinct when they overlap (the
-// ring marks the cut on the surface; the rim outlines the cut's own
-// boundary in free space).
-const PLANE_RIM_COLOR = new THREE.Color(0.70, 0.90, 0.99);
-const PLANE_RIM_ALPHA = 0.65;
-// Rim band width in plane-local meters (#113: "outer ~5 cm").
-const PLANE_RIM_WIDTH = 0.05;
+//
+// Visual constants (body color, body alpha, rim color, rim alpha, rim
+// width) come from `scaffold/render/translucentRectTokens.ts` (#201
+// PR 1) — the locked #113 recipe shared with TangentPlane and
+// TaylorOverlay. Factory calls construct a fresh THREE.Color per
+// build so no module-level Color singleton can leak mutation across
+// consumers.
 
 function buildPlaneHandle(
   halfExtent: number,
@@ -44,11 +45,11 @@ function buildPlaneHandle(
 ): TranslucentRectHandles {
   const handle = createTranslucentRect({
     halfExtent,
-    bodyColor: PLANE_BODY_COLOR,
-    bodyAlpha: PLANE_BODY_ALPHA,
-    rimColor: PLANE_RIM_COLOR,
-    rimAlpha: PLANE_RIM_ALPHA,
-    rimWidth: PLANE_RIM_WIDTH,
+    bodyColor: createLocked113BodyColor(),
+    bodyAlpha: LOCKED_113_BODY_ALPHA,
+    rimColor: createLocked113RimColor(),
+    rimAlpha: LOCKED_113_RIM_ALPHA,
+    rimWidth: LOCKED_113_RIM_WIDTH_DEFAULT,
   });
   orient(handle.mesh);
   return handle;

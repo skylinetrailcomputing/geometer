@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { Text } from 'troika-three-text';
 import { formatSignedMagnitude } from '@/scaffold/ui/formatSignedMagnitude';
+import {
+  READOUT_FONT_SIZE,
+  READOUT_LINE_PITCH,
+  READOUT_OUTLINE_COLOR,
+  READOUT_OUTLINE_WIDTH,
+  READOUT_SYNC_INTERVAL_MS,
+} from '@/scaffold/ui/readoutTokens';
 
 // Live equation readout above the slider rack (#58). Two-line layout (#89)
 // renders the full quadric with linear terms:
@@ -42,8 +49,6 @@ export interface EquationReadoutOptions {
   fontSize?: number;
 }
 
-const DEFAULT_FONT_SIZE = 0.028;
-
 // Slot widths in em (multiples of fontSize), tuned to Roboto-ish defaults
 // in troika. NUMERIC fits the worst-case `−N.NN`; SEPARATOR fits a full
 // connector like ` x² + ` / ` z = ` with breathing room; SEPARATOR_TAIL is
@@ -53,20 +58,7 @@ const NUMERIC_SLOT_EM = 2.6;
 const SEPARATOR_SLOT_EM = 2.4;
 const SEPARATOR_TAIL_EM = 1.2;
 
-// Vertical gap between the two lines. Larger than 1× fontSize so the lines
-// read as visually distinct rows; smaller than 2.5× to keep the readout's
-// total height under the gap to the family-classifier label at y=1.5.
-const LINE_PITCH = 0.06;
-
 const SEPARATOR_COLOR = 0xffffff;
-const OUTLINE_WIDTH = '8%';
-const OUTLINE_COLOR = 0x000000;
-
-// Throttle the numeric .sync() calls to ≈30 Hz, mirroring the per-slider
-// value-label cap in #38 (and now retired alongside it). Bounds troika SDF
-// re-build work; head-pose billboarding (faceCamera) still runs every
-// frame so motion smoothness is unaffected.
-const SYNC_INTERVAL_MS = 33;
 
 // Numeric-slot indices in visual reading order. Indexes into numericTexts,
 // numericValues, visibilityMask, and the coefficientColors array.
@@ -123,7 +115,7 @@ export class EquationReadout {
   private readonly groupWorld = new THREE.Vector3();
 
   constructor(opts: EquationReadoutOptions) {
-    this.fontSize = opts.fontSize ?? DEFAULT_FONT_SIZE;
+    this.fontSize = opts.fontSize ?? READOUT_FONT_SIZE;
 
     this.group = new THREE.Group();
     this.group.name = 'equation-readout';
@@ -173,8 +165,8 @@ export class EquationReadout {
     t.color = color;
     t.anchorX = 'center';
     t.anchorY = 'middle';
-    t.outlineWidth = OUTLINE_WIDTH;
-    t.outlineColor = OUTLINE_COLOR;
+    t.outlineWidth = READOUT_OUTLINE_WIDTH;
+    t.outlineColor = READOUT_OUTLINE_COLOR;
     return t;
   }
 
@@ -184,8 +176,8 @@ export class EquationReadout {
     t.color = SEPARATOR_COLOR;
     t.anchorX = 'center';
     t.anchorY = 'middle';
-    t.outlineWidth = OUTLINE_WIDTH;
-    t.outlineColor = OUTLINE_COLOR;
+    t.outlineWidth = READOUT_OUTLINE_WIDTH;
+    t.outlineColor = READOUT_OUTLINE_COLOR;
     return t;
   }
 
@@ -207,8 +199,8 @@ export class EquationReadout {
     const numericW = NUMERIC_SLOT_EM * this.fontSize;
     const separatorW = SEPARATOR_SLOT_EM * this.fontSize;
     const separatorTailW = SEPARATOR_TAIL_EM * this.fontSize;
-    const topY = LINE_PITCH / 2;
-    const bottomY = -LINE_PITCH / 2;
+    const topY = READOUT_LINE_PITCH / 2;
+    const bottomY = -READOUT_LINE_PITCH / 2;
 
     const topVisible = TOP_SLOTS.filter((s) => this.visibilityMask[s]);
     const bottomNonDVisible = BOTTOM_NON_D_SLOTS.filter(
@@ -335,7 +327,10 @@ export class EquationReadout {
     // can uncloak with real text on frame 1 even if `lastSyncMs` was
     // somehow within the throttle window at construction (defensive —
     // in practice `lastSyncMs = 0` and `now - 0` is always >> 33 ms).
-    if (this.hasBootstrapped && now - this.lastSyncMs < SYNC_INTERVAL_MS) {
+    if (
+      this.hasBootstrapped &&
+      now - this.lastSyncMs < READOUT_SYNC_INTERVAL_MS
+    ) {
       return;
     }
     this.lastSyncMs = now;

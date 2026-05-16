@@ -1,12 +1,21 @@
 import * as THREE from 'three';
 import { createTranslucentRect } from '@/scaffold/render/TranslucentRect';
+import {
+  LOCKED_113_BODY_ALPHA,
+  LOCKED_113_RIM_ALPHA,
+  LOCKED_113_RIM_WIDTH_DEFAULT,
+  createLocked113BodyColor,
+  createLocked113RimColor,
+} from '@/scaffold/render/translucentRectTokens';
 import type { MathVec3 } from '@/scaffold/math/frames';
 import { poseTangentPlaneMesh } from './poseTangentPlaneMesh';
 
 // Tangent-plane mesh for the tangent-planes scene (#148). A single
 // translucent rectangle anchored at the user-selected surface point,
 // oriented so its normal matches ∇f at that point. Visual treatment
-// mirrors the cross-section slicing-plane recipe locked in #113.
+// mirrors the cross-section slicing-plane recipe locked in #113;
+// visual constants imported from `scaffold/render/translucentRectTokens.ts`
+// (#201 PR 1).
 //
 // Coordinate convention (locked): this wrapper's `group.position` stays
 // at (0, 0, 0). The full world-space transform —
@@ -20,14 +29,6 @@ import { poseTangentPlaneMesh } from './poseTangentPlaneMesh';
 // can't paint a stale construction-time pose between mount and the
 // first update tick. The consumer flips visibility on the first hit
 // frame after calling `setPose`.
-
-// Locked #113 visual recipe — keep in sync with
-// src/exhibits/quadrics/SlicingPlane.ts.
-const PLANE_BODY_COLOR = new THREE.Color(0.34, 0.71, 0.91);
-const PLANE_BODY_ALPHA = 0.10;
-const PLANE_RIM_COLOR = new THREE.Color(0.70, 0.90, 0.99);
-const PLANE_RIM_ALPHA = 0.65;
-const PLANE_RIM_WIDTH = 0.05;
 
 export interface TangentPlaneOptions {
   /**
@@ -77,11 +78,11 @@ export function createTangentPlane(
 ): TangentPlaneHandles {
   const rectHandle = createTranslucentRect({
     halfExtent: opts.halfExtent,
-    bodyColor: PLANE_BODY_COLOR,
-    bodyAlpha: PLANE_BODY_ALPHA,
-    rimColor: PLANE_RIM_COLOR,
-    rimAlpha: PLANE_RIM_ALPHA,
-    rimWidth: PLANE_RIM_WIDTH,
+    bodyColor: createLocked113BodyColor(),
+    bodyAlpha: LOCKED_113_BODY_ALPHA,
+    rimColor: createLocked113RimColor(),
+    rimAlpha: LOCKED_113_RIM_ALPHA,
+    rimWidth: LOCKED_113_RIM_WIDTH_DEFAULT,
   });
 
   const group = new THREE.Group();

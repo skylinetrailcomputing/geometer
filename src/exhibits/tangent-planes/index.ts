@@ -8,6 +8,16 @@ import { createImplicitSurface } from '@/scaffold/render/ImplicitSurface';
 import { formatAnglePiFraction } from '@/scaffold/ui/formatAnglePiFraction';
 import { Label } from '@/scaffold/ui/Label';
 import { Slider } from '@/scaffold/ui/Slider';
+import {
+  GRAB_RADIUS_MULTIPLIER,
+  SLIDER_LABEL_LINE_GAP,
+  SLIDER_LABEL_PRIMARY_FONT_SIZE,
+  SLIDER_LABEL_SECONDARY_FONT_SIZE,
+  SLIDER_LABEL_X_OFFSET,
+  SLIDER_ROW_PITCH,
+  SLIDER_SNAP_DETENT,
+  createSliderRackCenter,
+} from '@/scaffold/ui/clusterRackTokens';
 import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
 import {
   BLUISH_GREEN,
@@ -46,7 +56,11 @@ import { TangentPlaneReadout } from './TangentPlaneReadout';
 // relocate the surface. The same arm's-length depth (z = -0.7) carries
 // across all rack tiers (slider rack, SectionTab rack, SceneRack).
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
-const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
+// Per-file fresh THREE.Vector3 from scaffold/ui/clusterRackTokens
+// (#201 PR 4). Shared canonical value is the immutable
+// SLIDER_RACK_CENTER_COORDS tuple; the factory builds a fresh instance
+// so mutation in one scene can't leak to another.
+const SLIDER_RACK_CENTER = createSliderRackCenter();
 const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
 
 // Tangent-plane readout (#149) sits above the slider rack, on the same
@@ -64,10 +78,8 @@ const BOUND = 1.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 const BASE_COLOR = new THREE.Color(0.4, 0.7, 0.95);
 
-// Quadrics' design feel ports across.
-const SLIDER_SNAP_DETENT = 0.05;
-const GRAB_RADIUS_MULTIPLIER = 2.75;
-const SLIDER_ROW_PITCH = 0.14;
+// Quadrics' design feel ports across — imported from
+// scaffold/ui/clusterRackTokens (#201 PR 4).
 
 // θ ∈ [0, π], snap at the two poles + the equator. φ ∈ [-π, π], snap at
 // the four cardinal compass directions; the ±π double-snap makes the
@@ -105,10 +117,7 @@ const INDICATOR_COLOR = 0xdddddd;
 // thumb at slider min by 0.025 m. Sizes shrunk from the v1 plan
 // values to leave 0.034 m of breathing room between adjacent labels
 // in the 3-row gradient-levels rack — same constants port across.
-const SLIDER_LABEL_X_OFFSET = -0.20;
-const SLIDER_LABEL_PRIMARY_FONT_SIZE = 0.05;
-const SLIDER_LABEL_SECONDARY_FONT_SIZE = 0.035;
-const SLIDER_LABEL_LINE_GAP = 0.008;
+// Imported from scaffold/ui/clusterRackTokens (#201 PR 4).
 
 // Controller-aim picking (#197). VR-only direct-manipulation affordance
 // alongside the angular sliders: aim a controller at the unit sphere and

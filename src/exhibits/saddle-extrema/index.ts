@@ -11,10 +11,17 @@ import {
 } from '@/scaffold/design/tokens';
 import { Label } from '@/scaffold/ui/Label';
 import { Slider } from '@/scaffold/ui/Slider';
+import { Preset } from '@/scaffold/ui/Preset';
 import {
-  TapButton,
-  type TapButtonVisuals,
-} from '@/scaffold/ui/TapButton';
+  GRAB_RADIUS_MULTIPLIER,
+  SLIDER_LABEL_LINE_GAP,
+  SLIDER_LABEL_PRIMARY_FONT_SIZE,
+  SLIDER_LABEL_SECONDARY_FONT_SIZE,
+  SLIDER_LABEL_X_OFFSET,
+  SLIDER_ROW_PITCH,
+  SLIDER_SNAP_DETENT,
+  createSliderRackCenter,
+} from '@/scaffold/ui/clusterRackTokens';
 import { WorldAxes } from '@/scaffold/ui/WorldAxes';
 import {
   createCriticalPointMarkers,
@@ -70,9 +77,11 @@ const READOUT_POSITION = new THREE.Vector3(0, 1.5, -0.7);
 // Slider rack — two-row symmetric straddle around SLIDER_RACK_CENTER. The
 // 3-row top-heavy pattern from gradient-levels (θ/φ/k at [center+pitch,
 // center, center-pitch]) doesn't carry over cleanly to a 2-row rack; the
-// straddle layout reads as balanced.
-const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
-const SLIDER_ROW_PITCH = 0.14;
+// straddle layout reads as balanced. SLIDER_RACK_CENTER / SLIDER_ROW_PITCH
+// imported from scaffold/ui/clusterRackTokens (#201 PR 4) — per-file
+// fresh THREE.Vector3 from the factory so mutation can't leak across
+// scenes.
+const SLIDER_RACK_CENTER = createSliderRackCenter();
 const X_SLIDER_Y = SLIDER_RACK_CENTER.y + SLIDER_ROW_PITCH / 2;
 const Y_SLIDER_Y = SLIDER_RACK_CENTER.y - SLIDER_ROW_PITCH / 2;
 
@@ -83,8 +92,8 @@ const Y_SLIDER_Y = SLIDER_RACK_CENTER.y - SLIDER_ROW_PITCH / 2;
 // origin, so the projected snap set collapses to `[0]` and visible
 // behavior is unchanged from v0.7; future off-origin presets (or
 // user-supplied f(x, y) in v1.x) get correct CP-aware snaps for free.
-const SLIDER_SNAP_DETENT = 0.05;
-const GRAB_RADIUS_MULTIPLIER = 2.75;
+// SLIDER_SNAP_DETENT / GRAB_RADIUS_MULTIPLIER imported from
+// scaffold/ui/clusterRackTokens (#201 PR 4).
 
 // Initial pose — off origin-snap, off endpoints, off both axes,
 // non-equal — so first-frame drag responds in any direction.
@@ -93,11 +102,8 @@ const Y_INITIAL = 0.3;
 
 // Per-slider variable + value label layout — verbatim from gradient-levels'
 // #170 layout. Right-anchored so worst-case secondary text "−1.50" stays
-// clear of the slider thumb at any value.
-const SLIDER_LABEL_X_OFFSET = -0.20;
-const SLIDER_LABEL_PRIMARY_FONT_SIZE = 0.05;
-const SLIDER_LABEL_SECONDARY_FONT_SIZE = 0.035;
-const SLIDER_LABEL_LINE_GAP = 0.008;
+// clear of the slider thumb at any value. Imported from
+// scaffold/ui/clusterRackTokens (#201 PR 4).
 
 // Indicator — verbatim port from cluster siblings for visual consistency.
 const INDICATOR_RADIUS = 0.04;
@@ -123,19 +129,11 @@ const PRESET_RES = 128;
 // preset is a persistent mode (the surface IS the preset's f), where the
 // manipulator's preset is a one-shot snap-to-pose. Sticky-active reads as
 // "this is the current archetype"; press flash layers on top as tap
-// feedback. Pattern echoes SectionTab (#57): press + active + hover, all
-// three managed by the shared TapButton base.
-const PRESET_BUTTON_VISUALS: TapButtonVisuals = {
-  groupNamePrefix: 'preset',
-  buttonRadius: 0.02,
-  baseColor: 0x44aabb,
-  hoverEmissive: 0x224455,
-  activeEmissive: 0x66ccdd,
-  pressEmissive: 0x88ddff,
-  labelFontSize: 0.022,
-  labelOffsetY: -0.025,
-  labelAnchorY: 'top',
-};
+// feedback. After #201 PR 6 this scene uses Preset with the optional
+// `activeEmissive` field rather than constructing a raw TapButton with
+// its own visuals constant; the shared Preset class owns the cool-blue
+// identity, this scene only overrides the active emissive color.
+const PRESET_ACTIVE_EMISSIVE = 0x66ccdd;
 
 // Local linear-decimal formatter for the per-slider value labels.
 // Identical in shape to gradient-levels' local helper (#170 history);
@@ -162,7 +160,7 @@ let ySlider: Slider | undefined;
 let xLabel: Label | undefined;
 let yLabel: Label | undefined;
 let indicator: THREE.Mesh | undefined;
-let presetButtons: TapButton[] = [];
+let presetButtons: Preset[] = [];
 let activePresetIndex = DEFAULT_PRESET_INDEX;
 let saddleExtremaReadout: SaddleExtremaReadout | undefined;
 let camera: THREE.Camera | undefined;
@@ -351,10 +349,10 @@ const saddleExtremaExhibit: Exhibit = {
     // PRESETS array order. The starter (saddle, DEFAULT_PRESET_INDEX) is
     // marked sticky-active so the user reads which archetype is current.
     presetButtons = PRESETS.map((preset, i) => {
-      const btn = new TapButton({
+      const btn = new Preset({
         name: preset.label,
         grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
-        visuals: PRESET_BUTTON_VISUALS,
+        activeEmissive: PRESET_ACTIVE_EMISSIVE,
       });
       btn.group.position.set(
         PRESET_ROW_START_X + i * PRESET_HORIZONTAL_PITCH,

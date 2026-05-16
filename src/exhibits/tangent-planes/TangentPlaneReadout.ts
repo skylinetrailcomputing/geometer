@@ -2,6 +2,13 @@ import * as THREE from 'three';
 import { Text } from 'troika-three-text';
 import type { MathVec3 } from '@/scaffold/math/frames';
 import {
+  READOUT_FONT_SIZE,
+  READOUT_LINE_PITCH,
+  READOUT_OUTLINE_COLOR,
+  READOUT_OUTLINE_WIDTH,
+  READOUT_SYNC_INTERVAL_MS,
+} from '@/scaffold/ui/readoutTokens';
+import {
   formatTangentPlaneReadout,
   type TangentPlaneReadoutStrings,
 } from './formatTangentPlaneReadout';
@@ -48,8 +55,6 @@ export interface TangentPlaneReadoutOptions {
   fontSize?: number;
 }
 
-const DEFAULT_FONT_SIZE = 0.028;
-
 // Slot widths in em (multiples of fontSize). NUMERIC fits worst-case
 // `−N.NN`; separator widths are sized to their string content with
 // modest breathing room. Tunable in headset; these are the v0.6 lock.
@@ -63,21 +68,7 @@ const EQ_OPEN_EM = 2.2;           // "n = ( "
 const COMMA_EM = 1.0;             // " , "
 const CLOSE_PAREN_EM = 1.0;       // " )"
 
-// Vertical gap between the two lines. Larger than 1× fontSize so the
-// lines read as visually distinct rows; smaller than 2.5× to keep the
-// readout's total height under the gap to the slider rack at y ≈ 1.07
-// (top of the θ slider).
-const LINE_PITCH = 0.06;
-
 const SEPARATOR_COLOR = 0xffffff;
-const OUTLINE_WIDTH = '8%';
-const OUTLINE_COLOR = 0x000000;
-
-// Throttle the troika `.sync()` calls to ≈30 Hz, mirroring
-// `EquationReadout.ts`. Bounds SDF rebuild work during fast drags;
-// per-frame head-pose billboarding (faceCamera) still runs every frame
-// so motion smoothness is unaffected.
-const SYNC_INTERVAL_MS = 33;
 
 // Per-axis slot indices into `axisColors`. The construction loops walk
 // from AXIS_X through AXIS_Z; the AXIS_Y constant is implicit in that
@@ -123,7 +114,7 @@ export class TangentPlaneReadout {
   private readonly groupWorld = new THREE.Vector3();
 
   constructor(opts: TangentPlaneReadoutOptions) {
-    this.fontSize = opts.fontSize ?? DEFAULT_FONT_SIZE;
+    this.fontSize = opts.fontSize ?? READOUT_FONT_SIZE;
 
     this.group = new THREE.Group();
     this.group.name = 'tangent-plane-readout';
@@ -140,8 +131,8 @@ export class TangentPlaneReadout {
     const commaW = COMMA_EM * this.fontSize;
     const closeParenW = CLOSE_PAREN_EM * this.fontSize;
 
-    const topY = LINE_PITCH / 2;
-    const bottomY = -LINE_PITCH / 2;
+    const topY = READOUT_LINE_PITCH / 2;
+    const bottomY = -READOUT_LINE_PITCH / 2;
 
     // ─── Top line ────────────────────────────────────────────────
     // [n_x] " (x " [x₀] ") + " [n_y] " (y " [y₀] ") + " [n_z] " (z " [z₀] ") = 0"
@@ -245,8 +236,8 @@ export class TangentPlaneReadout {
     t.color = color;
     t.anchorX = 'center';
     t.anchorY = 'middle';
-    t.outlineWidth = OUTLINE_WIDTH;
-    t.outlineColor = OUTLINE_COLOR;
+    t.outlineWidth = READOUT_OUTLINE_WIDTH;
+    t.outlineColor = READOUT_OUTLINE_COLOR;
     return t;
   }
 
@@ -256,14 +247,14 @@ export class TangentPlaneReadout {
     t.color = SEPARATOR_COLOR;
     t.anchorX = 'center';
     t.anchorY = 'middle';
-    t.outlineWidth = OUTLINE_WIDTH;
-    t.outlineColor = OUTLINE_COLOR;
+    t.outlineWidth = READOUT_OUTLINE_WIDTH;
+    t.outlineColor = READOUT_OUTLINE_COLOR;
     return t;
   }
 
   /**
    * Update all nine numerics from the per-frame raymarch result. Throttled
-   * to ≈30 Hz via SYNC_INTERVAL_MS — mirrors EquationReadout's cadence and
+   * to ≈30 Hz via READOUT_SYNC_INTERVAL_MS — mirrors EquationReadout's cadence and
    * bounds troika SDF rebuild work during fast drags. Per-slot caching
    * skips the .text + .sync() write when the formatted string hasn't
    * changed (e.g. between sub-pixel slider motions that round to the
@@ -273,7 +264,10 @@ export class TangentPlaneReadout {
     const now = performance.now();
     // Bypass the throttle on the first call so the boot-hidden group
     // can uncloak with real text on frame 1 (#201 PR 3).
-    if (this.hasBootstrapped && now - this.lastSyncMs < SYNC_INTERVAL_MS) {
+    if (
+      this.hasBootstrapped &&
+      now - this.lastSyncMs < READOUT_SYNC_INTERVAL_MS
+    ) {
       return;
     }
     this.lastSyncMs = now;
