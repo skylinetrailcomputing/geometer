@@ -161,6 +161,59 @@ nine numeric strings and is unit-tested under
 sibling vs. extending-`EquationReadout` decision is recorded in the
 class header — different slot model, no hide-on-zero, simpler.
 
+## Controller-aim picking (#197, v0.9)
+
+VR-only direct-manipulation affordance alongside the angular sliders.
+Aim a controller at the unit sphere and pull the trigger to land the
+contact point at the ray–surface intersection; hold the trigger to drag
+the contact point across the surface. Releases on trigger-up.
+
+- **Coexists with the sliders** — does not replace them. Sliders remain
+  the universal affordance (pancake mode and VR alike); picking is an
+  additional VR-mode input that the user can prefer for coarse
+  positioning. Mode gate: `pointer.id.startsWith('vr-')`, set by the
+  shell when constructing `VRPointer`s — pancake's `DesktopPointer`s
+  use `'desktop'` / `'mobile'` so the gate short-circuits without a
+  separate mode read.
+- **Pancake unaffected.** The mouse cursor is a sufficiently-direct
+  affordance on desktop; per-mouse raycast picking is deferred (no
+  acceptance loss for v0.9).
+- **Snap policy** — `Slider.setValue` (not `setValueRaw`) is used to
+  apply the picked angles, so each frame's pick re-applies the same
+  θ / φ snap detents the sliders use under direct drag. Picking near a
+  detent (e.g., a controller aiming approximately at the equator)
+  lands on the detent; off-snap aim lands freely. Consistent with the
+  drag-tick snap contract.
+- **Slider-grab precedence.** `onSelectStart` tries `Slider.tryGrab`
+  first; only an empty trigger pull (not on a thumb) escalates to
+  sphere-aim picking.
+- **Two-controller interaction.** Picking is a single slot —
+  first-trigger-wins, mirroring `Slider.tryGrab`'s
+  `if (grabbedBy) return false`. A second controller's trigger pull
+  while pick is active does not steal the slot; it falls through to
+  the rack / no-op. The slider-drag-while-picking case
+  (one hand holds the contact point, the other fine-tunes θ or φ)
+  works: each per-frame pick refresh skips the `Slider.setValue`
+  on any slider currently grabbed by the *other* controller, so the
+  drag tick's `rawValue` accumulator + `lastPointerAxisX` baseline
+  aren't overwritten by the pick's rebase. The skipped slider
+  resumes tracking the pick on the frame after the user releases it.
+- **Miss policy.** A controller drift mid-drag that loses the sphere
+  freezes the indicator at the last picked pose for that frame — the
+  sliders' values are simply not refreshed. Releasing the trigger
+  ends the picking gesture; the indicator path through the per-frame
+  slider-driven raycast continues unchanged.
+- **Pole degeneracy.** At a pole, `Math.atan2(0, 0) = 0` per IEEE 754,
+  so the φ slider snaps to 0 if the user aims exactly at the pole.
+  The indicator + tangent plane don't visibly move (φ is degenerate
+  there). Near-pole aim — the in-headset common case — reads
+  naturally.
+
+The math-frame inverse `anglesFromDirection` mirrors
+`directionFromAngles` and lives in `scaffold/math/`; both share the
+same parametrization tests so a θ/φ axis transposition fails at the
+unit-test level rather than slipping through to a headset smoke pass.
+
 ## Per-slider labels (#170)
 
 Each slider in the rack carries a two-line billboarded label
@@ -189,8 +242,8 @@ indicator.
 ## Out of scope (v0.6)
 
 - **Coefficient editing** — see "Equation form" above.
-- **Controller-aim point picking** — natural in headset, unusable on
-  the pancake build (#105) and Cloudflare PR previews. Deferred to v0.9.
+- **Controller-aim point picking** — landed in v0.9; see "Controller-aim
+  picking (#197, v0.9)" above.
 - **Floor** — quadrics needs a hole-punched floor for its 3.5 m
   bounding cube; tangent-planes' 1.5 m cube doesn't intersect a
   ground-level floor at the surface center, so a floor is unwarranted
