@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { Text } from 'troika-three-text';
 import {
+  READOUT_FONT_SIZE,
+  READOUT_LINE_PITCH,
+  READOUT_OUTLINE_COLOR,
+  READOUT_OUTLINE_WIDTH,
+  READOUT_SYNC_INTERVAL_MS,
+} from '@/scaffold/ui/readoutTokens';
+import {
   formatSaddleExtremaReadout,
   type SaddleExtremaReadoutStrings,
 } from './formatSaddleExtremaReadout';
@@ -66,8 +73,6 @@ export interface SaddleExtremaReadoutOptions {
   fontSize?: number;
 }
 
-const DEFAULT_FONT_SIZE = 0.028;
-
 // Slot widths in em (multiples of fontSize). NUMERIC_ENTRY_EM fits
 // worst-case `−12.00` (monkey saddle / quartic at domain corners);
 // NUMERIC_D_EM fits worst-case `−103.68` (monkey saddle at corner
@@ -82,18 +87,7 @@ const TOP_ENTRY_GAP_EM = 1.2;
 // `D = ` on the middle line.
 const PREFIX_D_EM = 2.0;
 
-// Vertical pitch — same as gradient-levels for visual consistency
-// across the cluster's readouts. Three lines ⇒ ±LINE_PITCH around mid.
-const LINE_PITCH = 0.06;
-
 const SEPARATOR_COLOR = 0xffffff;
-const OUTLINE_WIDTH = '8%';
-const OUTLINE_COLOR = 0x000000;
-
-// Throttle troika `.sync()` calls. Bounds SDF rebuild work during fast
-// slider drags. Per-frame head-pose billboarding (faceCamera) still
-// runs every frame so motion smoothness is unaffected.
-const SYNC_INTERVAL_MS = 33;
 
 // Entry-slot index range — `for i = ENTRY_XX; i <= ENTRY_YY` covers
 // [f_xx, f_xy, f_yy] in math reading order. The middle index (f_xy)
@@ -132,7 +126,7 @@ export class SaddleExtremaReadout {
   private readonly groupWorld = new THREE.Vector3();
 
   constructor(opts: SaddleExtremaReadoutOptions) {
-    this.fontSize = opts.fontSize ?? DEFAULT_FONT_SIZE;
+    this.fontSize = opts.fontSize ?? READOUT_FONT_SIZE;
 
     this.group = new THREE.Group();
     this.group.name = 'saddle-extrema-readout';
@@ -147,9 +141,9 @@ export class SaddleExtremaReadout {
     const prefixDW = PREFIX_D_EM * this.fontSize;
     const topGapW = TOP_ENTRY_GAP_EM * this.fontSize;
 
-    const topY = LINE_PITCH;
+    const topY = READOUT_LINE_PITCH;
     const midY = 0;
-    const bottomY = -LINE_PITCH;
+    const bottomY = -READOUT_LINE_PITCH;
 
     // ─── Top line ──────────────────────────────────────────────────
     // `f_xx = ` [n_xx] `   f_xy = ` [n_xy] `   f_yy = ` [n_yy]
@@ -220,8 +214,8 @@ export class SaddleExtremaReadout {
     t.color = color;
     t.anchorX = 'center';
     t.anchorY = 'middle';
-    t.outlineWidth = OUTLINE_WIDTH;
-    t.outlineColor = OUTLINE_COLOR;
+    t.outlineWidth = READOUT_OUTLINE_WIDTH;
+    t.outlineColor = READOUT_OUTLINE_COLOR;
     return t;
   }
 
@@ -231,14 +225,14 @@ export class SaddleExtremaReadout {
     t.color = SEPARATOR_COLOR;
     t.anchorX = 'center';
     t.anchorY = 'middle';
-    t.outlineWidth = OUTLINE_WIDTH;
-    t.outlineColor = OUTLINE_COLOR;
+    t.outlineWidth = READOUT_OUTLINE_WIDTH;
+    t.outlineColor = READOUT_OUTLINE_COLOR;
     return t;
   }
 
   /**
    * Update all five slots from the per-frame Hessian. Throttled to
-   * ≈30 Hz via SYNC_INTERVAL_MS, with per-slot caching so unchanged
+   * ≈30 Hz via READOUT_SYNC_INTERVAL_MS, with per-slot caching so unchanged
    * strings don't re-trigger troika's `.sync()`.
    *
    * On first call, uncloaks `group.visible = true` — the readout
@@ -248,7 +242,7 @@ export class SaddleExtremaReadout {
     if (!this.group.visible) this.group.visible = true;
 
     const now = performance.now();
-    if (now - this.lastSyncMs < SYNC_INTERVAL_MS) return;
+    if (now - this.lastSyncMs < READOUT_SYNC_INTERVAL_MS) return;
     this.lastSyncMs = now;
 
     const s: SaddleExtremaReadoutStrings = formatSaddleExtremaReadout(hessian);
