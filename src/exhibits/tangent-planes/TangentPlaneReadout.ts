@@ -102,6 +102,11 @@ export class TangentPlaneReadout {
   private readonly bottomNumericCache: string[] = new Array(3).fill('');
 
   private lastSyncMs = 0;
+  // Visibility-bootstrap guard (#201 PR 3). Boots `group.visible =
+  // false`; flips to `true` after the first `setValues` writes real
+  // text into the troika `Text` slots. Avoids a first-frame paint of
+  // empty strings between mount and the first update() tick.
+  private hasBootstrapped = false;
 
   // Hoisted out of `faceCamera` so per-frame billboarding does no
   // allocation. Same convention as `EquationReadout.ts:115-116`.
@@ -113,6 +118,10 @@ export class TangentPlaneReadout {
 
     this.group = new THREE.Group();
     this.group.name = 'tangent-plane-readout';
+    // Boot hidden — uncloaks on first setValues (#201 PR 3). Avoids
+    // a first-frame paint of empty troika `Text` slots between mount
+    // and the first update() tick.
+    this.group.visible = false;
 
     const numericW = NUMERIC_SLOT_EM * this.fontSize;
     const openParenW = OPEN_PAREN_EM * this.fontSize;
@@ -253,7 +262,14 @@ export class TangentPlaneReadout {
    */
   setValues(point: MathVec3, normal: MathVec3): void {
     const now = performance.now();
-    if (now - this.lastSyncMs < READOUT_SYNC_INTERVAL_MS) return;
+    // Bypass the throttle on the first call so the boot-hidden group
+    // can uncloak with real text on frame 1 (#201 PR 3).
+    if (
+      this.hasBootstrapped &&
+      now - this.lastSyncMs < READOUT_SYNC_INTERVAL_MS
+    ) {
+      return;
+    }
     this.lastSyncMs = now;
 
     const strings: TangentPlaneReadoutStrings = formatTangentPlaneReadout(
@@ -287,6 +303,13 @@ export class TangentPlaneReadout {
         this.bottomNumerics[axis].text = nStr;
         this.bottomNumerics[axis].sync();
       }
+    }
+
+    // First-call uncloak (#201 PR 3). All cache-miss .sync() writes
+    // above have completed; the boot-hidden group flips visible here.
+    if (!this.hasBootstrapped) {
+      this.group.visible = true;
+      this.hasBootstrapped = true;
     }
   }
 

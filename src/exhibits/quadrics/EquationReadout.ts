@@ -103,6 +103,12 @@ export class EquationReadout {
     NUMERIC_SLOT_COUNT,
   ).fill(true);
   private lastSyncMs = 0;
+  // Visibility-bootstrap guard (#201 PR 3). The readout boots with
+  // `group.visible = false` so the first frame doesn't paint empty
+  // troika `Text` slots. The first `setValues` call writes real values
+  // and then flips `group.visible = true`; subsequent calls are no-op
+  // on visibility.
+  private hasBootstrapped = false;
 
   // Hoisted out of `faceCamera` so per-frame billboarding does no allocation.
   private readonly camWorld = new THREE.Vector3();
@@ -113,6 +119,11 @@ export class EquationReadout {
 
     this.group = new THREE.Group();
     this.group.name = 'equation-readout';
+    // Boot hidden — uncloaks on first setValues (#201 PR 3). Avoids
+    // a first-frame paint of empty troika `Text` slots between mount
+    // and the first update() tick. Bypassed once `hasBootstrapped`
+    // flips on the first real value write.
+    this.group.visible = false;
 
     // Numerics — one per slot, color baked in. Position is assigned by
     // applyLayout(); kept at origin until the first layout pass.
@@ -312,7 +323,16 @@ export class EquationReadout {
     w: number,
   ): void {
     const now = performance.now();
-    if (now - this.lastSyncMs < READOUT_SYNC_INTERVAL_MS) return;
+    // Bypass the throttle on the first call so the boot-hidden group
+    // can uncloak with real text on frame 1 even if `lastSyncMs` was
+    // somehow within the throttle window at construction (defensive —
+    // in practice `lastSyncMs = 0` and `now - 0` is always >> 33 ms).
+    if (
+      this.hasBootstrapped &&
+      now - this.lastSyncMs < READOUT_SYNC_INTERVAL_MS
+    ) {
+      return;
+    }
     this.lastSyncMs = now;
 
     // Indexed in visual reading order [a, b, c, u, v, w, d] to match the
@@ -336,6 +356,15 @@ export class EquationReadout {
       this.numericValues[i] = value;
       this.numericTexts[i].text = formatSignedMagnitude(value);
       this.numericTexts[i].sync();
+    }
+
+    // First-call uncloak (#201 PR 3). All numeric `.sync()` writes
+    // above have completed for any dirty slot; `applyLayout` (if it
+    // ran on a mask change) has also fired its inline separator syncs.
+    // Flipping `group.visible = true` here paints the first real frame.
+    if (!this.hasBootstrapped) {
+      this.group.visible = true;
+      this.hasBootstrapped = true;
     }
   }
 
