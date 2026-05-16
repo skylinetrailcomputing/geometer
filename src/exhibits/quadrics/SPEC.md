@@ -330,3 +330,48 @@ them.
 - Per-axis labels and *measurement* gridlines (numbered tick marks on
   the world axes). Distinct from v0.1's decorative depth-cue gridlines
   (above) — those are unlabeled and exist purely for parallax.
+
+## Design-language alignment (#201)
+
+The quadrics manipulator is the inherited template for the cluster's
+design language — every other scene's "Design-language alignment"
+section cross-references this one. v0.9 lifted the duplicated locals
+into shared scaffold tokens; the rules are documented in
+`scaffold/design/tokens.ts`'s header comment.
+
+**Scaffold tokens consumed (post-#201):**
+
+- `scaffold/render/translucentRectTokens.ts` (PR 1) — `SlicingPlane`'s
+  body / rim colors, alphas, and rim width come from the locked #113
+  recipe.
+- `scaffold/ui/readoutTokens.ts` (PR 2) — `EquationReadout`'s font
+  size, line pitch, outline, and 30-Hz sync throttle.
+- `scaffold/ui/clusterRackTokens.ts` (PR 4) — `SLIDER_RACK_CENTER`
+  (via `createSliderRackCenter()`), row pitch, snap detent,
+  grab-radius multiplier.
+
+**Readout visibility-bootstrap policy:** `EquationReadout` boots
+`group.visible = false` and uncloaks on the first `setValues` call
+(#201 PR 3). This is the *whole-readout* boot policy. The pre-existing
+**hide-on-zero per-slot reflow** (#95) is a separate axis — per-slot
+conditional visibility based on coefficient zero-ness, fires on every
+`setValues` after bootstrap; unaffected by the boot policy.
+
+**Documented exceptions to the cluster's design-language rules:**
+
+- **No per-slider labels (#170 not applied).** The 10-slider rack
+  (4 squared + 3 linear + 3 cross-section) is dense enough that
+  per-slider labels would crowd the rack; the live equation readout
+  above the rack carries the coefficient values instead. Cluster
+  siblings with 2–3-slider racks use #170 labels.
+- **Axis-colored slider thumbs.** Every slider's value IS a named
+  coefficient on a named axis: `a/b/c` and `u/v/w` are tinted by axis
+  (VERMILLION/BLUISH_GREEN/SKY_BLUE), `d` is YELLOW (the "important
+  math fact at a point" tint applied to the constant term).
+  `x₀/y₀/z₀` cross-section sliders reuse axis tints per axis. Matches
+  the slider tint rule in `tokens.ts`.
+- **Preset row stays one-shot.** Quadrics' presets are snap-to-pose:
+  press flash IS the feedback. `Preset` constructed without
+  `activeEmissive` (#201 PR 6 added the option for sticky-active
+  scenes; quadrics doesn't pass it). Sticky-active is documented in
+  saddle-extrema's "Design-language alignment" section.

@@ -253,3 +253,36 @@ indicator.
 - **Ray-origin choice for translated quadrics.** Currently fixed at the
   surface-local origin, which works only because the unit sphere
   encloses it. Note for any future surface that doesn't.
+
+## Design-language alignment (#201)
+
+Scene inherits the quadrics-locked design language. Rules live in
+`scaffold/design/tokens.ts`'s header; quadrics' SPEC.md
+"Design-language alignment" section is the source-of-truth template.
+
+**Scaffold tokens consumed (post-#201):**
+
+- `scaffold/render/translucentRectTokens.ts` (PR 1) — `TangentPlane`'s
+  body / rim colors, alphas, and rim width come from the locked #113
+  recipe.
+- `scaffold/ui/readoutTokens.ts` (PR 2) — `TangentPlaneReadout`'s
+  font size, line pitch, outline, and 30-Hz sync throttle.
+- `scaffold/ui/clusterRackTokens.ts` (PR 4) — rack center (via
+  `createSliderRackCenter()`), row pitch, snap detent, grab-radius
+  multiplier, and per-slider label (#170) layout.
+
+**Readout visibility-bootstrap policy:** `TangentPlaneReadout` boots
+`group.visible = false` and uncloaks on the first `setValues` call
+(#201 PR 3). No hide-on-zero reflow — the textbook identity
+`(x − 0.00)` reads correctly at exact zero, so eliding zero terms
+would obscure the form.
+
+**Documented exceptions:**
+
+- **Neutral-gray slider thumbs.** θ and φ are point selectors on a
+  unit sphere — they parameterize the math abstractly, not as axis
+  coordinates. Per the slider tint rule in `tokens.ts`, non-axis-
+  coordinate sliders stay neutral gray (`0xaaaaaa`).
+- **No preset rack.** The surface is fixed (unit sphere); no preset
+  archetypes to select.
+- **No section rack.** Single point-selection lens.
