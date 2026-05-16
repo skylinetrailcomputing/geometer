@@ -10,6 +10,16 @@ import { raycastImplicit } from '@/scaffold/render/raycastImplicit';
 import { formatAnglePiFraction } from '@/scaffold/ui/formatAnglePiFraction';
 import { Label } from '@/scaffold/ui/Label';
 import { Slider } from '@/scaffold/ui/Slider';
+import {
+  GRAB_RADIUS_MULTIPLIER,
+  SLIDER_LABEL_LINE_GAP,
+  SLIDER_LABEL_PRIMARY_FONT_SIZE,
+  SLIDER_LABEL_SECONDARY_FONT_SIZE,
+  SLIDER_LABEL_X_OFFSET,
+  SLIDER_ROW_PITCH,
+  SLIDER_SNAP_DETENT,
+  createSliderRackCenter,
+} from '@/scaffold/ui/clusterRackTokens';
 import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
 import {
   BLUISH_GREEN,
@@ -48,7 +58,9 @@ import { BOUND, fJsRaw, gradJs } from './surfaceModel';
 // Match cluster siblings so SceneRack swaps don't visually relocate the
 // surface or the rack.
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
-const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
+// Per-file fresh THREE.Vector3 from scaffold/ui/clusterRackTokens
+// (#201 PR 4). Per-scene instance — mutation can't leak across scenes.
+const SLIDER_RACK_CENTER = createSliderRackCenter();
 const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
 
 // Live readout (#166) — anchored above the three-row slider rack. y bumped
@@ -62,20 +74,15 @@ const READOUT_POSITION = new THREE.Vector3(0, 1.42, -0.7);
 // a one-line "k = N.NN" readout below the k slider; #170 unifies it into
 // the same two-line shape as the new θ/φ labels — same per-row anchor,
 // same fonts. Frees the y = 0.70 slot the old k label occupied.
-const SLIDER_LABEL_X_OFFSET = -0.20;
-const SLIDER_LABEL_PRIMARY_FONT_SIZE = 0.05;
-const SLIDER_LABEL_SECONDARY_FONT_SIZE = 0.035;
-const SLIDER_LABEL_LINE_GAP = 0.008;
+// Imported from scaffold/ui/clusterRackTokens (#201 PR 4).
 
 // Cluster siblings' lighting + base color so the surface reads as a
 // sibling, not as a separate scene's surface.
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 const BASE_COLOR = new THREE.Color(0.4, 0.7, 0.95);
 
-// Quadrics' design feel ports across the cluster.
-const SLIDER_SNAP_DETENT = 0.05;
-const GRAB_RADIUS_MULTIPLIER = 2.75;
-const SLIDER_ROW_PITCH = 0.14;
+// Quadrics' design feel ports across the cluster — imported from
+// scaffold/ui/clusterRackTokens (#201 PR 4).
 
 // Three-row slider stack centered at SLIDER_RACK_CENTER.y. Top to bottom:
 // θ (point selector, polar), φ (point selector, azimuth), k (level value).

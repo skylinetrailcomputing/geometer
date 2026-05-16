@@ -12,6 +12,16 @@ import {
 import { Label } from '@/scaffold/ui/Label';
 import { Slider } from '@/scaffold/ui/Slider';
 import {
+  GRAB_RADIUS_MULTIPLIER,
+  SLIDER_LABEL_LINE_GAP,
+  SLIDER_LABEL_PRIMARY_FONT_SIZE,
+  SLIDER_LABEL_SECONDARY_FONT_SIZE,
+  SLIDER_LABEL_X_OFFSET,
+  SLIDER_ROW_PITCH,
+  SLIDER_SNAP_DETENT,
+  createSliderRackCenter,
+} from '@/scaffold/ui/clusterRackTokens';
+import {
   TapButton,
   type TapButtonVisuals,
 } from '@/scaffold/ui/TapButton';
@@ -70,9 +80,11 @@ const READOUT_POSITION = new THREE.Vector3(0, 1.5, -0.7);
 // Slider rack — two-row symmetric straddle around SLIDER_RACK_CENTER. The
 // 3-row top-heavy pattern from gradient-levels (θ/φ/k at [center+pitch,
 // center, center-pitch]) doesn't carry over cleanly to a 2-row rack; the
-// straddle layout reads as balanced.
-const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
-const SLIDER_ROW_PITCH = 0.14;
+// straddle layout reads as balanced. SLIDER_RACK_CENTER / SLIDER_ROW_PITCH
+// imported from scaffold/ui/clusterRackTokens (#201 PR 4) — per-file
+// fresh THREE.Vector3 from the factory so mutation can't leak across
+// scenes.
+const SLIDER_RACK_CENTER = createSliderRackCenter();
 const X_SLIDER_Y = SLIDER_RACK_CENTER.y + SLIDER_ROW_PITCH / 2;
 const Y_SLIDER_Y = SLIDER_RACK_CENTER.y - SLIDER_ROW_PITCH / 2;
 
@@ -83,8 +95,8 @@ const Y_SLIDER_Y = SLIDER_RACK_CENTER.y - SLIDER_ROW_PITCH / 2;
 // origin, so the projected snap set collapses to `[0]` and visible
 // behavior is unchanged from v0.7; future off-origin presets (or
 // user-supplied f(x, y) in v1.x) get correct CP-aware snaps for free.
-const SLIDER_SNAP_DETENT = 0.05;
-const GRAB_RADIUS_MULTIPLIER = 2.75;
+// SLIDER_SNAP_DETENT / GRAB_RADIUS_MULTIPLIER imported from
+// scaffold/ui/clusterRackTokens (#201 PR 4).
 
 // Initial pose — off origin-snap, off endpoints, off both axes,
 // non-equal — so first-frame drag responds in any direction.
@@ -93,11 +105,8 @@ const Y_INITIAL = 0.3;
 
 // Per-slider variable + value label layout — verbatim from gradient-levels'
 // #170 layout. Right-anchored so worst-case secondary text "−1.50" stays
-// clear of the slider thumb at any value.
-const SLIDER_LABEL_X_OFFSET = -0.20;
-const SLIDER_LABEL_PRIMARY_FONT_SIZE = 0.05;
-const SLIDER_LABEL_SECONDARY_FONT_SIZE = 0.035;
-const SLIDER_LABEL_LINE_GAP = 0.008;
+// clear of the slider thumb at any value. Imported from
+// scaffold/ui/clusterRackTokens (#201 PR 4).
 
 // Indicator — verbatim port from cluster siblings for visual consistency.
 const INDICATOR_RADIUS = 0.04;

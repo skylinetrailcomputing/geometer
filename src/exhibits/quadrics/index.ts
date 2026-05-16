@@ -22,6 +22,12 @@ import { RendererInfoProbe } from '@/scaffold/perf/RendererInfoProbe';
 import { Section } from '@/scaffold/ui/Section';
 import { SectionTab } from '@/scaffold/ui/SectionTab';
 import { Slider, type ThumbShape } from '@/scaffold/ui/Slider';
+import {
+  GRAB_RADIUS_MULTIPLIER,
+  SLIDER_ROW_PITCH,
+  SLIDER_SNAP_DETENT,
+  createSliderRackCenter,
+} from '@/scaffold/ui/clusterRackTokens';
 import { AxisToggle } from './AxisToggle';
 import { createSlicingPlanes, type SlicingPlanesHandles } from './SlicingPlane';
 import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
@@ -38,7 +44,11 @@ import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
 // door open for non-rectilinear perspectives once teleportation lets the
 // user self-position.
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
-const SLIDER_RACK_CENTER = new THREE.Vector3(0, 1.0, -0.7);
+// Imported as a fresh THREE.Vector3 from scaffold/ui/clusterRackTokens
+// (#201 PR 4) — per-file instance, so mutation in one scene can't leak
+// to another. The shared canonical value is the immutable
+// SLIDER_RACK_CENTER_COORDS tuple.
+const SLIDER_RACK_CENTER = createSliderRackCenter();
 
 // Vertical stacking (top → bottom):
 //   centered column (x = 0):
@@ -222,8 +232,9 @@ const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 // Slider detent half-width, per SPEC.md "Slider model". Lets the user
 // park exactly on a snap point (degeneracy boundary or canonical-form
 // coordinate) instead of approximating. Passed into every
-// scaffold/ui/Slider construction in this exhibit.
-const SLIDER_SNAP_DETENT = 0.05;
+// scaffold/ui/Slider construction in this exhibit. Imported from
+// scaffold/ui/clusterRackTokens (#201 PR 4) — shared 0.05 m across the
+// four cluster scenes.
 
 // Detent positions for the squared coefficients (a/b/c/d) and the
 // linear-term sliders (u/v/w). 0 keeps every degeneracy boundary
@@ -262,8 +273,9 @@ function easeInOutCubic(t: number): number {
 // consistently across this exhibit's Slider, Preset, and SectionTab
 // constructions so all three feel the same when sweeping the
 // controller across the rack. Formerly hardcoded inside each
-// primitive (#120 made it a required ctor option).
-const GRAB_RADIUS_MULTIPLIER = 2.75;
+// primitive (#120 made it a required ctor option). Imported from
+// scaffold/ui/clusterRackTokens (#201 PR 4) — shared 2.75 across the
+// cluster.
 
 // Vertical stacking pitch for the rack. SPEC pins the rack center but
 // not per-slider positions. Lower bound is set by the slider's grab
@@ -273,8 +285,9 @@ const GRAB_RADIUS_MULTIPLIER = 2.75;
 // midpoint could resolve to either slider). 0.14 leaves ~2.5 mm of
 // clearance — tighter than the original 0.15 (#110 follow-up: headset
 // feedback called the rack overly spread out and asked for a more
-// compact stack), but still above the disjoint-grab floor.
-const SLIDER_ROW_PITCH = 0.14;
+// compact stack), but still above the disjoint-grab floor. Imported
+// from scaffold/ui/clusterRackTokens (#201 PR 4) — shared 0.14 m
+// across the cluster.
 
 // Wong / Okabe-Ito colorblind-safe palette imported from
 // @/scaffold/design/tokens (#120). The fourth slot — yellow on slider
