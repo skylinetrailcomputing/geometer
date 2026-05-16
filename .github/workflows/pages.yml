@@ -1,8 +1,15 @@
 name: deploy-pages
 
+# Deploys two surfaces from a single Pages artifact:
+#   /geometer/         — rolling tip of main; redeploys on every main push
+#   /geometer/release/ — pinned at the latest v*.*.* tag; content only
+#                        moves when a new tag is pushed
+# See _private/plans/127-audience-facing-deploy.md for rationale.
+
 on:
   push:
     branches: [main]
+    tags: ['v*.*.*']
   workflow_dispatch:
 
 permissions:
@@ -19,14 +26,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
       - run: npm ci
-      - run: npm run build
+      - name: Build main into dist/
+        run: npm run build
         env:
           BASE_PATH: /geometer/
+
+      - name: Resolve latest release tag
+        id: latest-tag
+        run: |
+          tag=$(git describe --tags --abbrev=0 --match 'v*.*.*')
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Latest release tag: $tag"
+
+      - name: Build release tag into dist/release/
+        run: |
+          set -euo pipefail
+          tag='${{ steps.latest-tag.outputs.tag }}'
+          worktree="$RUNNER_TEMP/geometer-release-src"
+          git worktree add "$worktree" "$tag"
+          (
+            cd "$worktree"
+            npm ci
+            BASE_PATH=/geometer/release/ npm run build
+          )
+          mv "$worktree/dist" "$GITHUB_WORKSPACE/dist/release"
+          git worktree remove --force "$worktree"
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
