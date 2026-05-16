@@ -361,3 +361,41 @@ at the apex. Three concerns:
   non-quadric f presets are a v0.7-polish or v0.8+ idea.
 - **Floor** — the family extends to ±math-Z (vertically); a floor would
   need to be hole-punched. Plain shell-bg surface is cleaner.
+
+## Design-language alignment (#201)
+
+Scene inherits the quadrics-locked design language with one
+intentional architectural departure (opaque raymarched surface vs.
+flat translucent overlays — see exceptions). Rules live in
+`scaffold/design/tokens.ts`'s header.
+
+**Scaffold tokens consumed (post-#201):**
+
+- `scaffold/ui/readoutTokens.ts` (PR 2) — `GradientLevelsReadout`'s
+  font size, line pitch, outline, and 30-Hz sync throttle.
+- `scaffold/ui/clusterRackTokens.ts` (PR 4) — rack center (via
+  `createSliderRackCenter()`), row pitch, snap detent, grab-radius
+  multiplier, and per-slider label (#170) layout.
+- **Does NOT consume `scaffold/render/translucentRectTokens.ts`** —
+  see the architectural exception below.
+
+**Readout visibility-bootstrap policy:** `GradientLevelsReadout`
+boots `group.visible = false` and uncloaks on the first `setValues`
+call. Adopted during the initial-mount design in #166; #201 PR 3
+brought the two earlier readouts in line with this pattern.
+
+**Documented exceptions:**
+
+- **Opaque raymarched surface, NOT a translucent overlay.** The
+  level surface IS the scene's primary geometry, rendered as an
+  opaque raymarched implicit surface via `createImplicitSurface`.
+  The cluster's translucent #113 recipe is for *overlays* on top of
+  another surface (quadrics' slicing planes, tangent-planes' tangent
+  plane, saddle-extrema's Taylor patch). Intentional architectural
+  divergence; not a drift to reconcile.
+- **Neutral-gray slider thumbs (θ/φ/k).** All three are non-axis-
+  coordinate parameters — θ/φ select a point on the active level
+  surface, k sweeps the family. Per the slider tint rule, non-axis-
+  coordinate sliders stay neutral gray (`0xaaaaaa`).
+- **No preset rack.** The f-family is fixed; k is the family
+  parameter as a slider rather than a preset rack.

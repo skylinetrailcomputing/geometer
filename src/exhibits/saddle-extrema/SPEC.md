@@ -669,3 +669,56 @@ resources with the main `graphSurface` mesh.
   lesson; cubic would address the monkey-saddle and quartic-min
   degenerate cases but the visual machinery doubles in size and the
   pedagogical lift is unclear.
+
+## Design-language alignment (#201)
+
+Scene inherits the quadrics-locked design language with two
+intentional pedagogy-driven exceptions (TaylorOverlay rim width and
+Lambert shading — see below). Rules live in
+`scaffold/design/tokens.ts`'s header.
+
+**Scaffold tokens consumed (post-#201):**
+
+- `scaffold/render/translucentRectTokens.ts` (PR 1) —
+  `TaylorOverlay`'s body / rim colors and alphas come from the
+  locked #113 recipe; rim width is scene-local (see exceptions).
+- `scaffold/ui/readoutTokens.ts` (PR 2) — `SaddleExtremaReadout`'s
+  font size, line pitch, outline, and 30-Hz sync throttle.
+- `scaffold/ui/clusterRackTokens.ts` (PR 4) — rack center (via
+  `createSliderRackCenter()`), row pitch, snap detent, grab-radius
+  multiplier, and per-slider label (#170) layout.
+- `scaffold/ui/Preset.ts` (PR 6) — preset row uses `Preset` with the
+  new `activeEmissive` option for sticky-active behavior.
+
+**Readout visibility-bootstrap policy:** `SaddleExtremaReadout`
+boots `group.visible = false` and uncloaks on the first `setValues`
+call. Adopted during the initial-mount design in #181; matches the
+cluster-wide policy locked in #201 PR 3.
+
+**Documented exceptions:**
+
+- **Axis-colored slider thumbs.** x and y are direct math-frame
+  axis-coordinate selectors — the indicator's `(x, y)` IS the slider
+  values. Per the slider tint rule, axis-coordinate sliders get the
+  axis tint: x → VERMILLION, y → BLUISH_GREEN. Matches quadrics'
+  pattern; departs from tangent-planes / gradient-levels' neutral
+  gray (those sliders are point selectors / family parameters, not
+  axis coordinates).
+- **TaylorOverlay rim width 0.015 m** vs. the scaffold default
+  `LOCKED_113_RIM_WIDTH_DEFAULT = 0.05` m. The overlay's half-extent
+  is ~0.30 m (vs. ~3.5 m for the slicing planes); a 0.05 m rim on
+  the smaller patch dominates the curvature read this overlay is
+  designed to teach. Pedagogy-driven exception, documented at the
+  override site (`TaylorOverlay.ts` near `OVERLAY_RIM_WIDTH`).
+- **TaylorOverlay Lambert shading on body.** Body has subtle
+  ambient (0.6) + diffuse (0.4) shading so curvature reads. The
+  cluster's flat translucent overlays (SlicingPlane, TangentPlane)
+  are flat-lit. The overlay's purpose is teaching local *shape*
+  (bowl up / bowl down / saddle / degenerate); flat-lit reads as a
+  uniform tint that hides the very shape the overlay teaches.
+- **Sticky-active preset row.** Saddle-extrema's presets are
+  persistent surface-family selectors (the surface IS the preset's
+  f), not one-shot snaps like quadrics'. `Preset` constructed with
+  `activeEmissive: 0x66ccdd` (#201 PR 6); scene drives
+  `setActive(true)` on tap and `setActive(false)` on the previously-
+  active sibling.
