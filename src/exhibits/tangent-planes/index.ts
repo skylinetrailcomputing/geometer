@@ -15,6 +15,7 @@ import {
   SKY_BLUE,
   VERMILLION,
 } from '@/scaffold/design/tokens';
+import { anglesFromDirection } from '@/scaffold/math/anglesFromDirection';
 import { directionFromAngles } from '@/scaffold/math/directionFromAngles';
 import { raycastImplicit } from '@/scaffold/render/raycastImplicit';
 import { createTangentPlane, type TangentPlaneHandles } from './TangentPlane';
@@ -109,6 +110,19 @@ const SLIDER_LABEL_PRIMARY_FONT_SIZE = 0.05;
 const SLIDER_LABEL_SECONDARY_FONT_SIZE = 0.035;
 const SLIDER_LABEL_LINE_GAP = 0.008;
 
+// Controller-aim picking (#197). VR-only direct-manipulation affordance
+// alongside the angular sliders: aim a controller at the unit sphere and
+// pull the trigger to land the contact point at the ray–surface
+// intersection; hold to drag. The `vr-` prefix is set by the shell when
+// constructing `VRPointer`s (`shell.ts:'vr-0'/'vr-1'`); pancake mode's
+// `DesktopPointer`s use `'desktop'`/`'mobile'`, so this gate short-
+// circuits there and the mouse cursor remains the sole pancake affordance.
+const VR_POINTER_ID_PREFIX = 'vr-';
+// Haptic pulse on pick start + release — matches the Slider grab/release
+// pulse values so the picking gesture reads as kin to a slider grab.
+const PICK_HAPTIC_AMPLITUDE = 0.5;
+const PICK_HAPTIC_DURATION_MS = 10;
+
 // Tangent-plane size — 0.9 m × 0.9 m on the unit sphere. Reads as "a
 // flat patch tangent to the surface" rather than "a sheet that swallows
 // the surface." Tunable in headset; this is the v0.6 lock.
@@ -169,6 +183,15 @@ const SURFACE_SHADE = /* glsl */ `
 const indicatorWorld = new THREE.Vector3();
 const dirMath: [number, number, number] = [0, 0, 0];
 
+// Controller-aim pick scratch (#197). Reused per pick to keep the
+// per-frame drag path allocation-free. `pickRayOrigin` / `pickRayDirection`
+// hold the pointer's world ray; `pickOriginMath` / `pickDirMath` are the
+// surface-local math-frame versions fed to `raycastImplicit`.
+const pickRayOrigin = new THREE.Vector3();
+const pickRayDirection = new THREE.Vector3();
+const pickOriginMath: [number, number, number] = [0, 0, 0];
+const pickDirMath: [number, number, number] = [0, 0, 0];
+
 // Named handles — initialized in mount, disposed inline in unmount.
 let surfaceMesh: THREE.Mesh | undefined;
 let surfaceMaterial: THREE.ShaderMaterial | undefined;
@@ -184,6 +207,68 @@ let pointers: readonly Pointer[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
 // yaw-billboarding in update().
 let camera: THREE.Camera | undefined;
+// VR pointer currently aim-picking on the surface (#197). Set in
+// `onSelectStart` when sphere-aim lands, cleared in `onSelectEnd`. Used
+// in `update()` to refresh the picked (θ, φ) each frame while the
+// trigger is held — so picking reads as a continuous drag, not a tap.
+let pickingPointer: Pointer | null = null;
+
+// Controller-aim pick (#197). Read `pointer`'s world ray, transform to
+// surface-local math frame, raycast against the same implicit surface the
+// sliders drive (so picking + slider-driven paint stay rigorously in
+// sync), convert the hit direction to (θ, φ), and drive the sliders via
+// `setValue` — which applies the standard snap detents so picking near
+// θ = π/2 lands on the equator exactly the way a slider drag would.
+//
+// Returns whether a hit landed. The caller uses it as the "did picking
+// engage" signal: `onSelectStart` only sets `pickingPointer` on a hit;
+// `update()` ignores miss frames so a controller grazing off the sphere
+// mid-drag freezes the indicator at the last picked pose rather than
+// snapping back to slider defaults.
+function applyControllerAimPick(pointer: Pointer): boolean {
+  if (!thetaSlider || !phiSlider) return false;
+  pointer.getRayOrigin(pickRayOrigin);
+  pointer.getRayDirection(pickRayDirection);
+
+  // World → surface-local world: subtract surface center (points only;
+  // direction vectors are pure rotations, no offset). Then world → math
+  // frame: math (x, y, z) = world (x, −z, y) per `scaffold/math/frames.ts`.
+  const lx = pickRayOrigin.x - SURFACE_CENTER.x;
+  const ly = pickRayOrigin.y - SURFACE_CENTER.y;
+  const lz = pickRayOrigin.z - SURFACE_CENTER.z;
+  pickOriginMath[0] = lx;
+  pickOriginMath[1] = -lz;
+  pickOriginMath[2] = ly;
+  pickDirMath[0] = pickRayDirection.x;
+  pickDirMath[1] = -pickRayDirection.z;
+  pickDirMath[2] = pickRayDirection.y;
+
+  const result = raycastImplicit({
+    f: fJs,
+    gradF: gradJs,
+    origin: pickOriginMath,
+    dir: pickDirMath,
+    bound: BOUND,
+  });
+  if (!result.hit) return false;
+
+  // For the unit sphere `|p| = 1` so `result.point` is already the unit
+  // direction (modulo numerics — `anglesFromDirection` clamps `dir.z`
+  // before `acos`). v0.7+ surfaces would normalize here.
+  const { theta, phi } = anglesFromDirection(result.point);
+  // Yield to a concurrent slider drag by the *other* controller:
+  // `Slider.setValue` rebases `lastPointerAxisX` against the picking
+  // pointer's ray, which would compound the drag's delta from a point
+  // the user never set. Skipping the write on a grabbed slider lets a
+  // user hold the contact point with one hand and fine-tune θ or φ
+  // independently with the other — the pedagogical case the SPEC
+  // promises. The skipped slider's value is whatever the drag is
+  // producing this tick; picking resumes driving it the frame after
+  // the user releases.
+  if (!thetaSlider.isGrabbed) thetaSlider.setValue(theta);
+  if (!phiSlider.isGrabbed) phiSlider.setValue(phi);
+  return true;
+}
 
 // ────────────────────────────────────────────────────────────────────
 // Exhibit
@@ -343,6 +428,17 @@ const tangentPlanesExhibit: Exhibit = {
     thetaSlider.update();
     phiSlider.update();
 
+    // Controller-aim picking refresh (#197). Re-raycast each frame while
+    // the trigger is held so picking reads as a continuous drag rather
+    // than a single tap. Runs after the slider tick so a picked
+    // (θ, φ) overrides any slider-drag delta from a different pointer
+    // on the same frame — the user's most direct gesture wins.
+    // On miss (controller drifted off the sphere mid-drag) we keep the
+    // last picked pose rather than reverting to slider defaults; the
+    // SPEC.md "Indicator hidden on raymarch miss" path still applies to
+    // the rendered indicator if the slider-driven raymarch below misses.
+    if (pickingPointer) applyControllerAimPick(pickingPointer);
+
     // Per-slider value labels (#170). `formatAnglePiFraction` is
     // snap-aware: with PHI_INITIAL = π/4 and PHI_SNAP_POINTS not
     // including π/4, the boot pose renders as "0.25π" not the false-snap
@@ -448,19 +544,46 @@ const tangentPlanesExhibit: Exhibit = {
     worldAxes = undefined;
 
     // 3. Drop external references so a re-mount starts clean. The shell
-    //    removes ctx.group and its descendants automatically.
+    //    removes ctx.group and its descendants automatically. Clear the
+    //    aim-picking handle alongside — the released pointers in step 1
+    //    don't include it (picking doesn't go through Slider's grab table).
     pointers = [];
     camera = undefined;
+    pickingPointer = null;
   },
 
   onSelectStart(pointer: Pointer): boolean {
     if (thetaSlider?.tryGrab(pointer)) return true;
-    return phiSlider?.tryGrab(pointer) ?? false;
+    if (phiSlider?.tryGrab(pointer)) return true;
+
+    // Controller-aim picking (#197). VR-only — pancake mode keeps the
+    // mouse cursor as its sole affordance per SPEC.md, and the
+    // `DesktopPointer.id` ('desktop' / 'mobile') doesn't carry the
+    // `vr-` prefix the shell stamps on VR controllers. Picking is
+    // additive: only reached when neither slider thumb grabbed the
+    // trigger pull, so sliders remain the universal input.
+    if (!pointer.id.startsWith(VR_POINTER_ID_PREFIX)) return false;
+    // First-trigger-wins. `pickingPointer` is a single slot; a second
+    // controller's trigger pulled mid-pick would otherwise overwrite
+    // it, leaving the original controller's `onSelectEnd` unable to
+    // release picking (the identity check would fail). Same semantics
+    // as `Slider.tryGrab`'s `if (this.grabbedBy) return false` —
+    // returns `false` here so the rack / fallthrough sees the gesture
+    // as unclaimed for that controller.
+    if (pickingPointer !== null) return false;
+    if (!applyControllerAimPick(pointer)) return false;
+    pickingPointer = pointer;
+    pointer.pulse(PICK_HAPTIC_AMPLITUDE, PICK_HAPTIC_DURATION_MS);
+    return true;
   },
 
   onSelectEnd(pointer: Pointer) {
     thetaSlider?.releaseFromPointer(pointer);
     phiSlider?.releaseFromPointer(pointer);
+    if (pickingPointer === pointer) {
+      pickingPointer = null;
+      pointer.pulse(PICK_HAPTIC_AMPLITUDE, PICK_HAPTIC_DURATION_MS);
+    }
   },
 };
 
