@@ -2,6 +2,13 @@ import * as THREE from 'three';
 import { Text } from 'troika-three-text';
 import type { MathVec3 } from '@/scaffold/math/frames';
 import {
+  READOUT_FONT_SIZE,
+  READOUT_LINE_PITCH,
+  READOUT_OUTLINE_COLOR,
+  READOUT_OUTLINE_WIDTH,
+  READOUT_SYNC_INTERVAL_MS,
+} from '@/scaffold/ui/readoutTokens';
+import {
   formatGradientLevelsReadout,
   type GradientLevelsReadoutStrings,
 } from './formatGradientLevelsReadout';
@@ -52,8 +59,6 @@ export interface GradientLevelsReadoutOptions {
   fontSize?: number;
 }
 
-const DEFAULT_FONT_SIZE = 0.028;
-
 // Slot widths in em (multiples of fontSize). NUMERIC_SIGNED fits
 // worst-case `−6.00`; NUMERIC_UNSIGNED fits worst-case `10.39`
 // (analytic ceiling — slider-reachable max is ~8.94, see plan §2.1).
@@ -67,18 +72,7 @@ const CLOSE_PAREN_EM = 1.0; // ` )`
 // signs roughly align between the two lines.
 const PREFIX_MAG_EM = 2.8;  // `|∇f| = `
 
-// Vertical gap between the two lines. Mirrors TangentPlaneReadout.
-const LINE_PITCH = 0.06;
-
 const SEPARATOR_COLOR = 0xffffff;
-const OUTLINE_WIDTH = '8%';
-const OUTLINE_COLOR = 0x000000;
-
-// Throttle the troika `.sync()` calls to ≈30 Hz, mirroring
-// `TangentPlaneReadout` and `EquationReadout`. Bounds SDF rebuild work
-// during fast drags. Per-frame head-pose billboarding (faceCamera)
-// still runs every frame so motion smoothness is unaffected.
-const SYNC_INTERVAL_MS = 33;
 
 // Per-axis slot indices for the top-line component triple.
 const AXIS_X = 0;
@@ -111,7 +105,7 @@ export class GradientLevelsReadout {
   private readonly groupWorld = new THREE.Vector3();
 
   constructor(opts: GradientLevelsReadoutOptions) {
-    this.fontSize = opts.fontSize ?? DEFAULT_FONT_SIZE;
+    this.fontSize = opts.fontSize ?? READOUT_FONT_SIZE;
 
     this.group = new THREE.Group();
     this.group.name = 'gradient-levels-readout';
@@ -127,8 +121,8 @@ export class GradientLevelsReadout {
     const closeParenW = CLOSE_PAREN_EM * this.fontSize;
     const prefixMagW = PREFIX_MAG_EM * this.fontSize;
 
-    const topY = LINE_PITCH / 2;
-    const bottomY = -LINE_PITCH / 2;
+    const topY = READOUT_LINE_PITCH / 2;
+    const bottomY = -READOUT_LINE_PITCH / 2;
 
     // ─── Top line ────────────────────────────────────────────────
     // `∇f = ( ` [n_x] ` , ` [n_y] ` , ` [n_z] ` )`
@@ -199,8 +193,8 @@ export class GradientLevelsReadout {
     t.color = color;
     t.anchorX = 'center';
     t.anchorY = 'middle';
-    t.outlineWidth = OUTLINE_WIDTH;
-    t.outlineColor = OUTLINE_COLOR;
+    t.outlineWidth = READOUT_OUTLINE_WIDTH;
+    t.outlineColor = READOUT_OUTLINE_COLOR;
     return t;
   }
 
@@ -210,14 +204,14 @@ export class GradientLevelsReadout {
     t.color = SEPARATOR_COLOR;
     t.anchorX = 'center';
     t.anchorY = 'middle';
-    t.outlineWidth = OUTLINE_WIDTH;
-    t.outlineColor = OUTLINE_COLOR;
+    t.outlineWidth = READOUT_OUTLINE_WIDTH;
+    t.outlineColor = READOUT_OUTLINE_COLOR;
     return t;
   }
 
   /**
    * Update all four numerics from the per-frame raymarch result. Throttled
-   * to ≈30 Hz via SYNC_INTERVAL_MS — mirrors TangentPlaneReadout's cadence
+   * to ≈30 Hz via READOUT_SYNC_INTERVAL_MS — mirrors TangentPlaneReadout's cadence
    * and bounds troika SDF rebuild work during fast drags. Per-slot caching
    * skips the .text + .sync() write when the formatted string hasn't
    * changed.
@@ -231,7 +225,7 @@ export class GradientLevelsReadout {
     if (!this.group.visible) this.group.visible = true;
 
     const now = performance.now();
-    if (now - this.lastSyncMs < SYNC_INTERVAL_MS) return;
+    if (now - this.lastSyncMs < READOUT_SYNC_INTERVAL_MS) return;
     this.lastSyncMs = now;
 
     const strings: GradientLevelsReadoutStrings = formatGradientLevelsReadout(gradient);

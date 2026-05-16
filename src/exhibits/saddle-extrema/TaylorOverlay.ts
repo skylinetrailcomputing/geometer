@@ -1,4 +1,10 @@
 import * as THREE from 'three';
+import {
+  LOCKED_113_BODY_ALPHA,
+  LOCKED_113_RIM_ALPHA,
+  createLocked113BodyColor,
+  createLocked113RimColor,
+} from '@/scaffold/render/translucentRectTokens';
 import type { SaddleExtremaPreset } from './presets';
 
 // Local-quadratic-approximation overlay for the saddle / extrema scene
@@ -59,15 +65,15 @@ function computeHalfExtent(preset: SaddleExtremaPreset): number {
 const RES = 49;
 
 // Visual recipe — translucent body + brighter rim, sky-blue per the
-// #113 locked visual language. Same body / rim colors and alphas as
-// TangentPlane.ts and SlicingPlane.ts; rim width tighter (0.015 m on a
-// ~0.30 m half-extent gives 5% rim-to-half-extent ratio, somewhat
-// heavier than the slicing-plane's 1.7% but less heavy than the v1
-// plan's 7%).
-const OVERLAY_BODY_COLOR = new THREE.Color(0.34, 0.71, 0.91);
-const OVERLAY_BODY_ALPHA = 0.10;
-const OVERLAY_RIM_COLOR = new THREE.Color(0.70, 0.90, 0.99);
-const OVERLAY_RIM_ALPHA = 0.65;
+// #113 locked visual language. Body / rim colors and alphas imported
+// from scaffold/render/translucentRectTokens.ts (#201 PR 1); same
+// values as TangentPlane.ts and SlicingPlane.ts. Rim width tighter
+// (0.015 m on a ~0.30 m half-extent gives 5% rim-to-half-extent
+// ratio, somewhat heavier than the slicing-plane's 1.7% but less
+// heavy than the v1 plan's 7%) — pedagogy-driven scene-local
+// override of LOCKED_113_RIM_WIDTH_DEFAULT (0.05 m); the smaller
+// half-extent demands proportionally narrower rim so the patch
+// boundary doesn't dominate the curvature read this overlay teaches.
 const OVERLAY_RIM_WIDTH = 0.015;
 
 // Subtle lambert on the body — body color ranges [0.6, 1.0] × baseColor
@@ -232,10 +238,10 @@ export function createTaylorOverlay(
     uniforms: {
       uHalfExtent: { value: halfExtent },
       uRimWidth: { value: OVERLAY_RIM_WIDTH },
-      uBodyColor: { value: OVERLAY_BODY_COLOR.clone() },
-      uBodyAlpha: { value: OVERLAY_BODY_ALPHA },
-      uRimColor: { value: OVERLAY_RIM_COLOR.clone() },
-      uRimAlpha: { value: OVERLAY_RIM_ALPHA },
+      uBodyColor: { value: createLocked113BodyColor() },
+      uBodyAlpha: { value: LOCKED_113_BODY_ALPHA },
+      uRimColor: { value: createLocked113RimColor() },
+      uRimAlpha: { value: LOCKED_113_RIM_ALPHA },
       uLightDir: { value: opts.lightDir.clone() },
       uLambertAmbient: { value: LAMBERT_AMBIENT },
       uLambertDiffuse: { value: LAMBERT_DIFFUSE },
