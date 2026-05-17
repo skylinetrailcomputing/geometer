@@ -286,3 +286,21 @@ would obscure the form.
 - **No preset rack.** The surface is fixed (unit sphere); no preset
   archetypes to select.
 - **No section rack.** Single point-selection lens.
+
+### Staging (#238 / E1.1)
+
+Floor: shared `StageFloor` primitive from `scaffold/staging/`,
+**per-scene `outerHalfExtent: 6` (12 × 12 m floor)** so the
+circular cutout fits strictly interior with margin. Dark navy
+`0x222244` color matches the cluster baseline. **Circular cutout
+sized to `BOUND = 1.5 m`** (`kind: 'circle'`, centered on
+`SURFACE_CENTER.xz`); reads as the math-frame domain envelope
+projected onto the floor, per Path A1 (cutout-as-projection-aperture).
+The disk's outer edge sits 0.5 m inside the floor's −Z edge — a
+visible margin that demarcates the scene's exhibit footprint.
+
+Tangent-planes is the only cluster scene with a per-scene floor
+size variation; the other three keep the cluster-default 10 × 10 m
+floor. The variation preserves the cluster-wide cutout-sizing rule
+("math-frame domain envelope projected onto the floor") under
+Path A1 locked in `_private/plans/238-cluster-cutout.md` §3.3.

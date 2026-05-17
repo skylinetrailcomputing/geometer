@@ -722,3 +722,21 @@ cluster-wide policy locked in #201 PR 3.
   `activeEmissive: 0x66ccdd` (#201 PR 6); scene drives
   `setActive(true)` on tap and `setActive(false)` on the previously-
   active sibling.
+
+### Staging (#238 / E1.1)
+
+Floor: shared `StageFloor` primitive from `scaffold/staging/`,
+cluster-default `outerHalfExtent: 5` (10 × 10 m). Rectangular cutout
+sized to `±STAGE_CUTOUT_HALF` (`kind: 'rect'`, centered on
+`SURFACE_CENTER.xz`); reads as the math-frame domain envelope
+projected onto the floor, per Path A1 (cutout-as-projection-aperture).
+`STAGE_CUTOUT_HALF` is **derived at module scope** from `PRESETS` —
+`Math.max(...presets' domain half-extents)` — so a future preset
+with a wider window automatically widens the cutout at mount.
+Today's value evaluates to `1.5` (driven by the `saddle` preset at
+`±1.5`). The cutout reaches world Z = −5.5, just past the floor's
+−Z edge at −5; strip clamp truncates to the floor edge, so the
+floor visibly opens to the back of the exhibit. Static at mount —
+does not resize on preset change. Three of five presets (inv-
+paraboloid, saddle, monkey-saddle) dip below floor; the other two
+(paraboloid, quartic-min) sit above.
