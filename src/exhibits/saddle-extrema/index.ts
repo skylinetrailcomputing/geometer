@@ -24,6 +24,10 @@ import {
 } from '@/scaffold/ui/clusterRackTokens';
 import { WorldAxes } from '@/scaffold/ui/WorldAxes';
 import {
+  createStageFloor,
+  type StageFloorHandles,
+} from '@/scaffold/staging/StageFloor';
+import {
   createCriticalPointMarkers,
   type CriticalPointMarkersHandles,
 } from './CriticalPointMarkers';
@@ -66,6 +70,21 @@ const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
 const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 const BASE_COLOR = new THREE.Color(0.4, 0.7, 0.95);
+
+// Stage floor cutout half-extent (#238 / E1.1) — derived from the
+// widest preset domain so a future preset with a wider (x, y) window
+// automatically widens the cutout at mount. Today's value evaluates
+// to 1.5 (driven by the `saddle` preset at ±1.5 in `presets.ts:84`).
+const STAGE_CUTOUT_HALF = Math.max(
+  ...PRESETS.map((p) =>
+    Math.max(
+      Math.abs(p.domain.xMin),
+      p.domain.xMax,
+      Math.abs(p.domain.yMin),
+      p.domain.yMax,
+    ),
+  ),
+);
 
 // Classification readout (#181) — three lines (Hessian entries / D /
 // verdict). Anchored above the preset row (preset-row buttons cap at
@@ -161,6 +180,7 @@ let xLabel: Label | undefined;
 let yLabel: Label | undefined;
 let indicator: THREE.Mesh | undefined;
 let presetButtons: Preset[] = [];
+let stageFloor: StageFloorHandles | undefined;
 let activePresetIndex = DEFAULT_PRESET_INDEX;
 let saddleExtremaReadout: SaddleExtremaReadout | undefined;
 let camera: THREE.Camera | undefined;
@@ -196,6 +216,23 @@ const saddleExtremaExhibit: Exhibit = {
     const directional = new THREE.DirectionalLight(0xffffff, 0.8);
     directional.position.copy(LIGHT_DIR).multiplyScalar(5);
     group.add(directional);
+
+    // Stage floor with rect cutout (#238 / E1.1), sized to the widest
+    // preset domain (`STAGE_CUTOUT_HALF` derived from PRESETS — see
+    // module-scope comment). Cutout reaches world Z = -5.5, just past
+    // the cluster-default floor's −Z edge at -5; strip clamp truncates
+    // to the floor edge. Static at mount — does not resize on preset
+    // change. See `_private/plans/238-cluster-cutout.md` §3.4 for the
+    // Path A1 rationale.
+    stageFloor = createStageFloor({
+      cutout: {
+        kind: 'rect',
+        centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z],
+        halfExtentX: STAGE_CUTOUT_HALF,
+        halfExtentZ: STAGE_CUTOUT_HALF,
+      },
+    });
+    group.add(stageFloor.group);
 
     graphSurface = createGraphSurface({
       f: initialPreset.f,
@@ -470,6 +507,10 @@ const saddleExtremaExhibit: Exhibit = {
       indicator.geometry.dispose();
       (indicator.material as THREE.Material).dispose();
       indicator = undefined;
+    }
+    if (stageFloor) {
+      stageFloor.dispose();
+      stageFloor = undefined;
     }
 
     // 3. Drop external references so a re-mount starts clean.

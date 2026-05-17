@@ -28,6 +28,10 @@ import {
 import { anglesFromDirection } from '@/scaffold/math/anglesFromDirection';
 import { directionFromAngles } from '@/scaffold/math/directionFromAngles';
 import { raycastImplicit } from '@/scaffold/render/raycastImplicit';
+import {
+  createStageFloor,
+  type StageFloorHandles,
+} from '@/scaffold/staging/StageFloor';
 import { createTangentPlane, type TangentPlaneHandles } from './TangentPlane';
 import { TangentPlaneReadout } from './TangentPlaneReadout';
 
@@ -212,6 +216,7 @@ let tangentPlaneReadout: TangentPlaneReadout | undefined;
 let thetaLabel: Label | undefined;
 let phiLabel: Label | undefined;
 let worldAxes: WorldAxes | undefined;
+let stageFloor: StageFloorHandles | undefined;
 let pointers: readonly Pointer[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
 // yaw-billboarding in update().
@@ -297,6 +302,22 @@ const tangentPlanesExhibit: Exhibit = {
     const directional = new THREE.DirectionalLight(0xffffff, 0.8);
     directional.position.copy(LIGHT_DIR).multiplyScalar(5);
     group.add(directional);
+
+    // Stage floor with circular cutout (#238 / E1.1). Per-scene
+    // outerHalfExtent: 6 (12 × 12 m floor) so the BOUND-radius disk fits
+    // strictly interior with 0.5 m margin (|cz|+r = 5.5 < 6). See
+    // `_private/plans/238-cluster-cutout.md` §3.3 for the Path A1
+    // rationale (roundtable-converged on cluster-rule uniformity
+    // over cluster-footprint uniformity).
+    stageFloor = createStageFloor({
+      cutout: {
+        kind: 'circle',
+        centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z],
+        radius: BOUND,
+      },
+      outerHalfExtent: 6,
+    });
+    group.add(stageFloor.group);
 
     // Implicit-surface mesh + ShaderMaterial via the shared harness.
     const surfaceHandles = createImplicitSurface({
@@ -551,6 +572,10 @@ const tangentPlanesExhibit: Exhibit = {
     phiSlider = undefined;
     worldAxes?.dispose();
     worldAxes = undefined;
+    if (stageFloor) {
+      stageFloor.dispose();
+      stageFloor = undefined;
+    }
 
     // 3. Drop external references so a re-mount starts clean. The shell
     //    removes ctx.group and its descendants automatically. Clear the

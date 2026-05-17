@@ -28,6 +28,10 @@ import {
   VERMILLION,
   YELLOW,
 } from '@/scaffold/design/tokens';
+import {
+  createStageFloor,
+  type StageFloorHandles,
+} from '@/scaffold/staging/StageFloor';
 import { createGradientArrow, type GradientArrowHandles } from './GradientArrow';
 import { GradientLevelsReadout } from './GradientLevelsReadout';
 import { BOUND, fJsRaw, gradJs } from './surfaceModel';
@@ -243,6 +247,7 @@ let thetaLabel: Label | undefined;
 let phiLabel: Label | undefined;
 let kLabel: Label | undefined;
 let worldAxes: WorldAxes | undefined;
+let stageFloor: StageFloorHandles | undefined;
 let pointers: readonly Pointer[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
 // yaw-billboarding in update().
@@ -266,6 +271,22 @@ const gradientLevelsExhibit: Exhibit = {
     const directional = new THREE.DirectionalLight(0xffffff, 0.8);
     directional.position.copy(LIGHT_DIR).multiplyScalar(5);
     group.add(directional);
+
+    // Stage floor with rect cutout sized to the math-frame domain
+    // envelope (#238 / E1.1). Cutout reaches world Z = -7, beyond the
+    // cluster-default floor's −Z edge at -5; strip approach's clamp
+    // truncates the cutout to the floor edge — visually the floor
+    // opens to the back of the exhibit. See `_private/plans/238-
+    // cluster-cutout.md` §1 for the Path A1 framing.
+    stageFloor = createStageFloor({
+      cutout: {
+        kind: 'rect',
+        centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z],
+        halfExtentX: BOUND,
+        halfExtentZ: BOUND,
+      },
+    });
+    group.add(stageFloor.group);
 
     // Implicit-surface mesh + ShaderMaterial via the shared harness. uK
     // is seeded at K_INITIAL so the surface boots at the right pose
@@ -595,6 +616,10 @@ const gradientLevelsExhibit: Exhibit = {
     phiSlider = undefined;
     worldAxes?.dispose();
     worldAxes = undefined;
+    if (stageFloor) {
+      stageFloor.dispose();
+      stageFloor = undefined;
+    }
 
     // 3. Drop external references so a re-mount starts clean. The shell
     //    removes ctx.group and its descendants automatically.

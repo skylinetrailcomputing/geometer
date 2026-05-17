@@ -1,28 +1,32 @@
 import * as THREE from 'three';
 
 // Cluster-wide floor primitive for the v1.0 staged-exhibit vocabulary
-// (#221 / E1.1, #222). Lifted from quadrics' resident floor + AABB
-// hole-punch implementation (#125) into the shared `scaffold/staging/`
-// namespace so future cluster scenes can opt in without duplicating
-// the strip-decomposition logic.
+// (#221 / E1.1). Two cutout-shape code paths, dispatched on
+// `StageCutoutDescriptor.kind`:
 //
-// Implementation strategy: 4-strip-with-clamping. The hole rectangle
-// is clamped to the outer floor's bounds via Math.max/min, then 4
-// strips are constructed around it (front / behind / left / right of
-// hole). Degenerate strips (zero or negative area after clamp) early-
-// return from addStrip. Handles boundary-exceeding cutouts naturally,
-// which `THREE.ShapeGeometry` with hole subtraction would not — earcut
-// requires holes to be strictly interior to the outer contour.
+// - `kind: 'rect'` — 4-strip-with-clamping (#222 lift from quadrics'
+//   #125 implementation). The hole rectangle is clamped to the outer
+//   floor's bounds via Math.max/min, then 4 strips are constructed
+//   around it (front / behind / left / right). Degenerate strips
+//   early-return. Handles boundary-exceeding cutouts naturally. Used
+//   by quadrics, gradient-levels, saddle-extrema.
+// - `kind: 'circle'` — ShapeGeometry-with-hole (#238). Strictly-
+//   interior cutouts only (asserted at construction); tangent contact
+//   with the outer rect degenerates earcut tessellation. Used by
+//   tangent-planes, which opts in to a per-scene `outerHalfExtent: 6`
+//   so its `radius: BOUND = 1.5` disk at `SURFACE_CENTER.z = -4` fits
+//   strictly interior with 0.5m margin.
+//
+// Sign-flip note for circle path: the shape is constructed in local-
+// XY and rotated `-π/2` about world-X to lie on the floor plane. The
+// rotation maps local +Y to world −Z, so a cutout centered at world
+// `(cx, cz)` is constructed at local-XY `(cx, -cz)`.
 //
 // Ownership (per `_private/plans/v1.0.md` §4 staging rules): exhibit-
 // owned. Per-scene cutout descriptor; allocated in `mount`, disposed
 // in `unmount`. The shell removes `ctx.group` after `unmount` returns
 // (shell.ts:471–472), so dispose() only releases owned GPU resources;
 // no `scene.remove(...)` calls.
-//
-// Future API extensions tracked in #238 (cluster-wide cutout decision):
-// `kind: 'circle'` descriptor variant + a ShapeGeometry-with-holes
-// code path for strictly-interior cutouts.
 
 export const STAGE_FLOOR_COLOR_RGB = [
   0x22 / 255,
@@ -33,22 +37,34 @@ export const STAGE_FLOOR_COLOR_RGB = [
 export const STAGE_FLOOR_OUTER_HALF_DEFAULT = 5;
 
 /**
- * Cutout descriptor for the floor. Today's only variant is `rect`;
- * `circle` will be added via #238 when the tangent-planes /
- * gradient-levels / saddle-extrema floor question is resolved
- * (cutout-as-projection-aperture vs dipping-hole).
+ * Cutout descriptor for the floor. Sum-type:
  *
- * Coordinates are in world XZ — the primitive constructs strips
- * directly in that frame, so callers don't need to reason about any
- * local-XY-vs-world-XZ rotation. The strips are rotated -π/2 about
- * world-X to lie on the floor plane.
+ * - `kind: 'rect'` — strip approach (handles both interior and boundary-
+ *   exceeding cutouts via Math.max/min clamp + degenerate-strip early-
+ *   return). Cluster-wide today: quadrics, gradient-levels, saddle-extrema.
+ * - `kind: 'circle'` — ShapeGeometry-with-hole approach. Strictly-interior
+ *   cutouts only (asserted at construction); tangent contact with the
+ *   outer rect degenerates earcut tessellation. Tangent-planes opted in
+ *   under #238's Path A1 (per-scene `outerHalfExtent: 6` so the
+ *   `radius: BOUND = 1.5` disk fits strictly interior with 0.5m margin).
+ *
+ * Coordinates are in world XZ — the primitive applies the local-XY ↔
+ * world-XZ sign-flip internally (the floor plane is laid down by
+ * rotating geometry `-π/2` about world-X, which maps local +Y to
+ * world −Z), so callers don't reason about any rotation themselves.
  */
-export type StageCutoutDescriptor = {
-  readonly kind: 'rect';
-  readonly centerXZ: readonly [number, number];
-  readonly halfExtentX: number;
-  readonly halfExtentZ: number;
-};
+export type StageCutoutDescriptor =
+  | {
+      readonly kind: 'rect';
+      readonly centerXZ: readonly [number, number];
+      readonly halfExtentX: number;
+      readonly halfExtentZ: number;
+    }
+  | {
+      readonly kind: 'circle';
+      readonly centerXZ: readonly [number, number];
+      readonly radius: number;
+    };
 
 export interface StageFloorOptions {
   readonly cutout: StageCutoutDescriptor;
@@ -67,20 +83,48 @@ export interface StageFloorHandles {
 
 export function createStageFloor(opts: StageFloorOptions): StageFloorHandles {
   const outer = opts.outerHalfExtent ?? STAGE_FLOOR_OUTER_HALF_DEFAULT;
-  const [cx, cz] = opts.cutout.centerXZ;
-  const { halfExtentX, halfExtentZ } = opts.cutout;
+
+  const material = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(...STAGE_FLOOR_COLOR_RGB),
+  });
+  const geometries: THREE.BufferGeometry[] = [];
+  const group = new THREE.Group();
+  group.name = 'stage-floor';
+
+  if (opts.cutout.kind === 'rect') {
+    buildRectFloor(opts.cutout, outer, material, geometries, group);
+  } else {
+    buildCircleFloor(opts.cutout, outer, material, geometries, group);
+  }
+
+  let disposed = false;
+  return {
+    group,
+    outerHalfExtent: outer,
+    dispose(): void {
+      if (disposed) return;
+      disposed = true;
+      material.dispose();
+      for (const g of geometries) g.dispose();
+      geometries.length = 0;
+    },
+  };
+}
+
+function buildRectFloor(
+  cutout: Extract<StageCutoutDescriptor, { kind: 'rect' }>,
+  outer: number,
+  material: THREE.Material,
+  geometries: THREE.BufferGeometry[],
+  group: THREE.Group,
+): void {
+  const [cx, cz] = cutout.centerXZ;
+  const { halfExtentX, halfExtentZ } = cutout;
 
   const holeMinX = Math.max(cx - halfExtentX, -outer);
   const holeMaxX = Math.min(cx + halfExtentX, outer);
   const holeMinZ = Math.max(cz - halfExtentZ, -outer);
   const holeMaxZ = Math.min(cz + halfExtentZ, outer);
-
-  const material = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(...STAGE_FLOOR_COLOR_RGB),
-  });
-  const geometries: THREE.PlaneGeometry[] = [];
-  const group = new THREE.Group();
-  group.name = 'stage-floor';
 
   const addStrip = (
     xMin: number,
@@ -101,17 +145,56 @@ export function createStageFloor(opts: StageFloorOptions): StageFloorHandles {
   addStrip(-outer, outer, -outer, holeMinZ); // behind hole
   addStrip(-outer, holeMinX, holeMinZ, holeMaxZ); // left of hole
   addStrip(holeMaxX, outer, holeMinZ, holeMaxZ); // right of hole
+}
 
-  let disposed = false;
-  return {
-    group,
-    outerHalfExtent: outer,
-    dispose(): void {
-      if (disposed) return;
-      disposed = true;
-      material.dispose();
-      for (const g of geometries) g.dispose();
-      geometries.length = 0;
-    },
-  };
+function buildCircleFloor(
+  cutout: Extract<StageCutoutDescriptor, { kind: 'circle' }>,
+  outer: number,
+  material: THREE.Material,
+  geometries: THREE.BufferGeometry[],
+  group: THREE.Group,
+): void {
+  const [cx, cz] = cutout.centerXZ;
+  const { radius } = cutout;
+
+  // Strictly-interior invariant: circle's bounding rect fits inside outer
+  // square. `>=` (not `>`) is load-bearing — equality means the hole vertex
+  // is shared with the outer contour at the tangent point, which earcut
+  // treats as degenerate (zero-area triangles / undefined tessellation).
+  // The v1 roundtable on #238 caught this as a three-way convergent HIGH.
+  if (Math.abs(cx) + radius >= outer || Math.abs(cz) + radius >= outer) {
+    throw new Error(
+      `createStageFloor: circle cutout must be strictly interior to outer ` +
+        `(|cx|+r=${Math.abs(cx) + radius}, |cz|+r=${Math.abs(cz) + radius}, ` +
+        `outer=${outer}). Boundary tangency degenerates earcut. Use ` +
+        `'kind: rect' for boundary-exceeding cutouts, or expand outerHalfExtent.`,
+    );
+  }
+
+  // Build the floor as a ShapeGeometry with a circular hole. The shape is
+  // constructed in local-XY (Z = 0) and then rotated `-π/2` about world-X
+  // to lie on the floor plane. The rotation maps local +Y to world −Z, so
+  // a cutout centered at world `(cx, cz)` maps to local-XY `(cx, -cz)`.
+  // The outer rect is symmetric ±outer, so its world-XZ projection is also
+  // symmetric and needs no sign-flip.
+  const shape = new THREE.Shape();
+  shape.moveTo(-outer, -outer);
+  shape.lineTo(outer, -outer);
+  shape.lineTo(outer, outer);
+  shape.lineTo(-outer, outer);
+  shape.closePath(); // CCW outer
+
+  // Sign-flip: world-Z = cz → local-Y = -cz. `clockwise: true` produces a
+  // CW hole; `ShapeGeometry.addShape` will auto-normalize winding if
+  // needed, but passing the intended convention directly matches earcut's
+  // documented expectations and reads more clearly to future maintainers.
+  const hole = new THREE.Path();
+  hole.absarc(cx, -cz, radius, 0, Math.PI * 2, true);
+  shape.holes.push(hole);
+
+  const geometry = new THREE.ShapeGeometry(shape);
+  geometries.push(geometry);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.rotation.x = -Math.PI / 2;
+  group.add(mesh);
 }

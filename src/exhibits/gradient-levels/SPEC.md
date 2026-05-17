@@ -359,8 +359,12 @@ at the apex. Three concerns:
   would mean new uniforms + extended exports, not a structural change.
 - **Alternate f presets** — quadric is the natural family for v0.7;
   non-quadric f presets are a v0.7-polish or v0.8+ idea.
-- **Floor** — the family extends to ±math-Z (vertically); a floor would
-  need to be hole-punched. Plain shell-bg surface is cleaner.
+- ~~**Floor** — the family extends to ±math-Z (vertically); a floor would
+  need to be hole-punched. Plain shell-bg surface is cleaner.~~ **Lifted
+  by #238 (E1.1):** floor + cutout shipped via the shared `StageFloor`
+  primitive — see the "Staging (#238 / E1.1)" sub-section under
+  "Design-language alignment" below for the cutout-as-projection-aperture
+  framing.
 
 ## Design-language alignment (#201)
 
@@ -399,3 +403,17 @@ brought the two earlier readouts in line with this pattern.
   coordinate sliders stay neutral gray (`0xaaaaaa`).
 - **No preset rack.** The f-family is fixed; k is the family
   parameter as a slider rather than a preset rack.
+
+### Staging (#238 / E1.1)
+
+Floor: shared `StageFloor` primitive from `scaffold/staging/`,
+cluster-default `outerHalfExtent: 5` (10 × 10 m). Rectangular cutout
+sized to `±BOUND = ±3.0 m` (`kind: 'rect'`, centered on
+`SURFACE_CENTER.xz`); reads as the math-frame domain envelope
+projected onto the floor, per Path A1 (cutout-as-projection-aperture).
+The cutout reaches world Z = −7, beyond the floor's −Z edge at
+−5 — the strip approach's `Math.max/min` clamp truncates the cutout
+to the floor edge, so the floor visibly opens to the back of the
+exhibit (same shape as quadrics' shipped floor). The level surface
+dips below floor for `k ≲ -2.25`; the cutout is static at mount
+(sized to the math envelope, not the current `k`-driven extent).
