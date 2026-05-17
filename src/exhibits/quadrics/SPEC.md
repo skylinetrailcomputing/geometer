@@ -375,3 +375,19 @@ conditional visibility based on coefficient zero-ness, fires on every
   `activeEmissive` (#201 PR 6 added the option for sticky-active
   scenes; quadrics doesn't pass it). Sticky-active is documented in
   saddle-extrema's "Design-language alignment" section.
+
+### Staging (#222 / E1.1)
+
+Floor: shared `StageFloor` primitive from `src/scaffold/staging/`,
+10 × 10 m outer extent, dark navy `0x222244`. Rectangular cutout
+sized to the AABB (`±BOUND = ±3.5 m` in math-frame coords, centered
+on `SURFACE_CENTER.xz`). The cutout exits the outer floor on the
+−Z side; the strip primitive handles this naturally (the "behind"
+strip is degenerate and dropped at `addStrip`'s early-return).
+
+Originally lifted from the per-exhibit `floorMaterial` +
+`floorGeometries` construction at `quadrics/index.ts:806–839` (#125,
+v0.5); refactored into the shared primitive in #222 with zero visual
+change. Future cluster-wide rollout to the other three scenes lives
+in #238 — the cutout-as-projection-aperture vs dipping-hole UX
+decision is owned there, not here.

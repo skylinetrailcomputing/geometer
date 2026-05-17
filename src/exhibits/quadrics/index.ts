@@ -19,6 +19,7 @@ import { Preset, type LinearPresetValues, type PresetValues } from '@/scaffold/u
 import { PresetTween } from '@/scaffold/anim/PresetTween';
 import { createImplicitSurface } from '@/scaffold/render/ImplicitSurface';
 import { RendererInfoProbe } from '@/scaffold/perf/RendererInfoProbe';
+import { createStageFloor, type StageFloorHandles } from '@/scaffold/staging/StageFloor';
 import { Section } from '@/scaffold/ui/Section';
 import { SectionTab } from '@/scaffold/ui/SectionTab';
 import { Slider, type ThumbShape } from '@/scaffold/ui/Slider';
@@ -776,23 +777,20 @@ let presetTween: PresetTween | undefined;
 //
 // Ownership rule: each resource has exactly one disposal owner. Named
 // handles (`material`, `surfaceMesh.geometry`, `doublePlane`, `slicingPlanes`,
-// `floorMaterial`) are NEVER pushed into the generic `ownedDisposables` /
+// `stageFloor`) are NEVER pushed into the generic `ownedDisposables` /
 // `ownedGeometries` / `ownedMaterials` arrays — they're disposed via the
 // dedicated named-handle block in `unmount`. The generic arrays are
 // reserved for resources whose lifecycle is otherwise unmanaged: scaffold
 // primitives that expose `dispose()` (Sliders, Presets, Sections, etc.)
 // flow through `ownedDisposables`; anonymous geometries or materials
 // allocated inline flow through the corresponding `*Geometries` /
-// `*Materials` arrays. `floorMaterial` + `floorGeometries` have their own
-// dedicated handles (one shared material across all strips, one geometry
-// per strip) and are disposed by the named-handle block, not via
-// `ownedMaterials` / `ownedGeometries`.
+// `*Materials` arrays. `stageFloor` is a `StageFloorHandles` whose
+// `dispose()` owns the floor's material + per-strip geometries.
 let ownedDisposables: Array<{ dispose(): void }> = [];
 let ownedGeometries: THREE.BufferGeometry[] = [];
 let ownedMaterials: THREE.Material[] = [];
 let cleanupCallbacks: Array<() => void> = [];
-let floorMaterial: THREE.MeshStandardMaterial | undefined;
-let floorGeometries: THREE.PlaneGeometry[] = [];
+let stageFloor: StageFloorHandles | undefined;
 
 const quadricsExhibit: Exhibit = {
   id: 'quadrics',
@@ -803,40 +801,27 @@ const quadricsExhibit: Exhibit = {
     camera = cam;
     pointers = shellPointers;
 
-    // #125: hole-punch the floor inside the AABB's world-XZ footprint so it
-    // doesn't occlude the lower half of the cube. Math-Z routes to world-Y;
-    // with SURFACE_CENTER.y = 1.5 and BOUND = 3.5, the cube's bottom face sits
-    // at world-Y = -2 while the floor sits at 0, cutting off math-Z ∈
-    // [-3.5, -1.5] (most visible on vertical 2-sheet hyperboloids and 1-sheet
-    // hyperboloids whose axis is math-Z). Strips outside the cube footprint
-    // preserve the ground reference; the rectangle inside is left open.
-    const FLOOR_HALF = 5;
-    floorMaterial = new THREE.MeshStandardMaterial({ color: 0x222244 });
-    const holeMinX = Math.max(SURFACE_CENTER.x - BOUND, -FLOOR_HALF);
-    const holeMaxX = Math.min(SURFACE_CENTER.x + BOUND, FLOOR_HALF);
-    const holeMinZ = Math.max(SURFACE_CENTER.z - BOUND, -FLOOR_HALF);
-    const holeMaxZ = Math.min(SURFACE_CENTER.z + BOUND, FLOOR_HALF);
-    const addFloorStrip = (
-      xMin: number,
-      xMax: number,
-      zMin: number,
-      zMax: number,
-    ): void => {
-      if (xMax <= xMin || zMax <= zMin) return;
-      const stripGeometry = new THREE.PlaneGeometry(xMax - xMin, zMax - zMin);
-      // Push to module-scoped `floorGeometries` so unmount can dispose
-      // each strip's geometry. The shared `floorMaterial` is the named
-      // handle — disposed once, regardless of strip count (#150 §3.5).
-      floorGeometries.push(stripGeometry);
-      const strip = new THREE.Mesh(stripGeometry, floorMaterial!);
-      strip.rotation.x = -Math.PI / 2;
-      strip.position.set((xMin + xMax) / 2, 0, (zMin + zMax) / 2);
-      group.add(strip);
-    };
-    addFloorStrip(-FLOOR_HALF, FLOOR_HALF, holeMaxZ, FLOOR_HALF); // front of cube
-    addFloorStrip(-FLOOR_HALF, FLOOR_HALF, -FLOOR_HALF, holeMinZ); // behind cube
-    addFloorStrip(-FLOOR_HALF, holeMinX, holeMinZ, holeMaxZ); // left of cube
-    addFloorStrip(holeMaxX, FLOOR_HALF, holeMinZ, holeMaxZ); // right of cube
+    // Floor + cutout via the shared `StageFloor` primitive (#222 / E1.1).
+    // The cutout is an AABB-aligned rect around the implicit surface so
+    // the floor doesn't occlude the lower half of the cube. Math-Z routes
+    // to world-Y; with SURFACE_CENTER.y = 1.5 and BOUND = 3.5, the cube's
+    // bottom face sits at world-Y = -2 while the floor sits at 0, cutting
+    // off math-Z ∈ [-3.5, -1.5] (most visible on vertical 2-sheet
+    // hyperboloids and 1-sheet hyperboloids whose axis is math-Z). The
+    // primitive's strip decomposition handles the boundary-exceeding case
+    // naturally (hole z range [-7.5, -0.5] vs floor z range [-5, 5] — the
+    // "behind" strip is degenerate and dropped). See #125 for the original
+    // hole-punch rationale and `_private/plans/222-staging-floor-cutout.md`
+    // for the lift plan.
+    stageFloor = createStageFloor({
+      cutout: {
+        kind: 'rect',
+        centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z],
+        halfExtentX: BOUND,
+        halfExtentZ: BOUND,
+      },
+    });
+    group.add(stageFloor.group);
 
     group.add(new THREE.AmbientLight(0xffffff, 0.4));
     const directional = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -1158,9 +1143,9 @@ const quadricsExhibit: Exhibit = {
     // Register owned scaffold primitives for unmount disposal (#150 §3.5).
     // Per the ownership rule: only primitives go into `ownedDisposables`;
     // the named handles (material, surfaceMesh.geometry, doublePlane,
-    // slicingPlanes, floorMaterial, floorGeometries) are disposed by the
-    // dedicated named-handle block in `unmount`. dSlider aliases sliders[3],
-    // so it's already covered by `...sliders`.
+    // slicingPlanes, stageFloor) are disposed by the dedicated named-handle
+    // block in `unmount`. dSlider aliases sliders[3], so it's already
+    // covered by `...sliders`.
     ownedDisposables.push(
       ...sliders,
       ...linearSliders,
@@ -1384,12 +1369,10 @@ const quadricsExhibit: Exhibit = {
 
     // 3. Named handles — disposed directly, each guarded so a double
     // unmount is safe (DeepSeek #5 / v3-roundtable).
-    if (floorMaterial) {
-      floorMaterial.dispose();
-      floorMaterial = undefined;
+    if (stageFloor) {
+      stageFloor.dispose();
+      stageFloor = undefined;
     }
-    for (const g of floorGeometries) g.dispose();
-    floorGeometries = [];
     if (material) {
       material.dispose();
       material = undefined;
