@@ -16,19 +16,19 @@ const makeCamera = (): THREE.PerspectiveCamera =>
   new THREE.PerspectiveCamera(75, 1, 0.1, 100);
 
 describe('createCameraControls', () => {
-  it('orients the camera at (0, 1.6, 0) before the controls take over', () => {
+  it('orients the camera at (0, 1.6, 3) before the controls take over', () => {
     const camera = makeCamera();
-    camera.position.set(0, 1.6, 3); // simulate shell.ts:34's pre-XR default
+    camera.position.set(0, 1.6, 3); // simulate shell.ts:94's pre-XR default
     createCameraControls(camera, null);
     expect(camera.position.x).toBeCloseTo(0);
     expect(camera.position.y).toBeCloseTo(1.6);
-    expect(camera.position.z).toBeCloseTo(0);
+    expect(camera.position.z).toBeCloseTo(3);
   });
 
   it('applies camera.lookAt(SURFACE_CENTER) before the first controls update', () => {
-    // The camera sits at (0, 1.6, 0) and SURFACE_CENTER is (0, 1.5, -4):
-    // forward unit vector is (0, -0.1/r, -4/r) for r = sqrt(0.01 + 16),
-    // i.e., direction ≈ (0, -0.025, -0.9997). The negative-z dominant
+    // The camera sits at (0, 1.6, 3) and SURFACE_CENTER is (0, 1.5, -4):
+    // forward unit vector is (0, -0.1/r, -7/r) for r = sqrt(0.01 + 49),
+    // i.e., direction ≈ (0, -0.014, -0.9999). The negative-z dominant
     // component is what we care about — it confirms lookAt ran (without
     // it, an unrotated camera looks toward +Z).
     const camera = makeCamera();
