@@ -30,7 +30,7 @@ const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
  * 1. `controls.target` set to `SURFACE_CENTER` so user-driven orbit
  *    rotates around the cluster anchor.
  * 2. `camera.position` overrides the unused-in-XR pre-session
- *    `(0, 1.6, 3)` set at `shell.ts:34`. Desktop mode is the first
+ *    `(0, 1.6, 3)` set at `shell.ts:94`. Desktop mode is the first
  *    time the `PerspectiveCamera`'s position matters at render time
  *    — XR renders via an `ArrayCamera` driven by HMD pose, not this
  *    `PerspectiveCamera` (pancake plan v3 §3.3, S5 / G10).
@@ -70,7 +70,16 @@ export function createCameraControls(
   // configuration, not whatever spherical the constructor derived
   // against the default `target = (0, 0, 0)`.
   controls.target.copy(SURFACE_CENTER);
-  camera.position.set(0, 1.6, 0);
+  // Pancake spawn pose (#240). Z = 3 places the camera ~7 m from
+  // `SURFACE_CENTER`, leaving ~1.5 m of foreground floor visible
+  // between the user and quadrics' cutout near-edge (the tightest of
+  // the four cluster scenes' StageFloor cutouts at z = -0.5). Earlier
+  // spawn pose `(0, 1.6, 0)` placed the camera right at the front of
+  // every cutout — no foreground floor on first paint. Z values that
+  // expose foreground depend on the shell's vertical FOV = 75°
+  // (`shell.ts:86`); the math derivation is in
+  // `_private/plans/240-pancake-default-camera.md` §3.
+  camera.position.set(0, 1.6, 3);
   camera.lookAt(SURFACE_CENTER);
 
   // Re-seed OrbitControls' internal `_lastPosition` from the corrected
