@@ -15,16 +15,21 @@ import * as THREE from 'three';
 // (dome geo/mat + gradient DataTexture) BEFORE renderer.dispose()
 // frees the GL context (#224 plan §3.4 — two-way roundtable HIGH).
 //
-// ── Core / richness split (#224 plan §1) ─────────────────────────
-// `mode: 'dome'` (default) = gradient sky dome + linear fog. The
-// "stage spotlight" read is delivered entirely by baked gradients —
-// ZERO lights are added (Quest 3S fragment-shader budget; per-scene
-// AmbientLight+DirectionalLight pairs are untouched). `mode: 'flat'`
-// = a tuned solid horizon-tone background + no fog ≈ today's cost;
-// the Quest-72Hz core degrade tier (regression ⇒ degrade, never
-// defer, per v1.0.md §3). `richness` (default FALSE for v1 —
-// atmosphere is the first cut, v1.0.md §2) opts in to dim distant-
-// detail slabs at the fog boundary.
+// ── Core / richness split (#224 plan §1; post-smoke amendment) ───
+// `mode: 'flat'` (DEFAULT after PR #245 headset smoke) = a single
+// tuned solid background, a touch lighter than the old 0x111122
+// void, no dome, no fog. Brad's smoke finding: the gradient dome +
+// fog were over-built for the perceptual payoff (a featureless
+// gradient sphere shows no parallax — confirmed in-headset — so the
+// dome-mesh-over-background-color rationale didn't hold; the fog
+// reads "really light for humans"); v1.0.md §2 ranks E1.3
+// atmosphere as the first cut, so the minimal "void, slightly
+// lighter" is what ships. `mode: 'dome'` = the reviewed gradient
+// sky dome + linear fog, kept as a tested opt-in for a future
+// richer pass (delivers its "stage spotlight" read entirely via
+// baked gradients — ZERO lights; per-scene AmbientLight+
+// DirectionalLight pairs untouched). `richness` (default FALSE)
+// opts the dome path into dim distant-detail slabs.
 //
 // ── Fog model: LOCKED linear THREE.Fog (#224 plan §3.2) ──────────
 // Three-vendor roundtable converged on linear over FogExp2: linear
@@ -81,6 +86,17 @@ import * as THREE from 'three';
 export const ENVIRONMENT_ZENITH_RGB = [0x0a / 255, 0x0a / 255, 0x18 / 255] as const;
 export const ENVIRONMENT_MIDGLOW_RGB = [0x1a / 255, 0x1a / 255, 0x30 / 255] as const;
 export const ENVIRONMENT_HORIZON_RGB = [0x11 / 255, 0x11 / 255, 0x22 / 255] as const;
+
+/**
+ * The shipped `mode: 'flat'` background — the old 0x111122 void
+ * nudged a touch lighter (same cool-dark family) per PR #245 smoke
+ * ("not much different from the void, just a little lighter").
+ * First-pass smoke-tunable (feedback_staging_dimensions_first_pass);
+ * Brad eyeballs the exact lift on the next preview. Kept distinct
+ * from the gradient horizon stop so the two are independently
+ * tunable and the intent is explicit, not coincidental.
+ */
+export const ENVIRONMENT_FLAT_BG_RGB = [0x1a / 255, 0x1a / 255, 0x2e / 255] as const;
 
 /** Dome radius (world units). Default; overridable within invariants. */
 export const ENVIRONMENT_RADIUS_DEFAULT = 40;
@@ -195,9 +211,10 @@ function horizonColor(): THREE.Color {
 
 export interface EnvironmentOptions {
   /**
-   * `'dome'` (default) = gradient dome + linear fog. `'flat'` =
-   * tuned solid horizon-tone background, no fog (the Quest-72Hz
-   * core degrade tier, #224 plan §3.6).
+   * `'flat'` (DEFAULT, post-#245-smoke) = a tuned solid background a
+   * touch lighter than the void, no dome/fog. `'dome'` = the
+   * reviewed gradient dome + linear fog (opt-in; future richer
+   * pass).
    */
   readonly mode?: 'dome' | 'flat';
   /**
@@ -238,7 +255,7 @@ export interface EnvironmentHandles {
 export function createEnvironment(
   opts: EnvironmentOptions = {},
 ): EnvironmentHandles {
-  const mode = opts.mode ?? 'dome';
+  const mode = opts.mode ?? 'flat';
   const radius = opts.radius ?? ENVIRONMENT_RADIUS_DEFAULT;
   const fogNear = opts.fogNear ?? ENVIRONMENT_FOG_NEAR_DEFAULT;
   const fogFar = opts.fogFar ?? radius;
@@ -248,14 +265,15 @@ export function createEnvironment(
   group.name = 'environment';
 
   if (mode === 'flat') {
-    // Degrade tier: a single tuned clear colour, no dome, no fog —
-    // ≈ today's cost but the *tuned* tone, still a deliberate
-    // improvement over the bare 0x111122 void.
+    // Shipped default (post-#245 smoke): a single tuned clear
+    // colour, no dome, no fog — ≈ today's cost, the void nudged a
+    // touch lighter. Cheapest possible for the Quest fragment
+    // budget.
     let disposed = false;
     return {
       group,
       fog: null,
-      background: horizonColor(),
+      background: new THREE.Color(...ENVIRONMENT_FLAT_BG_RGB),
       dispose(): void {
         if (disposed) return;
         disposed = true;

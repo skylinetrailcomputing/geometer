@@ -9,6 +9,8 @@ import {
   ENVIRONMENT_RADIUS_MARGIN,
   ENVIRONMENT_CAMERA_FAR,
   ENVIRONMENT_DOME_RENDER_ORDER,
+  ENVIRONMENT_FLAT_BG_RGB,
+  ENVIRONMENT_HORIZON_RGB,
 } from '../../../src/scaffold/staging/Environment.ts';
 
 function collectMeshes(g: THREE.Object3D): THREE.Mesh[] {
@@ -20,23 +22,55 @@ function collectMeshes(g: THREE.Object3D): THREE.Mesh[] {
 }
 
 describe('createEnvironment (#224 / E1.3)', () => {
-  describe("mode: 'dome' (default)", () => {
-    it('produces a linear THREE.Fog, no solid background, a dome mesh', () => {
+  describe("mode: 'flat' (DEFAULT, post-#245 smoke)", () => {
+    it('default (no args) is flat: no fog, no meshes, a solid bg', () => {
       const env = createEnvironment();
+      expect(env.fog).toBeNull();
+      expect(env.background).toBeInstanceOf(THREE.Color);
+      expect(collectMeshes(env.group).length).toBe(0);
+      env.dispose();
+    });
+
+    it('flat bg is the tuned tone, a touch lighter than the old void', () => {
+      const env = createEnvironment();
+      const bg = env.background as THREE.Color;
+      const expected = new THREE.Color(...ENVIRONMENT_FLAT_BG_RGB);
+      expect(bg.getHex()).toBe(expected.getHex());
+      // "a little bit lighter" — strictly brighter than 0x111122,
+      // same family (no channel darker than the void).
+      const void_ = ENVIRONMENT_HORIZON_RGB; // 0x111122
+      expect(ENVIRONMENT_FLAT_BG_RGB[0]).toBeGreaterThanOrEqual(void_[0]);
+      expect(ENVIRONMENT_FLAT_BG_RGB[1]).toBeGreaterThanOrEqual(void_[1]);
+      expect(ENVIRONMENT_FLAT_BG_RGB[2]).toBeGreaterThanOrEqual(void_[2]);
+      const sum = (c: readonly number[]): number => c[0] + c[1] + c[2];
+      expect(sum(ENVIRONMENT_FLAT_BG_RGB)).toBeGreaterThan(sum(void_));
+      env.dispose();
+    });
+
+    it('does NOT gate flat mode on the dome invariants', () => {
+      // flat has no dome/fog, so dome invariants must not fire.
+      expect(() =>
+        createEnvironment({ mode: 'flat', radius: 1, fogNear: 1 }),
+      ).not.toThrow();
+    });
+  });
+
+  describe("mode: 'dome' (opt-in; future richer pass)", () => {
+    it('produces a linear THREE.Fog, no solid background, a dome mesh', () => {
+      const env = createEnvironment({ mode: 'dome' });
       expect(env.fog).toBeInstanceOf(THREE.Fog);
       expect(env.background).toBeNull();
-      const meshes = collectMeshes(env.group);
-      expect(meshes.length).toBe(1); // dome only, richness default false
+      expect(collectMeshes(env.group).length).toBe(1); // dome only
       env.dispose();
     });
 
     it('dome material/render-state is the deterministic backdrop config', () => {
-      const env = createEnvironment();
+      const env = createEnvironment({ mode: 'dome' });
       const dome = collectMeshes(env.group)[0];
       const mat = dome.material as THREE.MeshBasicMaterial;
       expect(mat).toBeInstanceOf(THREE.MeshBasicMaterial);
       expect(mat.side).toBe(THREE.BackSide);
-      expect(mat.fog).toBe(false); // dome is the fog backdrop, not fogged
+      expect(mat.fog).toBe(false);
       expect(mat.depthWrite).toBe(false);
       expect(mat.depthTest).toBe(false);
       expect(dome.renderOrder).toBe(ENVIRONMENT_DOME_RENDER_ORDER);
@@ -45,25 +79,14 @@ describe('createEnvironment (#224 / E1.3)', () => {
     });
   });
 
-  describe("mode: 'flat' degrade tier", () => {
-    it('has no dome mesh, no fog, and a tuned solid background', () => {
-      const env = createEnvironment({ mode: 'flat' });
-      expect(env.fog).toBeNull();
-      expect(env.background).toBeInstanceOf(THREE.Color);
-      expect(collectMeshes(env.group).length).toBe(0);
-      env.dispose();
-    });
-  });
-
-  describe('richness severance (default false)', () => {
+  describe('richness severance (dome path; default false)', () => {
     it('richness:true adds meshes; the dome is present in both', () => {
-      const core = createEnvironment({ richness: false });
-      const rich = createEnvironment({ richness: true });
+      const core = createEnvironment({ mode: 'dome', richness: false });
+      const rich = createEnvironment({ mode: 'dome', richness: true });
       const coreMeshes = collectMeshes(core.group);
       const richMeshes = collectMeshes(rich.group);
-      expect(coreMeshes.length).toBe(1); // dome only
+      expect(coreMeshes.length).toBe(1);
       expect(richMeshes.length).toBeGreaterThan(coreMeshes.length);
-      // Dome geometry identical (same radius) in both.
       const coreDome = coreMeshes[0].geometry as THREE.SphereGeometry;
       const richDome = richMeshes[0].geometry as THREE.SphereGeometry;
       expect(richDome.parameters.radius).toBe(coreDome.parameters.radius);
@@ -74,7 +97,7 @@ describe('createEnvironment (#224 / E1.3)', () => {
 
   describe('linear-fog + dome geometric invariants', () => {
     it('default fog/radius satisfy the §2.2 invariant chain', () => {
-      const env = createEnvironment();
+      const env = createEnvironment({ mode: 'dome' });
       const fog = env.fog as THREE.Fog;
       expect(fog).toBeInstanceOf(THREE.Fog);
       expect(fog.near).toBeGreaterThanOrEqual(ENVIRONMENT_FOG_NEAR_MIN);
@@ -88,38 +111,38 @@ describe('createEnvironment (#224 / E1.3)', () => {
     });
   });
 
-  describe('construction-time invariant rejection', () => {
+  describe('construction-time invariant rejection (dome path)', () => {
     it('rejects fogNear below the stage-reach minimum', () => {
-      expect(() => createEnvironment({ fogNear: 5 })).toThrow(/invariant/);
+      expect(() =>
+        createEnvironment({ mode: 'dome', fogNear: 5 }),
+      ).toThrow(/invariant/);
     });
     it('rejects fogNear >= fogFar', () => {
       expect(() =>
-        createEnvironment({ fogNear: 30, fogFar: 20 }),
+        createEnvironment({ mode: 'dome', fogNear: 30, fogFar: 20 }),
       ).toThrow(/invariant/);
     });
     it('rejects fogFar exceeding radius', () => {
       expect(() =>
-        createEnvironment({ radius: 40, fogFar: 50 }),
+        createEnvironment({ mode: 'dome', radius: 40, fogFar: 50 }),
       ).toThrow(/invariant/);
     });
     it('rejects a radius the camera could exit (black-void guard)', () => {
-      expect(() => createEnvironment({ radius: 15 })).toThrow(/invariant/);
+      expect(() =>
+        createEnvironment({ mode: 'dome', radius: 15 }),
+      ).toThrow(/invariant/);
     });
     it('rejects a radius that would clip the camera far plane', () => {
-      expect(() => createEnvironment({ radius: 120 })).toThrow(/invariant/);
-    });
-    it("does NOT gate 'flat' mode on dome invariants", () => {
-      // 'flat' has no dome/fog, so the dome invariants must not fire.
       expect(() =>
-        createEnvironment({ mode: 'flat', radius: 1 }),
-      ).not.toThrow();
+        createEnvironment({ mode: 'dome', radius: 120 }),
+      ).toThrow(/invariant/);
     });
   });
 
   // v1.0-INTENTIONAL canary guarding the #215/#216 token calibration
-  // (plan §2.3). NOT a forward-compatible invariant — if a later epic
-  // deliberately brightens the environment, DELETE this test as part
-  // of that epic's token re-tune; do NOT silently loosen it.
+  // (plan §2.3). Still relevant for the dome opt-in path. NOT a
+  // forward-compatible invariant — if a later epic deliberately
+  // brightens the gradient, DELETE this as part of that re-tune.
   describe('gradient horizon-stop canary (v1.0-intentional)', () => {
     it('keeps the horizon stop within ±0x10/channel of 0x111122', () => {
       const { horizon } = buildGradientStops();
@@ -133,7 +156,7 @@ describe('createEnvironment (#224 / E1.3)', () => {
 
   describe('env-owned material fog flags (§3.5 audit, env half)', () => {
     it('dome fog:false; richness detail meshes fog:true', () => {
-      const env = createEnvironment({ richness: true });
+      const env = createEnvironment({ mode: 'dome', richness: true });
       const meshes = collectMeshes(env.group);
       const dome = meshes[0];
       expect((dome.material as THREE.MeshBasicMaterial).fog).toBe(false);
@@ -149,7 +172,7 @@ describe('createEnvironment (#224 / E1.3)', () => {
     // and textures; spying it verifies dispose ran without poking
     // internal state (same pattern as StageFloor.test.ts).
     it('disposes dome geometry, material, and gradient texture once', () => {
-      const env = createEnvironment();
+      const env = createEnvironment({ mode: 'dome' });
       const dome = collectMeshes(env.group)[0];
       const geomSpy = vi.fn();
       const matSpy = vi.fn();
@@ -171,7 +194,7 @@ describe('createEnvironment (#224 / E1.3)', () => {
     });
 
     it('disposes richness geometries + materials too', () => {
-      const env = createEnvironment({ richness: true });
+      const env = createEnvironment({ mode: 'dome', richness: true });
       const meshes = collectMeshes(env.group);
       const spies = meshes.flatMap((m) => {
         const gs = vi.fn();
@@ -186,7 +209,7 @@ describe('createEnvironment (#224 / E1.3)', () => {
       for (const s of spies) expect(s).toHaveBeenCalledTimes(1);
     });
 
-    it("'flat' mode dispose is idempotent and safe", () => {
+    it('flat-mode dispose is idempotent and safe', () => {
       const env = createEnvironment({ mode: 'flat' });
       expect(() => {
         env.dispose();
