@@ -391,3 +391,13 @@ v0.5); refactored into the shared primitive in #222 with zero visual
 change. Future cluster-wide rollout to the other three scenes lives
 in #238 — the cutout-as-projection-aperture vs dipping-hole UX
 decision is owned there, not here.
+
+Railing (#223 / E1.2): shared `StageRailing` primitive from
+`scaffold/staging/`, perimeter at `±5 m` (matching `stageFloor.outerHalfExtent`).
+4 corner posts + 4 top-rail tubes; height 0.9 m; color `0x3a3a55`
+(one tone lighter than the floor). Quadrics' raymarched surface
+envelope (AABB `±BOUND = 3.5` centered at `SURFACE_CENTER`) intersects
+the back railing at extreme parameters — accepted by design (railing
+is the stage boundary, not the math envelope). See
+`_private/plans/223-illusory-railing.md` §3.5 for the per-scene
+math-envelope vs. railing audit.

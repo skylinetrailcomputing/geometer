@@ -32,6 +32,10 @@ import {
   createStageFloor,
   type StageFloorHandles,
 } from '@/scaffold/staging/StageFloor';
+import {
+  createStageRailing,
+  type StageRailingHandles,
+} from '@/scaffold/staging/StageRailing';
 import { createGradientArrow, type GradientArrowHandles } from './GradientArrow';
 import { GradientLevelsReadout } from './GradientLevelsReadout';
 import { BOUND, fJsRaw, gradJs } from './surfaceModel';
@@ -248,6 +252,7 @@ let phiLabel: Label | undefined;
 let kLabel: Label | undefined;
 let worldAxes: WorldAxes | undefined;
 let stageFloor: StageFloorHandles | undefined;
+let stageRailing: StageRailingHandles | undefined;
 let pointers: readonly Pointer[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
 // yaw-billboarding in update().
@@ -287,6 +292,15 @@ const gradientLevelsExhibit: Exhibit = {
       },
     });
     group.add(stageFloor.group);
+
+    // Stage railing (#223 / E1.2); cluster-default 10 × 10 m perimeter
+    // via stageFloor.outerHalfExtent. Level-surface tongues reach
+    // z = -7 at extreme k, passing through the back railing at z = -5
+    // — accepted by design (plan §3.5).
+    stageRailing = createStageRailing({
+      outerHalfExtent: stageFloor.outerHalfExtent,
+    });
+    group.add(stageRailing.group);
 
     // Implicit-surface mesh + ShaderMaterial via the shared harness. uK
     // is seeded at K_INITIAL so the surface boots at the right pose
@@ -619,6 +633,10 @@ const gradientLevelsExhibit: Exhibit = {
     if (stageFloor) {
       stageFloor.dispose();
       stageFloor = undefined;
+    }
+    if (stageRailing) {
+      stageRailing.dispose();
+      stageRailing = undefined;
     }
 
     // 3. Drop external references so a re-mount starts clean. The shell

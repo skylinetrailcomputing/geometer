@@ -417,3 +417,12 @@ to the floor edge, so the floor visibly opens to the back of the
 exhibit (same shape as quadrics' shipped floor). The level surface
 dips below floor for `k ≲ -2.25`; the cutout is static at mount
 (sized to the math envelope, not the current `k`-driven extent).
+
+Railing (#223 / E1.2): shared `StageRailing` primitive from
+`scaffold/staging/`, perimeter at `±5 m` (matching
+`stageFloor.outerHalfExtent`). 4 corner posts + 4 top-rail tubes;
+height 0.9 m; color `0x3a3a55`. The level surface envelope reaches
+`Z ∈ [-7, -1]`; the back railing at z=-5 is inside that range, so
+extreme-`k` level surfaces visibly pass through the back railing
+— accepted by design (railing is the stage boundary, not the math
+envelope). See `_private/plans/223-illusory-railing.md` §3.5.

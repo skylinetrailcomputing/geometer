@@ -32,6 +32,10 @@ import {
   createStageFloor,
   type StageFloorHandles,
 } from '@/scaffold/staging/StageFloor';
+import {
+  createStageRailing,
+  type StageRailingHandles,
+} from '@/scaffold/staging/StageRailing';
 import { createTangentPlane, type TangentPlaneHandles } from './TangentPlane';
 import { TangentPlaneReadout } from './TangentPlaneReadout';
 
@@ -217,6 +221,7 @@ let thetaLabel: Label | undefined;
 let phiLabel: Label | undefined;
 let worldAxes: WorldAxes | undefined;
 let stageFloor: StageFloorHandles | undefined;
+let stageRailing: StageRailingHandles | undefined;
 let pointers: readonly Pointer[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
 // yaw-billboarding in update().
@@ -318,6 +323,16 @@ const tangentPlanesExhibit: Exhibit = {
       outerHalfExtent: 6,
     });
     group.add(stageFloor.group);
+
+    // Stage railing (#223 / E1.2). Per-scene 12 × 12 m perimeter
+    // (inherits the per-scene outerHalfExtent: 6 from the floor); see
+    // `_private/plans/223-illusory-railing.md`. TP's sphere envelope is
+    // strictly inside the railing perimeter (no math-envelope
+    // intersection — plan §3.5).
+    stageRailing = createStageRailing({
+      outerHalfExtent: stageFloor.outerHalfExtent,
+    });
+    group.add(stageRailing.group);
 
     // Implicit-surface mesh + ShaderMaterial via the shared harness.
     const surfaceHandles = createImplicitSurface({
@@ -575,6 +590,10 @@ const tangentPlanesExhibit: Exhibit = {
     if (stageFloor) {
       stageFloor.dispose();
       stageFloor = undefined;
+    }
+    if (stageRailing) {
+      stageRailing.dispose();
+      stageRailing = undefined;
     }
 
     // 3. Drop external references so a re-mount starts clean. The shell

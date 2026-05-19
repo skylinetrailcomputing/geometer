@@ -28,6 +28,10 @@ import {
   type StageFloorHandles,
 } from '@/scaffold/staging/StageFloor';
 import {
+  createStageRailing,
+  type StageRailingHandles,
+} from '@/scaffold/staging/StageRailing';
+import {
   createCriticalPointMarkers,
   type CriticalPointMarkersHandles,
 } from './CriticalPointMarkers';
@@ -181,6 +185,7 @@ let yLabel: Label | undefined;
 let indicator: THREE.Mesh | undefined;
 let presetButtons: Preset[] = [];
 let stageFloor: StageFloorHandles | undefined;
+let stageRailing: StageRailingHandles | undefined;
 let activePresetIndex = DEFAULT_PRESET_INDEX;
 let saddleExtremaReadout: SaddleExtremaReadout | undefined;
 let camera: THREE.Camera | undefined;
@@ -233,6 +238,15 @@ const saddleExtremaExhibit: Exhibit = {
       },
     });
     group.add(stageFloor.group);
+
+    // Stage railing (#223 / E1.2); cluster-default 10 × 10 m perimeter
+    // via stageFloor.outerHalfExtent. The widest preset (`saddle` at
+    // ±1.5) reaches z = -5.5, just barely past the back railing at
+    // z = -5 — accepted by design (plan §3.5).
+    stageRailing = createStageRailing({
+      outerHalfExtent: stageFloor.outerHalfExtent,
+    });
+    group.add(stageRailing.group);
 
     graphSurface = createGraphSurface({
       f: initialPreset.f,
@@ -511,6 +525,10 @@ const saddleExtremaExhibit: Exhibit = {
     if (stageFloor) {
       stageFloor.dispose();
       stageFloor = undefined;
+    }
+    if (stageRailing) {
+      stageRailing.dispose();
+      stageRailing = undefined;
     }
 
     // 3. Drop external references so a re-mount starts clean.

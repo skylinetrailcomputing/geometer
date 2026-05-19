@@ -304,3 +304,11 @@ size variation; the other three keep the cluster-default 10 × 10 m
 floor. The variation preserves the cluster-wide cutout-sizing rule
 ("math-frame domain envelope projected onto the floor") under
 Path A1 locked in `_private/plans/238-cluster-cutout.md` §3.3.
+
+Railing (#223 / E1.2): shared `StageRailing` primitive from
+`scaffold/staging/`, perimeter at `±6 m` (matching the per-scene
+`stageFloor.outerHalfExtent`). 4 corner posts + 4 top-rail tubes;
+height 0.9 m; color `0x3a3a55`. The sphere envelope (`Z ∈ [-5, -3]`)
+sits strictly inside the railing perimeter — no math-envelope
+intersection in this scene (the only cluster scene that's clean on
+this dimension). See `_private/plans/223-illusory-railing.md` §3.5.

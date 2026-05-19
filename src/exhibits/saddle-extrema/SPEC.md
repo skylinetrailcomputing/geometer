@@ -740,3 +740,11 @@ floor visibly opens to the back of the exhibit. Static at mount —
 does not resize on preset change. Three of five presets (inv-
 paraboloid, saddle, monkey-saddle) dip below floor; the other two
 (paraboloid, quartic-min) sit above.
+
+Railing (#223 / E1.2): shared `StageRailing` primitive from
+`scaffold/staging/`, perimeter at `±5 m` (matching
+`stageFloor.outerHalfExtent`). 4 corner posts + 4 top-rail tubes;
+height 0.9 m; color `0x3a3a55`. The widest preset (`saddle` at
+`±1.5`) reaches `Z = -5.5`, just barely inside the back railing at
+z=-5 — minor envelope intersection accepted by design. See
+`_private/plans/223-illusory-railing.md` §3.5.

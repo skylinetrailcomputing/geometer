@@ -20,6 +20,10 @@ import { PresetTween } from '@/scaffold/anim/PresetTween';
 import { createImplicitSurface } from '@/scaffold/render/ImplicitSurface';
 import { RendererInfoProbe } from '@/scaffold/perf/RendererInfoProbe';
 import { createStageFloor, type StageFloorHandles } from '@/scaffold/staging/StageFloor';
+import {
+  createStageRailing,
+  type StageRailingHandles,
+} from '@/scaffold/staging/StageRailing';
 import { Section } from '@/scaffold/ui/Section';
 import { SectionTab } from '@/scaffold/ui/SectionTab';
 import { Slider, type ThumbShape } from '@/scaffold/ui/Slider';
@@ -791,6 +795,7 @@ let ownedGeometries: THREE.BufferGeometry[] = [];
 let ownedMaterials: THREE.Material[] = [];
 let cleanupCallbacks: Array<() => void> = [];
 let stageFloor: StageFloorHandles | undefined;
+let stageRailing: StageRailingHandles | undefined;
 
 const quadricsExhibit: Exhibit = {
   id: 'quadrics',
@@ -822,6 +827,16 @@ const quadricsExhibit: Exhibit = {
       },
     });
     group.add(stageFloor.group);
+
+    // Stage railing (#223 / E1.2). Composes against the floor's
+    // outerHalfExtent; see `_private/plans/223-illusory-railing.md`.
+    // Math envelope intersects the back railing at extreme parameters
+    // — accepted by design (railing is stage boundary, not math
+    // envelope); see plan §3.5.
+    stageRailing = createStageRailing({
+      outerHalfExtent: stageFloor.outerHalfExtent,
+    });
+    group.add(stageRailing.group);
 
     group.add(new THREE.AmbientLight(0xffffff, 0.4));
     const directional = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -1372,6 +1387,10 @@ const quadricsExhibit: Exhibit = {
     if (stageFloor) {
       stageFloor.dispose();
       stageFloor = undefined;
+    }
+    if (stageRailing) {
+      stageRailing.dispose();
+      stageRailing = undefined;
     }
     if (material) {
       material.dispose();
