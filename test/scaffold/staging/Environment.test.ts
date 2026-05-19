@@ -10,9 +10,6 @@ import {
   ENVIRONMENT_CAMERA_FAR,
   ENVIRONMENT_DOME_RENDER_ORDER,
   ENVIRONMENT_FLAT_BG_RGB,
-  ENVIRONMENT_PIT_TOP_Y,
-  ENVIRONMENT_PIT_DEPTH,
-  ENVIRONMENT_PIT_XZ_HALF,
 } from '../../../src/scaffold/staging/Environment.ts';
 
 function collectMeshes(g: THREE.Object3D): THREE.Mesh[] {
@@ -22,20 +19,14 @@ function collectMeshes(g: THREE.Object3D): THREE.Mesh[] {
   });
   return out;
 }
-const boxFaces = (m: THREE.Mesh[]): THREE.Mesh[] =>
-  m.filter((x) => x.name === 'contrast-box-face');
-const nonBox = (m: THREE.Mesh[]): THREE.Mesh[] =>
-  m.filter((x) => x.name !== 'contrast-box-face');
 
-describe('createEnvironment (#224 / E1.3)', () => {
-  describe("mode: 'flat' (DEFAULT, post-#245 smoke)", () => {
-    it('default is flat: no fog, solid bg, only the contrast box', () => {
+describe('createEnvironment (#224 / E1.3) — backdrop only', () => {
+  describe("mode: 'flat' (DEFAULT)", () => {
+    it('default is flat: no fog, no meshes, a solid bg', () => {
       const env = createEnvironment();
       expect(env.fog).toBeNull();
       expect(env.background).toBeInstanceOf(THREE.Color);
-      const meshes = collectMeshes(env.group);
-      expect(nonBox(meshes).length).toBe(0); // no dome in flat
-      expect(boxFaces(meshes).length).toBe(4); // sub-floor pit, default ON
+      expect(collectMeshes(env.group).length).toBe(0);
       env.dispose();
     });
 
@@ -45,8 +36,8 @@ describe('createEnvironment (#224 / E1.3)', () => {
       expect(bg.getHex()).toBe(
         new THREE.Color(...ENVIRONMENT_FLAT_BG_RGB).getHex(),
       );
-      // Search converges between black and the round-1 upper bound
-      // (0x1a1a2e, judged too light). Stay inside [black, upper],
+      // Converges between black and the round-1 upper bound
+      // (0x1a1a2e, judged too light). Inside [black, upper],
       // off-black (not pure black), cool (B ≥ R).
       const UPPER = [0x1a / 255, 0x1a / 255, 0x2e / 255];
       const sum = (c: readonly number[]): number => c[0] + c[1] + c[2];
@@ -69,72 +60,9 @@ describe('createEnvironment (#224 / E1.3)', () => {
     });
   });
 
-  describe('vantablack sub-floor pit (#245 smoke; default ON)', () => {
-    it('is present in BOTH flat and dome modes (4 faces)', () => {
-      const flat = createEnvironment();
-      const dome = createEnvironment({ mode: 'dome' });
-      expect(boxFaces(collectMeshes(flat.group)).length).toBe(4);
-      expect(boxFaces(collectMeshes(dome.group)).length).toBe(4);
-      flat.dispose();
-      dome.dispose();
-    });
-
-    it('contrastBox:false removes it', () => {
-      const env = createEnvironment({ contrastBox: false });
-      expect(boxFaces(collectMeshes(env.group)).length).toBe(0);
-      env.dispose();
-    });
-
-    it('4 faces share ONE material (sizes differ → per-face geo); pure-black, fog:false, DoubleSide', () => {
-      const env = createEnvironment();
-      const faces = boxFaces(collectMeshes(env.group));
-      expect(faces.length).toBe(4);
-      const m0 = faces[0].material as THREE.MeshBasicMaterial;
-      const geos = new Set<THREE.BufferGeometry>();
-      for (const f of faces) {
-        expect(f.material).toBe(m0); // shared material instance
-        geos.add(f.geometry);
-      }
-      expect(geos.size).toBe(4); // distinct per-face geometries
-      expect(m0).toBeInstanceOf(THREE.MeshBasicMaterial);
-      expect(m0.color.getHex()).toBe(0x000000);
-      expect(m0.fog).toBe(false);
-      expect(m0.side).toBe(THREE.DoubleSide);
-      env.dispose();
-    });
-
-    it('sits ENTIRELY below the floor (Y=0); open top + open front', () => {
-      const env = createEnvironment();
-      const faces = boxFaces(collectMeshes(env.group));
-      // Every face is at or below the floor — the pit never rises to
-      // eye level / never obscures the skybox except downward.
-      for (const f of faces) {
-        expect(f.position.y).toBeLessThanOrEqual(ENVIRONMENT_PIT_TOP_Y + 1e-6);
-      }
-      // Open top: no horizontal face at/above floor level. The only
-      // horizontal face is the bottom carpet at topY − depth.
-      const botY = ENVIRONMENT_PIT_TOP_Y - ENVIRONMENT_PIT_DEPTH;
-      expect(
-        faces.some((f) => Math.abs(f.position.y - botY) < 1e-6),
-      ).toBe(true);
-      // Open front (+Z, user side): no face in front of the focal
-      // footprint centre; the back wall is one XZ-half behind it.
-      const cz = -4; // CONTRAST_BOX_CENTER.z
-      for (const f of faces) {
-        expect(f.position.z).toBeLessThanOrEqual(cz + 1e-6);
-      }
-      expect(
-        faces.some(
-          (f) => Math.abs(f.position.z - (cz - ENVIRONMENT_PIT_XZ_HALF)) < 1e-6,
-        ),
-      ).toBe(true);
-      env.dispose();
-    });
-  });
-
   describe("mode: 'dome' (opt-in; future richer pass)", () => {
     it('produces a linear THREE.Fog, no solid background, a dome mesh', () => {
-      const env = createEnvironment({ mode: 'dome', contrastBox: false });
+      const env = createEnvironment({ mode: 'dome' });
       expect(env.fog).toBeInstanceOf(THREE.Fog);
       expect(env.background).toBeNull();
       expect(collectMeshes(env.group).length).toBe(1); // dome only
@@ -142,7 +70,7 @@ describe('createEnvironment (#224 / E1.3)', () => {
     });
 
     it('dome material/render-state is the deterministic backdrop config', () => {
-      const env = createEnvironment({ mode: 'dome', contrastBox: false });
+      const env = createEnvironment({ mode: 'dome' });
       const dome = collectMeshes(env.group)[0];
       const mat = dome.material as THREE.MeshBasicMaterial;
       expect(mat).toBeInstanceOf(THREE.MeshBasicMaterial);
@@ -158,16 +86,8 @@ describe('createEnvironment (#224 / E1.3)', () => {
 
   describe('richness severance (dome path; default false)', () => {
     it('richness:true adds meshes; the dome is present in both', () => {
-      const core = createEnvironment({
-        mode: 'dome',
-        richness: false,
-        contrastBox: false,
-      });
-      const rich = createEnvironment({
-        mode: 'dome',
-        richness: true,
-        contrastBox: false,
-      });
+      const core = createEnvironment({ mode: 'dome', richness: false });
+      const rich = createEnvironment({ mode: 'dome', richness: true });
       const coreMeshes = collectMeshes(core.group);
       const richMeshes = collectMeshes(rich.group);
       expect(coreMeshes.length).toBe(1);
@@ -182,7 +102,7 @@ describe('createEnvironment (#224 / E1.3)', () => {
 
   describe('linear-fog + dome geometric invariants', () => {
     it('default fog/radius satisfy the §2.2 invariant chain', () => {
-      const env = createEnvironment({ mode: 'dome', contrastBox: false });
+      const env = createEnvironment({ mode: 'dome' });
       const fog = env.fog as THREE.Fog;
       expect(fog).toBeInstanceOf(THREE.Fog);
       expect(fog.near).toBeGreaterThanOrEqual(ENVIRONMENT_FOG_NEAR_MIN);
@@ -198,39 +118,29 @@ describe('createEnvironment (#224 / E1.3)', () => {
 
   describe('construction-time invariant rejection (dome path)', () => {
     it('rejects fogNear below the stage-reach minimum', () => {
-      expect(() =>
-        createEnvironment({ mode: 'dome', fogNear: 5, contrastBox: false }),
-      ).toThrow(/invariant/);
+      expect(() => createEnvironment({ mode: 'dome', fogNear: 5 })).toThrow(
+        /invariant/,
+      );
     });
     it('rejects fogNear >= fogFar', () => {
       expect(() =>
-        createEnvironment({
-          mode: 'dome',
-          fogNear: 30,
-          fogFar: 20,
-          contrastBox: false,
-        }),
+        createEnvironment({ mode: 'dome', fogNear: 30, fogFar: 20 }),
       ).toThrow(/invariant/);
     });
     it('rejects fogFar exceeding radius', () => {
       expect(() =>
-        createEnvironment({
-          mode: 'dome',
-          radius: 40,
-          fogFar: 50,
-          contrastBox: false,
-        }),
+        createEnvironment({ mode: 'dome', radius: 40, fogFar: 50 }),
       ).toThrow(/invariant/);
     });
     it('rejects a radius the camera could exit (black-void guard)', () => {
-      expect(() =>
-        createEnvironment({ mode: 'dome', radius: 15, contrastBox: false }),
-      ).toThrow(/invariant/);
+      expect(() => createEnvironment({ mode: 'dome', radius: 15 })).toThrow(
+        /invariant/,
+      );
     });
     it('rejects a radius that would clip the camera far plane', () => {
-      expect(() =>
-        createEnvironment({ mode: 'dome', radius: 120, contrastBox: false }),
-      ).toThrow(/invariant/);
+      expect(() => createEnvironment({ mode: 'dome', radius: 120 })).toThrow(
+        /invariant/,
+      );
     });
   });
 
@@ -251,11 +161,7 @@ describe('createEnvironment (#224 / E1.3)', () => {
 
   describe('env-owned material fog flags (§3.5 audit, env half)', () => {
     it('dome fog:false; richness detail meshes fog:true', () => {
-      const env = createEnvironment({
-        mode: 'dome',
-        richness: true,
-        contrastBox: false,
-      });
+      const env = createEnvironment({ mode: 'dome', richness: true });
       const meshes = collectMeshes(env.group);
       expect((meshes[0].material as THREE.MeshBasicMaterial).fog).toBe(false);
       for (let i = 1; i < meshes.length; i++) {
@@ -266,27 +172,16 @@ describe('createEnvironment (#224 / E1.3)', () => {
   });
 
   describe('dispose() — idempotent + leak-free', () => {
-    it('flat mode disposes every pit geo + the shared mat exactly once', () => {
-      const env = createEnvironment(); // flat, pit on
-      const faces = boxFaces(collectMeshes(env.group));
-      expect(faces.length).toBe(4);
-      const mSpy = vi.fn();
-      (faces[0].material as THREE.Material).addEventListener('dispose', mSpy);
-      const gSpies = faces.map((f) => {
-        const s = vi.fn();
-        f.geometry.addEventListener('dispose', s);
-        return s;
-      });
-      env.dispose();
-      for (const s of gSpies) expect(s).toHaveBeenCalledTimes(1);
-      expect(mSpy).toHaveBeenCalledTimes(1);
-      env.dispose(); // idempotent
-      for (const s of gSpies) expect(s).toHaveBeenCalledTimes(1);
-      expect(mSpy).toHaveBeenCalledTimes(1);
+    it('flat mode owns nothing GPU-side; dispose is a safe no-op', () => {
+      const env = createEnvironment();
+      expect(() => {
+        env.dispose();
+        env.dispose();
+      }).not.toThrow();
     });
 
     it('dome mode disposes dome geo, material, gradient texture once', () => {
-      const env = createEnvironment({ mode: 'dome', contrastBox: false });
+      const env = createEnvironment({ mode: 'dome' });
       const dome = collectMeshes(env.group)[0];
       const geomSpy = vi.fn();
       const matSpy = vi.fn();
@@ -305,10 +200,9 @@ describe('createEnvironment (#224 / E1.3)', () => {
       expect(geomSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('dome+richness+box disposes everything once', () => {
+    it('dome+richness disposes every unique geo + mat once', () => {
       const env = createEnvironment({ mode: 'dome', richness: true });
       const meshes = collectMeshes(env.group);
-      // Unique geometries/materials (box shares one of each).
       const geos = new Set(meshes.map((m) => m.geometry));
       const mats = new Set(meshes.map((m) => m.material as THREE.Material));
       const spies = [

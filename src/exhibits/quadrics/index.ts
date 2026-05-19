@@ -21,6 +21,10 @@ import { createImplicitSurface } from '@/scaffold/render/ImplicitSurface';
 import { RendererInfoProbe } from '@/scaffold/perf/RendererInfoProbe';
 import { createStageFloor, type StageFloorHandles } from '@/scaffold/staging/StageFloor';
 import {
+  createContrastPit,
+  type ContrastPitHandles,
+} from '@/scaffold/staging/ContrastPit';
+import {
   createStageRailing,
   type StageRailingHandles,
 } from '@/scaffold/staging/StageRailing';
@@ -799,6 +803,7 @@ let ownedGeometries: THREE.BufferGeometry[] = [];
 let ownedMaterials: THREE.Material[] = [];
 let cleanupCallbacks: Array<() => void> = [];
 let stageFloor: StageFloorHandles | undefined;
+let contrastPit: ContrastPitHandles | undefined;
 let stageRailing: StageRailingHandles | undefined;
 let stageInnerRailing: StageInnerRailingHandles | undefined;
 
@@ -845,6 +850,15 @@ const quadricsExhibit: Exhibit = {
       backExtension: 3,
     });
     group.add(stageFloor.group);
+
+    // Sub-floor vantablack contrast pit (#224 / E1.3, PR #245 smoke
+    // iter 5). Sized to the SAME cutout as the floor → exactly under
+    // the hole, so it always covers the cutout and is always
+    // contained wherever the cutout is (resolves the tangent-planes
+    // overhang vs quadrics deep-cutout conflict). Exhibit-owned, like
+    // the floor + railings.
+    contrastPit = createContrastPit({ cutout: cutoutDescriptor });
+    group.add(contrastPit.group);
 
     // Outer stage railing (#223 / E1.2). Reads the floor's published
     // outerHalfExtent + backExtension so railing perimeter matches the
@@ -1411,6 +1425,10 @@ const quadricsExhibit: Exhibit = {
     if (stageFloor) {
       stageFloor.dispose();
       stageFloor = undefined;
+    }
+    if (contrastPit) {
+      contrastPit.dispose();
+      contrastPit = undefined;
     }
     if (stageRailing) {
       stageRailing.dispose();

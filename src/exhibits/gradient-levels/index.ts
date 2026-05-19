@@ -33,6 +33,10 @@ import {
   type StageFloorHandles,
 } from '@/scaffold/staging/StageFloor';
 import {
+  createContrastPit,
+  type ContrastPitHandles,
+} from '@/scaffold/staging/ContrastPit';
+import {
   createStageRailing,
   type StageRailingHandles,
 } from '@/scaffold/staging/StageRailing';
@@ -256,6 +260,7 @@ let phiLabel: Label | undefined;
 let kLabel: Label | undefined;
 let worldAxes: WorldAxes | undefined;
 let stageFloor: StageFloorHandles | undefined;
+let contrastPit: ContrastPitHandles | undefined;
 let stageRailing: StageRailingHandles | undefined;
 let stageInnerRailing: StageInnerRailingHandles | undefined;
 let pointers: readonly Pointer[] = [];
@@ -303,6 +308,12 @@ const gradientLevelsExhibit: Exhibit = {
       backExtension: 3,
     });
     group.add(stageFloor.group);
+
+    // Sub-floor vantablack contrast pit (#224 / E1.3, PR #245 smoke
+    // iter 5). Sized to the SAME cutout as the floor → exactly under
+    // the hole, contained wherever the cutout is. Exhibit-owned.
+    contrastPit = createContrastPit({ cutout: cutoutDescriptor });
+    group.add(contrastPit.group);
 
     stageRailing = createStageRailing({
       outerHalfExtent: stageFloor.outerHalfExtent,
@@ -646,6 +657,10 @@ const gradientLevelsExhibit: Exhibit = {
     if (stageFloor) {
       stageFloor.dispose();
       stageFloor = undefined;
+    }
+    if (contrastPit) {
+      contrastPit.dispose();
+      contrastPit = undefined;
     }
     if (stageRailing) {
       stageRailing.dispose();

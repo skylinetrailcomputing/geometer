@@ -31,18 +31,12 @@ import * as THREE from 'three';
 // DirectionalLight pairs untouched). `richness` (default FALSE)
 // opts the dome path into dim distant-detail slabs.
 //
-// ── Vantablack sub-floor pit (#245 smoke, default ON) ────────────
-// Independent of mode: a pure-black carpet + short walls ENTIRELY
-// BELOW the StageFloor (world Y=0), beneath where the surface dips
-// through the floor cutout. Looking down past the floor reveals
-// purposeful pure black under the exhibit; at eye level / above
-// only the near-black skybox shows — it "obscures the skybox only
-// in the downward direction" (Brad's clarification: it is NOT an
-// enclosure around the surface). Open-top + open-front (4 faces);
-// the StageFloor + its cutout are the lid. Shell-owned, ONE pit
-// sized to cover the largest cluster cutout, XZ-centred on the
-// shared focal footprint. Built mode-independently, disposed by
-// both flat + dome paths.
+// The sub-floor "vantablack" contrast pit is NOT here — it's an
+// exhibit-owned per-scene primitive in ContrastPit.ts (PR #245
+// smoke iter 5: one shell-owned box couldn't be both contained
+// under tangent-planes' shallow floor and cover quadrics' deep
+// cutout; sizing it to each scene's cutout footprint resolves it).
+// Environment owns only the backdrop: flat tone, or dome + fog.
 //
 // ── Fog model: LOCKED linear THREE.Fog (#224 plan §3.2) ──────────
 // Three-vendor roundtable converged on linear over FogExp2: linear
@@ -116,55 +110,6 @@ export const ENVIRONMENT_HORIZON_RGB = [0x11 / 255, 0x11 / 255, 0x22 / 255] as c
  * stop so the two tune independently.
  */
 export const ENVIRONMENT_FLAT_BG_RGB = [0x04 / 255, 0x04 / 255, 0x06 / 255] as const;
-
-/**
- * The contrast box is pure black ("vantablack") on purpose — it
- * frames the focal volume so the rendered surface reads at maximum
- * contrast, while the surrounding environment stays the off-black
- * `ENVIRONMENT_FLAT_BG_RGB` tone (PR #245 smoke, Brad's call).
- * Tuple+factory per the export discipline even though it's 0,0,0.
- */
-export const ENVIRONMENT_CONTRAST_BOX_RGB = [0, 0, 0] as const;
-
-/**
- * The contrast box is a **sub-floor black pit**, not an enclosure
- * around the surface (PR #245 smoke iteration 4 — Brad's
- * clarification). It sits entirely BELOW the `StageFloor` (world
- * Y = 0): a black "carpet" + short surrounding walls beneath where
- * the surface dips through the floor cutout. Looking down past the
- * floor reveals purposeful pure black under the exhibit; at eye
- * level and above only the (near-black) background skybox shows —
- * the pit "obscures the skybox only in the downward direction."
- *
- * Open-top + open-front (toward the user, +Z): 4 black faces —
- * bottom + back(−Z) + left(−X) + right(+X). A closed top would
- * z-fight the StageFloor at Y = 0 or cap the pit and defeat the
- * look-down-and-see-black effect; the StageFloor + its cutout are
- * the "lid" you peer through. (This is the documented 5→4-face
- * deviation from the earlier "5-sided" framing; surfaced to Brad.)
- *
- * `XZ_HALF` covers the LARGEST cluster floor cutout (quadrics'
- * `BOUND·1.05 ≈ 3.7`) so everything visible through any scene's
- * cutout is black; walls beyond a given scene's cutout are hidden
- * under that scene's opaque StageFloor. `TOP_Y` is a hair below 0
- * to avoid z-fighting the floor; `DEPTH` clears the deepest dip
- * (quadrics cube bottom at world-Y −2) with margin. All three are
- * first-pass smoke-tunable (feedback_staging_dimensions_first_pass).
- */
-export const ENVIRONMENT_PIT_XZ_HALF = 4.0;
-export const ENVIRONMENT_PIT_TOP_Y = -0.02;
-export const ENVIRONMENT_PIT_DEPTH = 3.0;
-
-/**
- * Focal-volume XZ centre, world space. Duplicated here (rather than
- * imported from an exhibit) for the same reason cameraControls.ts:18
- * duplicates it: the shell/scaffold layer stays free of cross-
- * cluster scene imports, and the four scenes' `SURFACE_CENTER`
- * constants are independent declarations that happen to coincide.
- * Only XZ is used (the pit's Y is floor-relative, not surface-
- * relative).
- */
-const CONTRAST_BOX_CENTER = new THREE.Vector3(0, 1.5, -4);
 
 /** Dome radius (world units). Default; overridable within invariants. */
 export const ENVIRONMENT_RADIUS_DEFAULT = 40;
@@ -277,74 +222,6 @@ function horizonColor(): THREE.Color {
   return new THREE.Color(...ENVIRONMENT_HORIZON_RGB);
 }
 
-/**
- * Build the sub-floor "vantablack" pit (PR #245 smoke iter 4 —
- * Brad's clarification): a black carpet + short surrounding walls
- * ENTIRELY below the StageFloor (world Y = 0), so looking down past
- * the floor reveals pure black under the exhibit while the skybox
- * stays visible at eye level / above.
- *
- * 4 faces, open-top + open-front(+Z): bottom + back(−Z) + left(−X)
- * + right(+X). Sizes differ per face, so each gets its own
- * `PlaneGeometry`; ONE shared unlit pure-black `DoubleSide`,
- * `fog:false` material (the StageFloor shared-material pattern).
- * Opaque, normal depth — the StageFloor occludes the walls except
- * through its cutout, which is exactly the "lid you peer through."
- *
- * Geometry (XZ centred on the focal footprint, Y floor-relative):
- *   topY    = ENVIRONMENT_PIT_TOP_Y           (≈ −0.02, just below floor)
- *   botY    = topY − ENVIRONMENT_PIT_DEPTH    (clears the deepest dip)
- *   ±half   = ENVIRONMENT_PIT_XZ_HALF         (covers the largest cutout)
- */
-function buildContrastBox(group: THREE.Group): {
-  geometries: THREE.PlaneGeometry[];
-  material: THREE.MeshBasicMaterial;
-} {
-  const cx = CONTRAST_BOX_CENTER.x;
-  const cz = CONTRAST_BOX_CENTER.z;
-  const half = ENVIRONMENT_PIT_XZ_HALF;
-  const topY = ENVIRONMENT_PIT_TOP_Y;
-  const depth = ENVIRONMENT_PIT_DEPTH;
-  const botY = topY - depth;
-  const midY = topY - depth / 2;
-
-  const material = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(...ENVIRONMENT_CONTRAST_BOX_RGB),
-    side: THREE.DoubleSide,
-    fog: false,
-  });
-  const geometries: THREE.PlaneGeometry[] = [];
-
-  // Each face: its own geometry (sizes differ), one shared material.
-  // PlaneGeometry default lies in XY (normal +Z); rotate to seat.
-  const addFace = (
-    w: number,
-    h: number,
-    pos: [number, number, number],
-    rot: [number, number, number],
-  ): void => {
-    const g = new THREE.PlaneGeometry(w, h);
-    geometries.push(g);
-    const mesh = new THREE.Mesh(g, material);
-    mesh.position.set(...pos);
-    mesh.rotation.set(...rot);
-    mesh.name = 'contrast-box-face';
-    group.add(mesh);
-  };
-
-  // bottom carpet — horizontal, spans the full XZ footprint.
-  addFace(2 * half, 2 * half, [cx, botY, cz], [-Math.PI / 2, 0, 0]);
-  // back wall (−Z) — vertical, spans X × depth.
-  addFace(2 * half, depth, [cx, midY, cz - half], [0, 0, 0]);
-  // left wall (−X) — vertical, spans Z × depth.
-  addFace(2 * half, depth, [cx - half, midY, cz], [0, Math.PI / 2, 0]);
-  // right wall (+X) — vertical, spans Z × depth.
-  addFace(2 * half, depth, [cx + half, midY, cz], [0, Math.PI / 2, 0]);
-  // open top (+Y, the StageFloor/cutout is the lid) + open front (+Z).
-
-  return { geometries, material };
-}
-
 export interface EnvironmentOptions {
   /**
    * `'flat'` (DEFAULT, post-#245-smoke) = a tuned solid background a
@@ -371,9 +248,6 @@ export interface EnvironmentOptions {
   /** Opt-in dim distant-detail slabs at the fog boundary. v1 default
    *  FALSE (atmosphere is the first cut, v1.0.md §2). */
   readonly richness?: boolean;
-  /** Pure-black sub-floor contrast pit beneath the StageFloor (PR
-   *  #245 smoke). Default TRUE — shipped intent in flat + dome. */
-  readonly contrastBox?: boolean;
 }
 
 export interface EnvironmentHandles {
@@ -386,9 +260,9 @@ export interface EnvironmentHandles {
   /** Solid background for `'flat'` mode, else `null`. Shell does
    *  `scene.background = handles.background`. */
   readonly background: THREE.Color | null;
-  /** Idempotent. Disposes the contrast-box geo/mat (both modes) +,
-   *  in `'dome'` mode, dome geo/mat + gradient texture (+ richness
-   *  geos/mats). Mirrors StageFloor's `disposed` guard. */
+  /** Idempotent. `'flat'` owns nothing GPU-side; `'dome'` disposes
+   *  dome geo/mat + gradient texture (+ richness geos/mats).
+   *  Mirrors StageFloor's `disposed` guard. */
   dispose(): void;
 }
 
@@ -401,26 +275,13 @@ export function createEnvironment(
   const fogFar = opts.fogFar ?? radius;
   const richness = opts.richness ?? false;
 
-  const useContrastBox = opts.contrastBox ?? true;
-
   const group = new THREE.Group();
   group.name = 'environment';
-
-  // Shell-owned, mode-independent: the sub-floor vantablack pit is
-  // built once and shared by flat + dome paths (Brad: one box,
-  // shell-owned). Tracked here so BOTH dispose paths release it.
-  const box = useContrastBox ? buildContrastBox(group) : null;
-  const disposeBox = (): void => {
-    if (!box) return;
-    for (const g of box.geometries) g.dispose();
-    box.material.dispose();
-  };
 
   if (mode === 'flat') {
     // Shipped default (post-#245 smoke): a single tuned clear
     // colour, no dome, no fog — ≈ today's cost, the void nudged
-    // darker (binary search). The contrast box (above) is the only
-    // GPU-owned resource in this mode.
+    // darker (binary search). Nothing GPU-owned in 'flat' mode.
     let disposed = false;
     return {
       group,
@@ -429,7 +290,6 @@ export function createEnvironment(
       dispose(): void {
         if (disposed) return;
         disposed = true;
-        disposeBox();
       },
     };
   }
@@ -522,7 +382,6 @@ export function createEnvironment(
     dispose(): void {
       if (disposed) return;
       disposed = true;
-      disposeBox();
       domeGeometry.dispose();
       domeMaterial.dispose();
       gradientTexture.dispose();
