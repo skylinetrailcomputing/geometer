@@ -740,3 +740,24 @@ floor visibly opens to the back of the exhibit. Static at mount —
 does not resize on preset change. Three of five presets (inv-
 paraboloid, saddle, monkey-saddle) dip below floor; the other two
 (paraboloid, quartic-min) sit above.
+
+Outer railing (#223 / E1.2): shared `StageRailing` primitive from
+`scaffold/staging/`. **`backExtension: 3` (v3 — PR #244 smoke
+feedback):** cluster-uniform value matches quadrics + gradient-levels;
+the widest preset (`saddle` at `±1.5`) reaches `Z = -5.5`, 2.5 m
+margin to the extended back at z=-8. 4 corner posts + 4 top-rail
+tubes; height 0.9 m; color `0x3a3a55`. See
+`_private/plans/223-illusory-railing.md` §3.5.
+
+Inner railing (#223 v3): shared `StageInnerRailing` primitive, rect
+path. 4 corner posts at the cutout corners + 4 perimeter tubes.
+Static at mount — sized to the widest preset domain, same as the
+floor cutout.
+
+**`CUTOUT_VISUAL_MARGIN = 1.05` (v4 — PR #244 follow-up smoke).**
+Cutout half-extents (and consequently the inner railing perimeter)
+are scaled 1.05× outward from `SURFACE_CENTER.xz`, so the `saddle`
+preset's `x² − y²` surface — which reaches the full
+±STAGE_CUTOUT_HALF domain — has a small annular breathing margin
+between math and railing. Other presets at narrower domains get
+the same margin scaled appropriately.

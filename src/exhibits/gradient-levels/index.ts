@@ -32,6 +32,14 @@ import {
   createStageFloor,
   type StageFloorHandles,
 } from '@/scaffold/staging/StageFloor';
+import {
+  createStageRailing,
+  type StageRailingHandles,
+} from '@/scaffold/staging/StageRailing';
+import {
+  createStageInnerRailing,
+  type StageInnerRailingHandles,
+} from '@/scaffold/staging/StageInnerRailing';
 import { createGradientArrow, type GradientArrowHandles } from './GradientArrow';
 import { GradientLevelsReadout } from './GradientLevelsReadout';
 import { BOUND, fJsRaw, gradJs } from './surfaceModel';
@@ -248,6 +256,8 @@ let phiLabel: Label | undefined;
 let kLabel: Label | undefined;
 let worldAxes: WorldAxes | undefined;
 let stageFloor: StageFloorHandles | undefined;
+let stageRailing: StageRailingHandles | undefined;
+let stageInnerRailing: StageInnerRailingHandles | undefined;
 let pointers: readonly Pointer[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
 // yaw-billboarding in update().
@@ -278,15 +288,32 @@ const gradientLevelsExhibit: Exhibit = {
     // truncates the cutout to the floor edge — visually the floor
     // opens to the back of the exhibit. See `_private/plans/238-
     // cluster-cutout.md` §1 for the Path A1 framing.
+    // backExtension: 3 (v3 — PR #244 smoke feedback). Level-surface
+    // tongues reach world Z = -7 at extreme k; cluster-uniform back-
+    // extension pushes the floor + railing back edge to Z = -8 with
+    // 1 m clearance. See `_private/plans/223-illusory-railing.md` §3.5.
+    const cutoutDescriptor = {
+      kind: 'rect' as const,
+      centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z] as const,
+      halfExtentX: BOUND,
+      halfExtentZ: BOUND,
+    };
     stageFloor = createStageFloor({
-      cutout: {
-        kind: 'rect',
-        centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z],
-        halfExtentX: BOUND,
-        halfExtentZ: BOUND,
-      },
+      cutout: cutoutDescriptor,
+      backExtension: 3,
     });
     group.add(stageFloor.group);
+
+    stageRailing = createStageRailing({
+      outerHalfExtent: stageFloor.outerHalfExtent,
+      backExtension: stageFloor.backExtension,
+    });
+    group.add(stageRailing.group);
+
+    // Inner stage railing (#223 v3). Rect path: 4 corner posts at the
+    // cutout corners + 4 perimeter tubes.
+    stageInnerRailing = createStageInnerRailing({ cutout: cutoutDescriptor });
+    group.add(stageInnerRailing.group);
 
     // Implicit-surface mesh + ShaderMaterial via the shared harness. uK
     // is seeded at K_INITIAL so the surface boots at the right pose
@@ -619,6 +646,14 @@ const gradientLevelsExhibit: Exhibit = {
     if (stageFloor) {
       stageFloor.dispose();
       stageFloor = undefined;
+    }
+    if (stageRailing) {
+      stageRailing.dispose();
+      stageRailing = undefined;
+    }
+    if (stageInnerRailing) {
+      stageInnerRailing.dispose();
+      stageInnerRailing = undefined;
     }
 
     // 3. Drop external references so a re-mount starts clean. The shell
