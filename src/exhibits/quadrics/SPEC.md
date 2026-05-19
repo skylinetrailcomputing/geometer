@@ -401,8 +401,15 @@ symmetric at ±5. 4 corner posts + 4 top-rail tubes; height 0.9 m;
 color `0x3a3a55`. See `_private/plans/223-illusory-railing.md` §3.5.
 
 Inner railing (#223 v3): shared `StageInnerRailing` primitive,
-circumscribes the cutout. Rect path: 4 corner posts at the AABB
+circumscribes the cutout. Rect path: 4 corner posts at the cutout
 corners + 4 perimeter tubes scaled to the cutout footprint. Same
 color and dimensions as the outer railing; recognized by *where it
 is* (around the cutout) rather than by visual differentiation.
 Museum-style "protect the exhibit" framing.
+
+**`CUTOUT_VISUAL_MARGIN = 1.05` (v4 — PR #244 follow-up smoke).**
+Cutout half-extents (and consequently the inner railing perimeter)
+are scaled 1.05× outward from `SURFACE_CENTER.xz`, so the rendered
+surface doesn't kiss the cutout / railing edge at extreme
+`a/b/c/d` parameters. Preserves the Path A "math envelope projected
+onto floor" framing while adding a small annular breathing margin.

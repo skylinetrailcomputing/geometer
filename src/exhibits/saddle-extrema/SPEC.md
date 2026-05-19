@@ -750,6 +750,14 @@ tubes; height 0.9 m; color `0x3a3a55`. See
 `_private/plans/223-illusory-railing.md` §3.5.
 
 Inner railing (#223 v3): shared `StageInnerRailing` primitive, rect
-path. 4 corner posts at the cutout corners (`±STAGE_CUTOUT_HALF`
-from `SURFACE_CENTER.xz`) + 4 perimeter tubes. Static at mount —
-sized to the widest preset domain, same as the floor cutout.
+path. 4 corner posts at the cutout corners + 4 perimeter tubes.
+Static at mount — sized to the widest preset domain, same as the
+floor cutout.
+
+**`CUTOUT_VISUAL_MARGIN = 1.05` (v4 — PR #244 follow-up smoke).**
+Cutout half-extents (and consequently the inner railing perimeter)
+are scaled 1.05× outward from `SURFACE_CENTER.xz`, so the `saddle`
+preset's `x² − y²` surface — which reaches the full
+±STAGE_CUTOUT_HALF domain — has a small annular breathing margin
+between math and railing. Other presets at narrower domains get
+the same margin scaled appropriately.

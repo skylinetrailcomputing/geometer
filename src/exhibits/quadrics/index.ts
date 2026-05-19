@@ -825,13 +825,20 @@ const quadricsExhibit: Exhibit = {
     // for the lift plan.
     // backExtension: 3 (v3 — PR #244 smoke feedback). Quadrics' AABB
     // reaches world Z = -7.5; cluster-uniform back-extension pushes
-    // the floor + railing back edge to Z = -8 with 0.5 m clearance.
-    // See `_private/plans/223-illusory-railing.md` §3.5.
+    // the floor + railing back edge to Z = -8. See plan §3.5.
+    //
+    // CUTOUT_VISUAL_MARGIN: 1.05× outward expansion of the cutout
+    // (and consequently the inner railing) so the rendered surface
+    // doesn't kiss the cutout/railing edge at extreme parameters —
+    // PR #244 follow-up smoke. The 1.05× scaling preserves the
+    // "math envelope projected onto floor" framing while adding a
+    // small annular breathing margin.
+    const CUTOUT_VISUAL_MARGIN = 1.05;
     const cutoutDescriptor = {
       kind: 'rect' as const,
       centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z] as const,
-      halfExtentX: BOUND,
-      halfExtentZ: BOUND,
+      halfExtentX: BOUND * CUTOUT_VISUAL_MARGIN,
+      halfExtentZ: BOUND * CUTOUT_VISUAL_MARGIN,
     };
     stageFloor = createStageFloor({
       cutout: cutoutDescriptor,

@@ -238,11 +238,18 @@ const saddleExtremaExhibit: Exhibit = {
     // value matches quadrics + gradient-levels; the widest preset
     // (`saddle` at ±1.5) reaches z = -5.5, so 2.5 m margin to the
     // extended back at z = -8. See plan §3.5.
+    //
+    // CUTOUT_VISUAL_MARGIN: 1.05× outward expansion of the cutout
+    // (and inner railing) so the rendered surface — especially the
+    // `saddle` preset which reaches the full ±STAGE_CUTOUT_HALF
+    // domain — has a small annular breathing margin between math
+    // and railing. PR #244 follow-up smoke.
+    const CUTOUT_VISUAL_MARGIN = 1.05;
     const cutoutDescriptor = {
       kind: 'rect' as const,
       centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z] as const,
-      halfExtentX: STAGE_CUTOUT_HALF,
-      halfExtentZ: STAGE_CUTOUT_HALF,
+      halfExtentX: STAGE_CUTOUT_HALF * CUTOUT_VISUAL_MARGIN,
+      halfExtentZ: STAGE_CUTOUT_HALF * CUTOUT_VISUAL_MARGIN,
     };
     stageFloor = createStageFloor({
       cutout: cutoutDescriptor,
