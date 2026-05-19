@@ -305,10 +305,16 @@ floor. The variation preserves the cluster-wide cutout-sizing rule
 ("math-frame domain envelope projected onto the floor") under
 Path A1 locked in `_private/plans/238-cluster-cutout.md` §3.3.
 
-Railing (#223 / E1.2): shared `StageRailing` primitive from
+Outer railing (#223 / E1.2): shared `StageRailing` primitive from
 `scaffold/staging/`, perimeter at `±6 m` (matching the per-scene
-`stageFloor.outerHalfExtent`). 4 corner posts + 4 top-rail tubes;
-height 0.9 m; color `0x3a3a55`. The sphere envelope (`Z ∈ [-5, -3]`)
-sits strictly inside the railing perimeter — no math-envelope
-intersection in this scene (the only cluster scene that's clean on
-this dimension). See `_private/plans/223-illusory-railing.md` §3.5.
+`stageFloor.outerHalfExtent`). **TP is the only cluster scene without
+a v3 back-extension** — its sphere envelope (`Z ∈ [-5, -3]`) sits
+strictly inside the railing perimeter already. 4 corner posts + 4
+top-rail tubes; height 0.9 m; color `0x3a3a55`. See
+`_private/plans/223-illusory-railing.md` §3.5.
+
+Inner railing (#223 v3): shared `StageInnerRailing` primitive, circle
+path. 8 evenly-spaced posts around the cutout circumference (radius
+`BOUND = 1.5`) + 1 `TorusGeometry` top-rail. Same height + color as
+the outer railing. The torus provides a clean curved top rail without
+piecewise approximation.

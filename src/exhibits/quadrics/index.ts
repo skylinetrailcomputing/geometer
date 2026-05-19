@@ -24,6 +24,10 @@ import {
   createStageRailing,
   type StageRailingHandles,
 } from '@/scaffold/staging/StageRailing';
+import {
+  createStageInnerRailing,
+  type StageInnerRailingHandles,
+} from '@/scaffold/staging/StageInnerRailing';
 import { Section } from '@/scaffold/ui/Section';
 import { SectionTab } from '@/scaffold/ui/SectionTab';
 import { Slider, type ThumbShape } from '@/scaffold/ui/Slider';
@@ -796,6 +800,7 @@ let ownedMaterials: THREE.Material[] = [];
 let cleanupCallbacks: Array<() => void> = [];
 let stageFloor: StageFloorHandles | undefined;
 let stageRailing: StageRailingHandles | undefined;
+let stageInnerRailing: StageInnerRailingHandles | undefined;
 
 const quadricsExhibit: Exhibit = {
   id: 'quadrics',
@@ -818,25 +823,37 @@ const quadricsExhibit: Exhibit = {
     // "behind" strip is degenerate and dropped). See #125 for the original
     // hole-punch rationale and `_private/plans/222-staging-floor-cutout.md`
     // for the lift plan.
+    // backExtension: 3 (v3 — PR #244 smoke feedback). Quadrics' AABB
+    // reaches world Z = -7.5; cluster-uniform back-extension pushes
+    // the floor + railing back edge to Z = -8 with 0.5 m clearance.
+    // See `_private/plans/223-illusory-railing.md` §3.5.
+    const cutoutDescriptor = {
+      kind: 'rect' as const,
+      centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z] as const,
+      halfExtentX: BOUND,
+      halfExtentZ: BOUND,
+    };
     stageFloor = createStageFloor({
-      cutout: {
-        kind: 'rect',
-        centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z],
-        halfExtentX: BOUND,
-        halfExtentZ: BOUND,
-      },
+      cutout: cutoutDescriptor,
+      backExtension: 3,
     });
     group.add(stageFloor.group);
 
-    // Stage railing (#223 / E1.2). Composes against the floor's
-    // outerHalfExtent; see `_private/plans/223-illusory-railing.md`.
-    // Math envelope intersects the back railing at extreme parameters
-    // — accepted by design (railing is stage boundary, not math
-    // envelope); see plan §3.5.
+    // Outer stage railing (#223 / E1.2). Reads the floor's published
+    // outerHalfExtent + backExtension so railing perimeter matches the
+    // floor edge exactly.
     stageRailing = createStageRailing({
       outerHalfExtent: stageFloor.outerHalfExtent,
+      backExtension: stageFloor.backExtension,
     });
     group.add(stageRailing.group);
+
+    // Inner stage railing (#223 v3 — PR #244 smoke item 2). Museum
+    // "protect the exhibit" framing: keep users from stepping into the
+    // cutout or grabbing at the math surface. Takes the same cutout
+    // descriptor as the floor.
+    stageInnerRailing = createStageInnerRailing({ cutout: cutoutDescriptor });
+    group.add(stageInnerRailing.group);
 
     group.add(new THREE.AmbientLight(0xffffff, 0.4));
     const directional = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -1391,6 +1408,10 @@ const quadricsExhibit: Exhibit = {
     if (stageRailing) {
       stageRailing.dispose();
       stageRailing = undefined;
+    }
+    if (stageInnerRailing) {
+      stageInnerRailing.dispose();
+      stageInnerRailing = undefined;
     }
     if (material) {
       material.dispose();

@@ -36,6 +36,10 @@ import {
   createStageRailing,
   type StageRailingHandles,
 } from '@/scaffold/staging/StageRailing';
+import {
+  createStageInnerRailing,
+  type StageInnerRailingHandles,
+} from '@/scaffold/staging/StageInnerRailing';
 import { createTangentPlane, type TangentPlaneHandles } from './TangentPlane';
 import { TangentPlaneReadout } from './TangentPlaneReadout';
 
@@ -222,6 +226,7 @@ let phiLabel: Label | undefined;
 let worldAxes: WorldAxes | undefined;
 let stageFloor: StageFloorHandles | undefined;
 let stageRailing: StageRailingHandles | undefined;
+let stageInnerRailing: StageInnerRailingHandles | undefined;
 let pointers: readonly Pointer[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
 // yaw-billboarding in update().
@@ -314,25 +319,33 @@ const tangentPlanesExhibit: Exhibit = {
     // `_private/plans/238-cluster-cutout.md` §3.3 for the Path A1
     // rationale (roundtable-converged on cluster-rule uniformity
     // over cluster-footprint uniformity).
+    // TP is the only cluster scene without a v3 back-extension — its
+    // sphere envelope is strictly inside the railing perimeter already
+    // (plan §3.5). The per-scene `outerHalfExtent: 6` (vs cluster
+    // default 5) remains the per-scene variation under Path A1.
+    const cutoutDescriptor = {
+      kind: 'circle' as const,
+      centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z] as const,
+      radius: BOUND,
+    };
     stageFloor = createStageFloor({
-      cutout: {
-        kind: 'circle',
-        centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z],
-        radius: BOUND,
-      },
+      cutout: cutoutDescriptor,
       outerHalfExtent: 6,
     });
     group.add(stageFloor.group);
 
-    // Stage railing (#223 / E1.2). Per-scene 12 × 12 m perimeter
-    // (inherits the per-scene outerHalfExtent: 6 from the floor); see
-    // `_private/plans/223-illusory-railing.md`. TP's sphere envelope is
-    // strictly inside the railing perimeter (no math-envelope
-    // intersection — plan §3.5).
+    // Outer stage railing (#223 / E1.2). 12 × 12 m perimeter via the
+    // per-scene outerHalfExtent: 6.
     stageRailing = createStageRailing({
       outerHalfExtent: stageFloor.outerHalfExtent,
+      backExtension: stageFloor.backExtension,
     });
     group.add(stageRailing.group);
+
+    // Inner stage railing (#223 v3). Circle path: 8 posts around the
+    // sphere's domain circle (radius BOUND = 1.5) + 1 torus top-rail.
+    stageInnerRailing = createStageInnerRailing({ cutout: cutoutDescriptor });
+    group.add(stageInnerRailing.group);
 
     // Implicit-surface mesh + ShaderMaterial via the shared harness.
     const surfaceHandles = createImplicitSurface({
@@ -594,6 +607,10 @@ const tangentPlanesExhibit: Exhibit = {
     if (stageRailing) {
       stageRailing.dispose();
       stageRailing = undefined;
+    }
+    if (stageInnerRailing) {
+      stageInnerRailing.dispose();
+      stageInnerRailing = undefined;
     }
 
     // 3. Drop external references so a re-mount starts clean. The shell

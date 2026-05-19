@@ -86,6 +86,81 @@ describe('createStageFloor (#238 circle path)', () => {
     });
   });
 
+  // v3 back-extension (PR #244 smoke): asymmetric Z extent so the floor
+  // clears math envelopes that reach past the symmetric outerHalfExtent
+  // on the −Z side without inflating all four edges. Affects the
+  // strictly-interior invariant and the outer rect vertex layout.
+  describe('backExtension (v3 — asymmetric −Z extension)', () => {
+    it('handle exposes backExtension default 0 when not passed', () => {
+      const handles = createStageFloor({
+        cutout: { kind: 'rect', centerXZ: [0, -4], halfExtentX: 3, halfExtentZ: 3 },
+      });
+      expect(handles.backExtension).toBe(0);
+      handles.dispose();
+    });
+
+    it('handle exposes backExtension when passed', () => {
+      const handles = createStageFloor({
+        cutout: { kind: 'rect', centerXZ: [0, -4], halfExtentX: 3, halfExtentZ: 3 },
+        backExtension: 3,
+      });
+      expect(handles.backExtension).toBe(3);
+      handles.dispose();
+    });
+
+    it('rect path: back-extension expands the −Z floor reach without affecting X', () => {
+      const handles = createStageFloor({
+        cutout: { kind: 'rect', centerXZ: [0, -4], halfExtentX: 3, halfExtentZ: 3 },
+        outerHalfExtent: 5,
+        backExtension: 3,
+      });
+      const meshes: THREE.Mesh[] = [];
+      handles.group.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) meshes.push(obj);
+      });
+      // The "behind" strip should reach z = -outer - back = -8.
+      // Each strip is rotated -π/2 about world-X; center.z is in world.
+      let foundBackStrip = false;
+      for (const m of meshes) {
+        if (m.position.z < -5) foundBackStrip = true;
+      }
+      expect(foundBackStrip).toBe(true);
+      handles.dispose();
+    });
+
+    it('circle path: back-extension expands strictly-interior allowance on −Z', () => {
+      // Without back-extension this would fail (|cz|+r = 5.5 >= 5).
+      // With backExtension: 3, the back edge moves to -8; cz - r = -5.5 > -8 ✓.
+      expect(() =>
+        createStageFloor({
+          cutout: { kind: 'circle', centerXZ: [0, -4], radius: 1.5 },
+          outerHalfExtent: 5,
+          backExtension: 3,
+        }),
+      ).not.toThrow();
+    });
+
+    it('circle path: still rejects circle exceeding the extended back edge', () => {
+      expect(() =>
+        createStageFloor({
+          cutout: { kind: 'circle', centerXZ: [0, -7], radius: 1.5 },
+          outerHalfExtent: 5,
+          backExtension: 3, // back at -8; cz - r = -8.5 <= -8 → reject
+        }),
+      ).toThrow(/strictly interior/);
+    });
+
+    it('circle path: still rejects circle exceeding the front edge regardless of back-extension', () => {
+      expect(() =>
+        createStageFloor({
+          cutout: { kind: 'circle', centerXZ: [0, 4], radius: 1.5 },
+          outerHalfExtent: 5,
+          backExtension: 10, // huge back, but front still bounded at +5
+        }),
+      ).toThrow(/strictly interior/);
+    });
+  });
+
   describe('dispose() — circle path', () => {
     // Three.js dispatches a 'dispose' event on the resource; spying on
     // that verifies dispose actually runs without poking internal state.

@@ -136,6 +136,103 @@ describe('createStageRailing (#223)', () => {
     });
   });
 
+  // v3 back-extension: railing's −Z edge moves to -outer-back. Posts
+  // at zBack on the back corners; Z-spanning tubes are longer than
+  // X-spanning tubes when back > 0. Mirrors StageFloor's API.
+  describe('backExtension (v3 — asymmetric −Z extension)', () => {
+    it('places back-corner posts at z = -outer-back', () => {
+      const outer = 5;
+      const back = 3;
+      const handles = createStageRailing({
+        outerHalfExtent: outer,
+        backExtension: back,
+      });
+      const backCorners: number[] = [];
+      handles.group.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          const p = obj.position;
+          // Back-corner posts have |x|=outer AND z<-outer.
+          if (
+            Math.abs(Math.abs(p.x) - outer) < 1e-9 &&
+            p.z < -outer + 1e-9
+          ) {
+            backCorners.push(p.z);
+          }
+        }
+      });
+      // 2 back corners
+      expect(backCorners).toHaveLength(2);
+      // Both at z = -outer - back = -8
+      for (const z of backCorners) {
+        expect(z).toBeCloseTo(-outer - back, 9);
+      }
+      handles.dispose();
+    });
+
+    it('keeps front-corner posts at z = +outer (X-edge symmetry preserved)', () => {
+      const outer = 5;
+      const handles = createStageRailing({
+        outerHalfExtent: outer,
+        backExtension: 3,
+      });
+      const frontCorners: number[] = [];
+      handles.group.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          const p = obj.position;
+          if (
+            Math.abs(Math.abs(p.x) - outer) < 1e-9 &&
+            Math.abs(p.z - outer) < 1e-9
+          ) {
+            frontCorners.push(p.z);
+          }
+        }
+      });
+      expect(frontCorners).toHaveLength(2);
+      handles.dispose();
+    });
+
+    it('Z-spanning side tubes are length 2·outer + back (longer than X-spanning)', () => {
+      const outer = 5;
+      const back = 3;
+      const handles = createStageRailing({
+        outerHalfExtent: outer,
+        backExtension: back,
+      });
+
+      // Walk tube geometries; each cylinder's length is the second arg
+      // of its `parameters`.
+      const tubeLengths = new Set<number>();
+      handles.group.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          const geom = obj.geometry as THREE.CylinderGeometry;
+          const params = geom.parameters as { height: number };
+          // Posts have height POST_HEIGHT = 0.9; tubes are longer.
+          if (params.height > 1) tubeLengths.add(params.height);
+        }
+      });
+      expect(tubeLengths.has(outer * 2)).toBe(true); // X-spanning
+      expect(tubeLengths.has(outer * 2 + back)).toBe(true); // Z-spanning
+      handles.dispose();
+    });
+
+    it('handle defaults: omitting backExtension behaves like back=0', () => {
+      const handles = createStageRailing({ outerHalfExtent: 5 });
+      // Should still build 8 meshes; back posts at z=-5 (not -outer-back).
+      const meshes: THREE.Mesh[] = [];
+      handles.group.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) meshes.push(obj);
+      });
+      expect(meshes).toHaveLength(8);
+
+      let anyAtBack = false;
+      for (const m of meshes) {
+        if (Math.abs(m.position.z - -5) < 1e-9) anyAtBack = true;
+      }
+      expect(anyAtBack).toBe(true);
+      handles.dispose();
+    });
+  });
+
   describe('scales with outerHalfExtent', () => {
     it('honors per-scene outerHalfExtent: 6 (tangent-planes)', () => {
       const handles = createStageRailing({ outerHalfExtent: 6 });
@@ -170,7 +267,8 @@ describe('createStageRailing (#223)', () => {
 
       const uniqueGeoms = new Set<THREE.BufferGeometry>();
       for (const m of meshes) uniqueGeoms.add(m.geometry);
-      expect(uniqueGeoms.size).toBe(2);
+      // v3: one post geom + two tube geoms (X-spanning + Z-spanning).
+      expect(uniqueGeoms.size).toBe(3);
 
       handles.dispose();
     });

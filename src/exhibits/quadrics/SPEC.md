@@ -392,12 +392,17 @@ change. Future cluster-wide rollout to the other three scenes lives
 in #238 — the cutout-as-projection-aperture vs dipping-hole UX
 decision is owned there, not here.
 
-Railing (#223 / E1.2): shared `StageRailing` primitive from
-`scaffold/staging/`, perimeter at `±5 m` (matching `stageFloor.outerHalfExtent`).
-4 corner posts + 4 top-rail tubes; height 0.9 m; color `0x3a3a55`
-(one tone lighter than the floor). Quadrics' raymarched surface
-envelope (AABB `±BOUND = 3.5` centered at `SURFACE_CENTER`) intersects
-the back railing at extreme parameters — accepted by design (railing
-is the stage boundary, not the math envelope). See
-`_private/plans/223-illusory-railing.md` §3.5 for the per-scene
-math-envelope vs. railing audit.
+Outer railing (#223 / E1.2): shared `StageRailing` primitive from
+`scaffold/staging/`. **`backExtension: 3` (v3 — PR #244 smoke
+feedback):** the floor + outer railing extend asymmetrically in the
+−Z direction so the back perimeter sits at world Z = −8, clearing
+the AABB envelope's Z = −7.5 reach with 0.5 m margin. X stays
+symmetric at ±5. 4 corner posts + 4 top-rail tubes; height 0.9 m;
+color `0x3a3a55`. See `_private/plans/223-illusory-railing.md` §3.5.
+
+Inner railing (#223 v3): shared `StageInnerRailing` primitive,
+circumscribes the cutout. Rect path: 4 corner posts at the AABB
+corners + 4 perimeter tubes scaled to the cutout footprint. Same
+color and dimensions as the outer railing; recognized by *where it
+is* (around the cutout) rather than by visual differentiation.
+Museum-style "protect the exhibit" framing.

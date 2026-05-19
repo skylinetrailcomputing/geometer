@@ -741,10 +741,15 @@ does not resize on preset change. Three of five presets (inv-
 paraboloid, saddle, monkey-saddle) dip below floor; the other two
 (paraboloid, quartic-min) sit above.
 
-Railing (#223 / E1.2): shared `StageRailing` primitive from
-`scaffold/staging/`, perimeter at `±5 m` (matching
-`stageFloor.outerHalfExtent`). 4 corner posts + 4 top-rail tubes;
-height 0.9 m; color `0x3a3a55`. The widest preset (`saddle` at
-`±1.5`) reaches `Z = -5.5`, just barely inside the back railing at
-z=-5 — minor envelope intersection accepted by design. See
+Outer railing (#223 / E1.2): shared `StageRailing` primitive from
+`scaffold/staging/`. **`backExtension: 3` (v3 — PR #244 smoke
+feedback):** cluster-uniform value matches quadrics + gradient-levels;
+the widest preset (`saddle` at `±1.5`) reaches `Z = -5.5`, 2.5 m
+margin to the extended back at z=-8. 4 corner posts + 4 top-rail
+tubes; height 0.9 m; color `0x3a3a55`. See
 `_private/plans/223-illusory-railing.md` §3.5.
+
+Inner railing (#223 v3): shared `StageInnerRailing` primitive, rect
+path. 4 corner posts at the cutout corners (`±STAGE_CUTOUT_HALF`
+from `SURFACE_CENTER.xz`) + 4 perimeter tubes. Static at mount —
+sized to the widest preset domain, same as the floor cutout.

@@ -8,8 +8,12 @@ import * as THREE from 'three';
 // roundtable findings, and per-scene math-envelope audit.
 //
 // Geometry: 4 corner posts + 4 perimeter top-rail tubes. All eight
-// meshes share a single `MeshStandardMaterial` and two `BufferGeometry`
-// instances (one post geometry, one tube geometry). Static — no
+// meshes share a single `MeshStandardMaterial`. Three `BufferGeometry`
+// instances: one shared by the four posts; one shared by the two
+// X-spanning tubes (front + back, length `2*outer`); one shared by
+// the two Z-spanning tubes (left + right, length `2*outer + back`).
+// When `backExtension = 0` the two tube geometries describe the same
+// shape but stay as separate instances for simplicity. Static — no
 // per-frame work.
 //
 // Tube orientation uses `quaternion.setFromUnitVectors(localY, side)`
@@ -56,6 +60,13 @@ const TUBE_RADIUS = 0.03;
 export interface StageRailingOptions {
   /** Required. Same value the scene passed to `createStageFloor`. */
   readonly outerHalfExtent: number;
+  /**
+   * Optional asymmetric extension of the railing's −Z edge (math-Y
+   * positive direction). Mirrors `StageFloorOptions.backExtension` —
+   * scenes that pass back-extension to the floor pass the same value
+   * here so the railing perimeter follows the floor edge. Default 0.
+   */
+  readonly backExtension?: number;
 }
 
 export interface StageRailingHandles {
@@ -69,6 +80,11 @@ export function createStageRailing(
   opts: StageRailingOptions,
 ): StageRailingHandles {
   const outer = opts.outerHalfExtent;
+  const back = opts.backExtension ?? 0;
+
+  // Asymmetric outer rect: X stays ±outer; Z spans [-outer-back, +outer].
+  // Front edge at z = +outer; back edge at z = -outer - back.
+  const zBack = -outer - back;
 
   const material = new THREE.MeshStandardMaterial({
     color: new THREE.Color(...STAGE_RAILING_COLOR_RGB),
@@ -77,9 +93,8 @@ export function createStageRailing(
   const group = new THREE.Group();
   group.name = 'stage-railing';
 
-  // 4 corner posts. CylinderGeometry default axis is +Y — upright
-  // posts need no rotation, just translate so the bottom sits on the
-  // floor plane at Y = 0.
+  // 4 corner posts at the asymmetric rect corners. CylinderGeometry
+  // default axis is +Y — upright posts need no rotation, just translate.
   const postGeom = new THREE.CylinderGeometry(
     POST_RADIUS,
     POST_RADIUS,
@@ -90,8 +105,8 @@ export function createStageRailing(
   );
   geometries.push(postGeom);
   const postCorners: readonly (readonly [number, number])[] = [
-    [-outer, -outer],
-    [outer, -outer],
+    [-outer, zBack],
+    [outer, zBack],
     [outer, outer],
     [-outer, outer],
   ];
@@ -101,36 +116,52 @@ export function createStageRailing(
     group.add(post);
   }
 
-  // 4 perimeter top-rail tubes. Tube center sits at Y = POST_HEIGHT,
-  // so the rail centerline rests at post-cap height (rail top at
-  // POST_HEIGHT + TUBE_RADIUS, slightly overhanging post tops — the
-  // standard museum top-rail-on-post geometry). Local +Y is the
-  // cylinder's long axis; the quaternion orients it along the side.
-  const sideLength = outer * 2;
-  const tubeGeom = new THREE.CylinderGeometry(
+  // 4 perimeter top-rail tubes. Front/back tubes span world-X with
+  // length 2·outer; left/right tubes span world-Z with length
+  // 2·outer + back (longer when back-extended). Two CylinderGeometry
+  // instances: one for the X-spanning tubes (front+back share length)
+  // and one for the Z-spanning tubes (left+right share length).
+  //
+  // Tube center sits at Y = POST_HEIGHT so the rail centerline rests
+  // at post-cap height. Local +Y is the cylinder's long axis; the
+  // quaternion orients it along the side.
+  const tubeGeomXSpan = new THREE.CylinderGeometry(
     TUBE_RADIUS,
     TUBE_RADIUS,
-    sideLength,
+    outer * 2,
     8,
     1,
-    true, // openEnded — end caps occluded by corner posts
+    true,
   );
-  geometries.push(tubeGeom);
+  geometries.push(tubeGeomXSpan);
+  const tubeGeomZSpan = new THREE.CylinderGeometry(
+    TUBE_RADIUS,
+    TUBE_RADIUS,
+    outer * 2 + back,
+    8,
+    1,
+    true,
+  );
+  geometries.push(tubeGeomZSpan);
   const yAxis = new THREE.Vector3(0, 1, 0);
   const addTube = (
+    geom: THREE.BufferGeometry,
     midX: number,
     midZ: number,
     sideDirection: THREE.Vector3,
   ): void => {
-    const tube = new THREE.Mesh(tubeGeom, material);
+    const tube = new THREE.Mesh(geom, material);
     tube.position.set(midX, POST_HEIGHT, midZ);
     tube.quaternion.setFromUnitVectors(yAxis, sideDirection);
     group.add(tube);
   };
-  addTube(0, outer, new THREE.Vector3(1, 0, 0)); // front (z=+outer), spans X
-  addTube(0, -outer, new THREE.Vector3(1, 0, 0)); // back (z=-outer), spans X
-  addTube(outer, 0, new THREE.Vector3(0, 0, 1)); // right (x=+outer), spans Z
-  addTube(-outer, 0, new THREE.Vector3(0, 0, 1)); // left (x=-outer), spans Z
+  // Z-spanning tubes (left/right) midpoints sit at (zBack + outer)/2
+  // = -back/2 — back-of-center when back > 0, exactly 0 when back = 0.
+  const zSpanMid = (zBack + outer) / 2;
+  addTube(tubeGeomXSpan, 0, outer, new THREE.Vector3(1, 0, 0)); // front (z=+outer)
+  addTube(tubeGeomXSpan, 0, zBack, new THREE.Vector3(1, 0, 0)); // back (z=-outer-back)
+  addTube(tubeGeomZSpan, outer, zSpanMid, new THREE.Vector3(0, 0, 1)); // right
+  addTube(tubeGeomZSpan, -outer, zSpanMid, new THREE.Vector3(0, 0, 1)); // left
 
   let disposed = false;
   return {

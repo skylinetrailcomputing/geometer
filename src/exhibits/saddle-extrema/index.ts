@@ -32,6 +32,10 @@ import {
   type StageRailingHandles,
 } from '@/scaffold/staging/StageRailing';
 import {
+  createStageInnerRailing,
+  type StageInnerRailingHandles,
+} from '@/scaffold/staging/StageInnerRailing';
+import {
   createCriticalPointMarkers,
   type CriticalPointMarkersHandles,
 } from './CriticalPointMarkers';
@@ -186,6 +190,7 @@ let indicator: THREE.Mesh | undefined;
 let presetButtons: Preset[] = [];
 let stageFloor: StageFloorHandles | undefined;
 let stageRailing: StageRailingHandles | undefined;
+let stageInnerRailing: StageInnerRailingHandles | undefined;
 let activePresetIndex = DEFAULT_PRESET_INDEX;
 let saddleExtremaReadout: SaddleExtremaReadout | undefined;
 let camera: THREE.Camera | undefined;
@@ -229,24 +234,32 @@ const saddleExtremaExhibit: Exhibit = {
     // to the floor edge. Static at mount — does not resize on preset
     // change. See `_private/plans/238-cluster-cutout.md` §3.4 for the
     // Path A1 rationale.
+    // backExtension: 3 (v3 — PR #244 smoke feedback). Cluster-uniform
+    // value matches quadrics + gradient-levels; the widest preset
+    // (`saddle` at ±1.5) reaches z = -5.5, so 2.5 m margin to the
+    // extended back at z = -8. See plan §3.5.
+    const cutoutDescriptor = {
+      kind: 'rect' as const,
+      centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z] as const,
+      halfExtentX: STAGE_CUTOUT_HALF,
+      halfExtentZ: STAGE_CUTOUT_HALF,
+    };
     stageFloor = createStageFloor({
-      cutout: {
-        kind: 'rect',
-        centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z],
-        halfExtentX: STAGE_CUTOUT_HALF,
-        halfExtentZ: STAGE_CUTOUT_HALF,
-      },
+      cutout: cutoutDescriptor,
+      backExtension: 3,
     });
     group.add(stageFloor.group);
 
-    // Stage railing (#223 / E1.2); cluster-default 10 × 10 m perimeter
-    // via stageFloor.outerHalfExtent. The widest preset (`saddle` at
-    // ±1.5) reaches z = -5.5, just barely past the back railing at
-    // z = -5 — accepted by design (plan §3.5).
     stageRailing = createStageRailing({
       outerHalfExtent: stageFloor.outerHalfExtent,
+      backExtension: stageFloor.backExtension,
     });
     group.add(stageRailing.group);
+
+    // Inner stage railing (#223 v3). Rect path; perimeter follows the
+    // widest-preset cutout footprint at ±STAGE_CUTOUT_HALF.
+    stageInnerRailing = createStageInnerRailing({ cutout: cutoutDescriptor });
+    group.add(stageInnerRailing.group);
 
     graphSurface = createGraphSurface({
       f: initialPreset.f,
@@ -529,6 +542,10 @@ const saddleExtremaExhibit: Exhibit = {
     if (stageRailing) {
       stageRailing.dispose();
       stageRailing = undefined;
+    }
+    if (stageInnerRailing) {
+      stageInnerRailing.dispose();
+      stageInnerRailing = undefined;
     }
 
     // 3. Drop external references so a re-mount starts clean.
