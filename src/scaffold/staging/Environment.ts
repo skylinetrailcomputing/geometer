@@ -31,6 +31,15 @@ import * as THREE from 'three';
 // DirectionalLight pairs untouched). `richness` (default FALSE)
 // opts the dome path into dim distant-detail slabs.
 //
+// ── Vantablack contrast box (#245 smoke, default ON) ─────────────
+// Independent of mode: a pure-black 5-face open-front box framing
+// the focal volume so the rendered surface reads at maximum
+// contrast against true black, while the rest of the environment
+// stays the off-black flat tone (or the dome). Shell-owned, ONE box
+// sized to the largest cluster focal volume (quadrics' ±3.5 AABB),
+// centred on the shared SURFACE_CENTER. Built mode-independently
+// and disposed by both flat + dome paths.
+//
 // ── Fog model: LOCKED linear THREE.Fog (#224 plan §3.2) ──────────
 // Three-vendor roundtable converged on linear over FogExp2: linear
 // fog applies ZERO attenuation for distance < `near`, making "the
@@ -103,6 +112,34 @@ export const ENVIRONMENT_HORIZON_RGB = [0x11 / 255, 0x11 / 255, 0x22 / 255] as c
  * stop so the two tune independently.
  */
 export const ENVIRONMENT_FLAT_BG_RGB = [0x0d / 255, 0x0d / 255, 0x17 / 255] as const;
+
+/**
+ * The contrast box is pure black ("vantablack") on purpose — it
+ * frames the focal volume so the rendered surface reads at maximum
+ * contrast, while the surrounding environment stays the off-black
+ * `ENVIRONMENT_FLAT_BG_RGB` tone (PR #245 smoke, Brad's call).
+ * Tuple+factory per the export discipline even though it's 0,0,0.
+ */
+export const ENVIRONMENT_CONTRAST_BOX_RGB = [0, 0, 0] as const;
+
+/**
+ * Half-extent of the shell-owned contrast box, world units. Sized
+ * to enclose the LARGEST cluster focal volume — quadrics' raymarch
+ * AABB, `BOUND = 3.5` — plus ~1 m margin (Brad: shell-owned, one
+ * box sized to the biggest scene). The smaller-surface scenes get a
+ * looser but still fully-black frame, which is fine. First-pass
+ * smoke-tunable (feedback_staging_dimensions_first_pass).
+ */
+export const ENVIRONMENT_CONTRAST_BOX_HALF_EXTENT = 4.5;
+
+/**
+ * Focal-volume centre, world space. Duplicated here (rather than
+ * imported from an exhibit) for the same reason cameraControls.ts:18
+ * duplicates it: the shell/scaffold layer stays free of cross-
+ * cluster scene imports, and the four scenes' `SURFACE_CENTER`
+ * constants are independent declarations that happen to coincide.
+ */
+const CONTRAST_BOX_CENTER = new THREE.Vector3(0, 1.5, -4);
 
 /** Dome radius (world units). Default; overridable within invariants. */
 export const ENVIRONMENT_RADIUS_DEFAULT = 40;
@@ -215,6 +252,55 @@ function horizonColor(): THREE.Color {
   return new THREE.Color(...ENVIRONMENT_HORIZON_RGB);
 }
 
+/**
+ * Five-face open-front "vantablack" box framing the focal volume
+ * (Brad's pick: full box, everything but the viewer/+Z side). Back
+ * + top + bottom + two sides; the +Z face is omitted so the camera
+ * looks in. All five faces are 2h × 2h squares sharing ONE geometry
+ * + ONE unlit pure-black material (`DoubleSide`, `fog:false`) — so
+ * winding/normal direction is irrelevant and dispose is one geo +
+ * one mat (the StageFloor shared-material pattern). Opaque, normal
+ * depth: the StageFloor / railing / raymarched surface correctly
+ * render in front; through the floor cutout the surface dips into
+ * pure black. The box is finite and centred on the focal volume, so
+ * the off-black `scene.background` still shows past its edges / open
+ * front — focal volume black, periphery off-black, exactly the
+ * museum-shadow-box read.
+ */
+function buildContrastBox(group: THREE.Group): {
+  geometry: THREE.PlaneGeometry;
+  material: THREE.MeshBasicMaterial;
+} {
+  const c = CONTRAST_BOX_CENTER;
+  const h = ENVIRONMENT_CONTRAST_BOX_HALF_EXTENT;
+  const geometry = new THREE.PlaneGeometry(2 * h, 2 * h);
+  const material = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(...ENVIRONMENT_CONTRAST_BOX_RGB),
+    side: THREE.DoubleSide,
+    fog: false,
+  });
+  // [position, rotation] per face. PlaneGeometry's default lies in
+  // XY with +Z normal; rotate to seat each wall. +Z (front) omitted.
+  const faces: ReadonlyArray<{
+    pos: [number, number, number];
+    rot: [number, number, number];
+  }> = [
+    { pos: [c.x, c.y, c.z - h], rot: [0, 0, 0] }, // back  (−Z wall)
+    { pos: [c.x, c.y + h, c.z], rot: [-Math.PI / 2, 0, 0] }, // top
+    { pos: [c.x, c.y - h, c.z], rot: [-Math.PI / 2, 0, 0] }, // bottom
+    { pos: [c.x - h, c.y, c.z], rot: [0, Math.PI / 2, 0] }, // left  (−X)
+    { pos: [c.x + h, c.y, c.z], rot: [0, Math.PI / 2, 0] }, // right (+X)
+  ];
+  for (const f of faces) {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(...f.pos);
+    mesh.rotation.set(...f.rot);
+    mesh.name = 'contrast-box-face';
+    group.add(mesh);
+  }
+  return { geometry, material };
+}
+
 export interface EnvironmentOptions {
   /**
    * `'flat'` (DEFAULT, post-#245-smoke) = a tuned solid background a
@@ -241,6 +327,10 @@ export interface EnvironmentOptions {
   /** Opt-in dim distant-detail slabs at the fog boundary. v1 default
    *  FALSE (atmosphere is the first cut, v1.0.md §2). */
   readonly richness?: boolean;
+  /** Pure-black 5-face open-front contrast box framing the focal
+   *  volume (PR #245 smoke). Default TRUE — it's the shipped intent
+   *  in both flat and dome modes. */
+  readonly contrastBox?: boolean;
 }
 
 export interface EnvironmentHandles {
@@ -253,7 +343,8 @@ export interface EnvironmentHandles {
   /** Solid background for `'flat'` mode, else `null`. Shell does
    *  `scene.background = handles.background`. */
   readonly background: THREE.Color | null;
-  /** Idempotent. Disposes dome geo/mat + gradient texture (+ richness
+  /** Idempotent. Disposes the contrast-box geo/mat (both modes) +,
+   *  in `'dome'` mode, dome geo/mat + gradient texture (+ richness
    *  geos/mats). Mirrors StageFloor's `disposed` guard. */
   dispose(): void;
 }
@@ -267,14 +358,26 @@ export function createEnvironment(
   const fogFar = opts.fogFar ?? radius;
   const richness = opts.richness ?? false;
 
+  const useContrastBox = opts.contrastBox ?? true;
+
   const group = new THREE.Group();
   group.name = 'environment';
 
+  // Shell-owned, mode-independent: the vantablack contrast box is
+  // built once and shared by flat + dome paths (Brad: one box,
+  // shell-owned). Tracked here so BOTH dispose paths release it.
+  const box = useContrastBox ? buildContrastBox(group) : null;
+  const disposeBox = (): void => {
+    if (!box) return;
+    box.geometry.dispose();
+    box.material.dispose();
+  };
+
   if (mode === 'flat') {
     // Shipped default (post-#245 smoke): a single tuned clear
-    // colour, no dome, no fog — ≈ today's cost, the void nudged a
-    // touch lighter. Cheapest possible for the Quest fragment
-    // budget.
+    // colour, no dome, no fog — ≈ today's cost, the void nudged
+    // darker (binary search). The contrast box (above) is the only
+    // GPU-owned resource in this mode.
     let disposed = false;
     return {
       group,
@@ -283,7 +386,7 @@ export function createEnvironment(
       dispose(): void {
         if (disposed) return;
         disposed = true;
-        // Nothing GPU-owned in 'flat' mode.
+        disposeBox();
       },
     };
   }
@@ -376,6 +479,7 @@ export function createEnvironment(
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      disposeBox();
       domeGeometry.dispose();
       domeMaterial.dispose();
       gradientTexture.dispose();
