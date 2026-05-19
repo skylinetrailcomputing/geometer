@@ -17,6 +17,7 @@ import type { Pointer } from './Pointer';
 import { VRPointer } from './VRPointer';
 import { DesktopPointer } from './DesktopPointer';
 import { createCameraControls } from './cameraControls';
+import { createEnvironment } from '@/scaffold/staging/Environment';
 
 // Vite HMR can re-execute module-level code in dev. `bootShell` is
 // idempotent against double-invocation: subsequent calls early-return
@@ -80,7 +81,17 @@ async function bootShellAsync(): Promise<void> {
   const myGeneration = bootGeneration;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x111122);
+  // Shell-owned environment surround (#224 / E1.3). Constructed at
+  // the scene seam: mode-independent (pre-mode-probe; the :142 HMR
+  // generation bail only gates *post*-await allocation, and a
+  // mid-probe HMR drains `disposers[]` which already holds this
+  // env's disposer). The disposer itself is pushed AFTER the
+  // renderer disposer below so LIFO runs environment.dispose()
+  // BEFORE renderer.dispose() frees the GL context (#224 plan §3.4).
+  const environment = createEnvironment();
+  scene.add(environment.group);
+  scene.fog = environment.fog;
+  scene.background = environment.background;
 
   const camera = new THREE.PerspectiveCamera(
     75,
@@ -100,6 +111,16 @@ async function bootShellAsync(): Promise<void> {
   disposers.push(() => {
     renderer.dispose();
     renderer.domElement.remove();
+  });
+  // Pushed AFTER the renderer disposer so the LIFO drain runs
+  // environment.dispose() (dome geo/mat + gradient DataTexture)
+  // BEFORE renderer.dispose() frees the GL context (#224 plan §3.4
+  // — two-way roundtable convergent HIGH).
+  disposers.push(() => {
+    scene.remove(environment.group);
+    scene.fog = null;
+    scene.background = null;
+    environment.dispose();
   });
 
   const resizeHandler = (): void => {
@@ -429,6 +450,28 @@ async function bootShellAsync(): Promise<void> {
     onSelect: (id) => scheduler.requestSwitch(id, 'push'),
   });
   scene.add(rack.group);
+  // scene.fog material audit (#224 plan §3.5, amended at impl). The
+  // fogNear≥14 linear-fog invariant provably un-fogs all near-field
+  // cluster UI (see Environment.ts header). SceneRack is the lone
+  // exception worth an explicit opt-out: in an extreme orbit pose it
+  // can marginally exceed fogNear (~15 m, ~4% fade) AND it's the
+  // persistent shell-owned nav surface, so token-stability wants it
+  // fog-immune unconditionally. Troika-derived label materials are
+  // lazy (may not exist yet) but are tiny near-field text the
+  // invariant already covers; the tab disc/background meshes — the
+  // visually significant mass — are standard materials present now.
+  // `fog` lives on concrete materials, not the base `THREE.Material`
+  // type — augment the cast rather than narrow per material class.
+  type Foggable = THREE.Material & { fog: boolean };
+  rack.group.traverse((obj) => {
+    const mat = (obj as THREE.Mesh).material as
+      | THREE.Material
+      | THREE.Material[]
+      | undefined;
+    if (!mat) return;
+    if (Array.isArray(mat)) for (const m of mat) (m as Foggable).fog = false;
+    else (mat as Foggable).fog = false;
+  });
 
   function applyUrlSync(id: string, historyMode: HistoryMode): void {
     const plan = planUrlSync(id, historyMode, defaultId, window.location.href);
