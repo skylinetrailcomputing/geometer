@@ -88,15 +88,21 @@ export const ENVIRONMENT_MIDGLOW_RGB = [0x1a / 255, 0x1a / 255, 0x30 / 255] as c
 export const ENVIRONMENT_HORIZON_RGB = [0x11 / 255, 0x11 / 255, 0x22 / 255] as const;
 
 /**
- * The shipped `mode: 'flat'` background — the old 0x111122 void
- * nudged a touch lighter (same cool-dark family) per PR #245 smoke
- * ("not much different from the void, just a little lighter").
- * First-pass smoke-tunable (feedback_staging_dimensions_first_pass);
- * Brad eyeballs the exact lift on the next preview. Kept distinct
- * from the gradient horizon stop so the two are independently
- * tunable and the intent is explicit, not coincidental.
+ * The shipped `mode: 'flat'` background. Tuned by a **binary search
+ * on darkness** against in-headset smoke (Brad's call each round):
+ *
+ *   bounds  = [ 0x000000 (darker, "vantablack")  ..
+ *               0x1a1a2e (lighter, PR#245 round-1 — judged too light) ]
+ *   round 2 = midpoint(0x1a1a2e, 0x000000)        = 0x0d0d17  ← CURRENT
+ *
+ * Next step rule: if round 2 still too light → midpoint(0x0d0d17,
+ * 0x000000) ≈ 0x07070b; if too dark → midpoint(0x0d0d17, 0x1a1a2e)
+ * ≈ 0x131320. Keep the converging bounds in this comment each
+ * round (feedback_staging_dimensions_first_pass — smoke-tunable
+ * value, locked intent). Kept distinct from the gradient horizon
+ * stop so the two tune independently.
  */
-export const ENVIRONMENT_FLAT_BG_RGB = [0x1a / 255, 0x1a / 255, 0x2e / 255] as const;
+export const ENVIRONMENT_FLAT_BG_RGB = [0x0d / 255, 0x0d / 255, 0x17 / 255] as const;
 
 /** Dome radius (world units). Default; overridable within invariants. */
 export const ENVIRONMENT_RADIUS_DEFAULT = 40;

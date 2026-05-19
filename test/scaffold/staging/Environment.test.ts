@@ -10,7 +10,6 @@ import {
   ENVIRONMENT_CAMERA_FAR,
   ENVIRONMENT_DOME_RENDER_ORDER,
   ENVIRONMENT_FLAT_BG_RGB,
-  ENVIRONMENT_HORIZON_RGB,
 } from '../../../src/scaffold/staging/Environment.ts';
 
 function collectMeshes(g: THREE.Object3D): THREE.Mesh[] {
@@ -31,19 +30,29 @@ describe('createEnvironment (#224 / E1.3)', () => {
       env.dispose();
     });
 
-    it('flat bg is the tuned tone, a touch lighter than the old void', () => {
+    it('flat bg is the tuned tone within the darkness binary-search bounds', () => {
       const env = createEnvironment();
       const bg = env.background as THREE.Color;
       const expected = new THREE.Color(...ENVIRONMENT_FLAT_BG_RGB);
       expect(bg.getHex()).toBe(expected.getHex());
-      // "a little bit lighter" — strictly brighter than 0x111122,
-      // same family (no channel darker than the void).
-      const void_ = ENVIRONMENT_HORIZON_RGB; // 0x111122
-      expect(ENVIRONMENT_FLAT_BG_RGB[0]).toBeGreaterThanOrEqual(void_[0]);
-      expect(ENVIRONMENT_FLAT_BG_RGB[1]).toBeGreaterThanOrEqual(void_[1]);
-      expect(ENVIRONMENT_FLAT_BG_RGB[2]).toBeGreaterThanOrEqual(void_[2]);
+      // The search converges between black and the round-1 upper
+      // bound (0x1a1a2e, judged too light). Every channel must stay
+      // inside [0x000000, 0x1a1a2e] and be a near-black cool tone
+      // (B ≥ R ≈ G, no channel above the upper bound). Strictly
+      // brighter than pure black so it's an off-black, not a void.
+      const LOWER = [0, 0, 0]; // vantablack
+      const UPPER = [0x1a / 255, 0x1a / 255, 0x2e / 255]; // round-1
       const sum = (c: readonly number[]): number => c[0] + c[1] + c[2];
-      expect(sum(ENVIRONMENT_FLAT_BG_RGB)).toBeGreaterThan(sum(void_));
+      for (let c = 0; c < 3; c++) {
+        expect(ENVIRONMENT_FLAT_BG_RGB[c]).toBeGreaterThanOrEqual(LOWER[c]);
+        expect(ENVIRONMENT_FLAT_BG_RGB[c]).toBeLessThanOrEqual(UPPER[c]);
+      }
+      expect(sum(ENVIRONMENT_FLAT_BG_RGB)).toBeGreaterThan(0); // not pure black
+      expect(sum(ENVIRONMENT_FLAT_BG_RGB)).toBeLessThan(sum(UPPER));
+      // Cool near-black: blue ≥ red ≈ green (same family as the void).
+      expect(ENVIRONMENT_FLAT_BG_RGB[2]).toBeGreaterThanOrEqual(
+        ENVIRONMENT_FLAT_BG_RGB[0],
+      );
       env.dispose();
     });
 
