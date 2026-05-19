@@ -105,17 +105,17 @@ export const ENVIRONMENT_HORIZON_RGB = [0x11 / 255, 0x11 / 255, 0x22 / 255] as c
  * on darkness** against in-headset smoke (Brad's call each round):
  *
  *   bounds  = [ 0x000000 (darker, "vantablack")  ..
- *               0x0d0d17 (lighter, round-2 — judged still too light) ]
- *   round 3 = midpoint(0x0d0d17, 0x000000)        = 0x07070c  ← CURRENT
+ *               0x07070c (lighter, round-3 — bracket upper) ]
+ *   round 4 = midpoint(0x07070c, 0x000000)        = 0x040406  ← CURRENT
  *
- * Next step rule: if round 3 still too light → midpoint(0x07070c,
- * 0x000000) ≈ 0x040406; if too dark → midpoint(0x07070c, 0x0d0d17)
- * ≈ 0x0a0a12. Keep the converging bounds in this comment each
+ * Next step rule: if round 4 still too light → midpoint(0x040406,
+ * 0x000000) ≈ 0x020203; if too dark → midpoint(0x040406, 0x07070c)
+ * ≈ 0x050509. Keep the converging bounds in this comment each
  * round (feedback_staging_dimensions_first_pass — smoke-tunable
  * value, locked intent). Kept distinct from the gradient horizon
  * stop so the two tune independently.
  */
-export const ENVIRONMENT_FLAT_BG_RGB = [0x07 / 255, 0x07 / 255, 0x0c / 255] as const;
+export const ENVIRONMENT_FLAT_BG_RGB = [0x04 / 255, 0x04 / 255, 0x06 / 255] as const;
 
 /**
  * The contrast box is pure black ("vantablack") on purpose — it
