@@ -10,7 +10,9 @@ import {
   ENVIRONMENT_CAMERA_FAR,
   ENVIRONMENT_DOME_RENDER_ORDER,
   ENVIRONMENT_FLAT_BG_RGB,
-  ENVIRONMENT_CONTRAST_BOX_HALF_EXTENT,
+  ENVIRONMENT_PIT_TOP_Y,
+  ENVIRONMENT_PIT_DEPTH,
+  ENVIRONMENT_PIT_XZ_HALF,
 } from '../../../src/scaffold/staging/Environment.ts';
 
 function collectMeshes(g: THREE.Object3D): THREE.Mesh[] {
@@ -33,7 +35,7 @@ describe('createEnvironment (#224 / E1.3)', () => {
       expect(env.background).toBeInstanceOf(THREE.Color);
       const meshes = collectMeshes(env.group);
       expect(nonBox(meshes).length).toBe(0); // no dome in flat
-      expect(boxFaces(meshes).length).toBe(5); // box default ON
+      expect(boxFaces(meshes).length).toBe(4); // sub-floor pit, default ON
       env.dispose();
     });
 
@@ -67,12 +69,12 @@ describe('createEnvironment (#224 / E1.3)', () => {
     });
   });
 
-  describe('vantablack contrast box (#245 smoke; default ON)', () => {
-    it('is present in BOTH flat and dome modes', () => {
+  describe('vantablack sub-floor pit (#245 smoke; default ON)', () => {
+    it('is present in BOTH flat and dome modes (4 faces)', () => {
       const flat = createEnvironment();
       const dome = createEnvironment({ mode: 'dome' });
-      expect(boxFaces(collectMeshes(flat.group)).length).toBe(5);
-      expect(boxFaces(collectMeshes(dome.group)).length).toBe(5);
+      expect(boxFaces(collectMeshes(flat.group)).length).toBe(4);
+      expect(boxFaces(collectMeshes(dome.group)).length).toBe(4);
       flat.dispose();
       dome.dispose();
     });
@@ -83,16 +85,17 @@ describe('createEnvironment (#224 / E1.3)', () => {
       env.dispose();
     });
 
-    it('all 5 faces share ONE geometry + ONE material; pure-black, fog:false, DoubleSide', () => {
+    it('4 faces share ONE material (sizes differ → per-face geo); pure-black, fog:false, DoubleSide', () => {
       const env = createEnvironment();
       const faces = boxFaces(collectMeshes(env.group));
-      expect(faces.length).toBe(5);
-      const g0 = faces[0].geometry;
+      expect(faces.length).toBe(4);
       const m0 = faces[0].material as THREE.MeshBasicMaterial;
+      const geos = new Set<THREE.BufferGeometry>();
       for (const f of faces) {
-        expect(f.geometry).toBe(g0); // shared geometry instance
         expect(f.material).toBe(m0); // shared material instance
+        geos.add(f.geometry);
       }
+      expect(geos.size).toBe(4); // distinct per-face geometries
       expect(m0).toBeInstanceOf(THREE.MeshBasicMaterial);
       expect(m0.color.getHex()).toBe(0x000000);
       expect(m0.fog).toBe(false);
@@ -100,26 +103,31 @@ describe('createEnvironment (#224 / E1.3)', () => {
       env.dispose();
     });
 
-    it('omits the +Z (viewer) face and seats the others at ±half-extent', () => {
+    it('sits ENTIRELY below the floor (Y=0); open top + open front', () => {
       const env = createEnvironment();
       const faces = boxFaces(collectMeshes(env.group));
-      const c = new THREE.Vector3(0, 1.5, -4); // CONTRAST_BOX_CENTER
-      const h = ENVIRONMENT_CONTRAST_BOX_HALF_EXTENT;
-      // No face sits on the +Z (open / viewer) side.
+      // Every face is at or below the floor — the pit never rises to
+      // eye level / never obscures the skybox except downward.
       for (const f of faces) {
-        expect(f.position.z).toBeLessThanOrEqual(c.z + 1e-6);
+        expect(f.position.y).toBeLessThanOrEqual(ENVIRONMENT_PIT_TOP_Y + 1e-6);
       }
-      // The back wall is exactly one half-extent behind centre.
-      expect(faces.some((f) => Math.abs(f.position.z - (c.z - h)) < 1e-6)).toBe(
-        true,
-      );
-      // Top + bottom one half-extent above/below centre.
-      expect(faces.some((f) => Math.abs(f.position.y - (c.y + h)) < 1e-6)).toBe(
-        true,
-      );
-      expect(faces.some((f) => Math.abs(f.position.y - (c.y - h)) < 1e-6)).toBe(
-        true,
-      );
+      // Open top: no horizontal face at/above floor level. The only
+      // horizontal face is the bottom carpet at topY − depth.
+      const botY = ENVIRONMENT_PIT_TOP_Y - ENVIRONMENT_PIT_DEPTH;
+      expect(
+        faces.some((f) => Math.abs(f.position.y - botY) < 1e-6),
+      ).toBe(true);
+      // Open front (+Z, user side): no face in front of the focal
+      // footprint centre; the back wall is one XZ-half behind it.
+      const cz = -4; // CONTRAST_BOX_CENTER.z
+      for (const f of faces) {
+        expect(f.position.z).toBeLessThanOrEqual(cz + 1e-6);
+      }
+      expect(
+        faces.some(
+          (f) => Math.abs(f.position.z - (cz - ENVIRONMENT_PIT_XZ_HALF)) < 1e-6,
+        ),
+      ).toBe(true);
       env.dispose();
     });
   });
@@ -258,18 +266,22 @@ describe('createEnvironment (#224 / E1.3)', () => {
   });
 
   describe('dispose() — idempotent + leak-free', () => {
-    it('flat mode disposes the contrast box geo + mat exactly once', () => {
-      const env = createEnvironment(); // flat, box on
+    it('flat mode disposes every pit geo + the shared mat exactly once', () => {
+      const env = createEnvironment(); // flat, pit on
       const faces = boxFaces(collectMeshes(env.group));
-      const gSpy = vi.fn();
+      expect(faces.length).toBe(4);
       const mSpy = vi.fn();
-      faces[0].geometry.addEventListener('dispose', gSpy);
       (faces[0].material as THREE.Material).addEventListener('dispose', mSpy);
+      const gSpies = faces.map((f) => {
+        const s = vi.fn();
+        f.geometry.addEventListener('dispose', s);
+        return s;
+      });
       env.dispose();
-      expect(gSpy).toHaveBeenCalledTimes(1);
+      for (const s of gSpies) expect(s).toHaveBeenCalledTimes(1);
       expect(mSpy).toHaveBeenCalledTimes(1);
       env.dispose(); // idempotent
-      expect(gSpy).toHaveBeenCalledTimes(1);
+      for (const s of gSpies) expect(s).toHaveBeenCalledTimes(1);
       expect(mSpy).toHaveBeenCalledTimes(1);
     });
 
