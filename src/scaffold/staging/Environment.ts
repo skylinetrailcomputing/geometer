@@ -123,14 +123,35 @@ export const ENVIRONMENT_FLAT_BG_RGB = [0x0d / 255, 0x0d / 255, 0x17 / 255] as c
 export const ENVIRONMENT_CONTRAST_BOX_RGB = [0, 0, 0] as const;
 
 /**
- * Half-extent of the shell-owned contrast box, world units. Sized
- * to enclose the LARGEST cluster focal volume — quadrics' raymarch
- * AABB, `BOUND = 3.5` — plus ~1 m margin (Brad: shell-owned, one
- * box sized to the biggest scene). The smaller-surface scenes get a
- * looser but still fully-black frame, which is fine. First-pass
- * smoke-tunable (feedback_staging_dimensions_first_pass).
+ * Half-extent of the shell-owned contrast box, world units.
+ *
+ * Orientation is world-correct (verified against frames.ts:16
+ * `math→world (X,Z,−Y)` + quadrics/index.ts:816 "Math-Z routes to
+ * world-Y; cube bottom at world-Y −2"): the box is world-axis-
+ * aligned, concentric with the raymarch cube at SURFACE_CENTER, and
+ * its bottom face IS world-down. The PR#245-smoke "bottom points
+ * into the distance" report is a *size* artefact, not a rotation
+ * bug — at 4.5 (a 9 m cube around a ~2–4 m surface, camera ~7 m
+ * away) the bottom is a huge horizontal plane that recedes ~9 m in
+ * perspective, and the near-enclosing black dominates the FOV so
+ * the off-black background can't be judged.
+ *
+ * **Box-size binary search** (same loop as the darkness search;
+ * Brad's call each round):
+ *
+ *   bounds  = [ 1.5 (tight, surface may poke out a touch)  ..
+ *               4.5 (round-1 — judged too cavernous) ]
+ *   round 2 = midpoint(4.5, 1.5) = 3.0                  ← CURRENT
+ *
+ * Next step: still cavernous → midpoint(3.0, 1.5) ≈ 2.25; surface
+ * pokes out / want more margin → midpoint(3.0, 4.5) ≈ 3.75. Keep
+ * the converging bounds here each round (feedback_staging_
+ * dimensions_first_pass). Note quadrics' raymarch AABB is
+ * BOUND = 3.5, so below 3.5 the most extreme hyperboloids can
+ * extend past the box on some axes — acceptable per-iteration;
+ * widen if Brad wants zero poke-out.
  */
-export const ENVIRONMENT_CONTRAST_BOX_HALF_EXTENT = 4.5;
+export const ENVIRONMENT_CONTRAST_BOX_HALF_EXTENT = 3.0;
 
 /**
  * Focal-volume centre, world space. Duplicated here (rather than
