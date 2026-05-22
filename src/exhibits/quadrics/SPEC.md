@@ -434,7 +434,14 @@ Plinth default so the 4-slider rack fits at the cluster's standard
 The pancake spawn camera is paired-shifted to `(0, 1.6, 3.7)`
 (`shell/cameraControls.ts`) so the user spawns on the same side of
 the inner railing as the plinth's interactables. Foreground floor
-at this pose is ~2.2 m (was ~1.5 m pre-#225 PR1).
+at this pose is ~2.2 m (was ~1.5 m pre-#225 PR1). The SceneRack
+(`shell/SceneRack.ts`) sets `SCENE_RACK_Z = 0.05` to match the
+plinth anchor so the navigation bulbs sit directly above the
+plinth front edge instead of being stranded over the math-object
+rendering box at the cluster's pre-plinth z = -0.7. The 0.75 m
+offset from the other three cluster scenes' still-pre-plinth UI is
+a temporary mismatch closed by PR2 (#251) when they port to the
+same primitive.
 
 Every primitive's `group` is reparented under `plinth.group` via the
 slot manifest in `mount()`; positions are slot-local (origin at the

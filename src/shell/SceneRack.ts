@@ -15,12 +15,23 @@ import type { Pointer } from './Pointer';
 //
 // Worldspace anchor (per the v3 plan §5):
 //   * `SCENE_RACK_Y = 1.73` — one `SECTION_TAB_RACK_PITCH` (0.23)
-//     above quadrics' canonical-forms heading at Y=1.50, leaving
-//     17 cm of clearance above the SectionTab column.
-//   * `SCENE_RACK_CENTER_X = -0.44` — matches `SECTION_TAB_RACK_X`
-//     so the two racks stack as a single vertical column.
-//   * `SCENE_RACK_Z = -0.7` — matches `SLIDER_RACK_CENTER.z` so
-//     all three rack tiers sit at the same arm's-length depth.
+//     above quadrics' pre-plinth canonical-forms heading at Y=1.50,
+//     leaving 17 cm of clearance above the SectionTab column. On
+//     the plinth (#225 PR1), the heading sits at world Y ≈ 1.467
+//     and the clearance grows to ~26 cm — still comfortable.
+//   * `SCENE_RACK_CENTER_X = -0.44` — matches the pre-plinth
+//     `SECTION_TAB_RACK_X` (also lines up with the post-plinth
+//     `PLINTH_SECTION_TAB_X = -0.42` within ~2 cm so the two racks
+//     read as one vertical column).
+//   * `SCENE_RACK_Z = 0.05` — tracks
+//     `quadrics PLINTH_ANCHOR_WORLD_XYZ.z` so the SceneRack bulbs
+//     sit directly above the plinth front edge instead of being
+//     stranded over the cutout (#225 PR1 v2 smoke: pre-PR1 z = -0.7
+//     left the bulbs floating over the math-object rendering box
+//     after the plinth shifted forward). The 0.75 m offset from the
+//     other three cluster scenes' still-pre-plinth UI at z = -0.7
+//     is a temporary mismatch that PR2 (#251) closes when those
+//     scenes port onto the same primitive.
 //   * `SCENE_TAB_PITCH = 0.20` — horizontal spacing between tabs.
 // These constants live here (rather than in SceneTab) because they
 // are layout concerns for the rack as a whole; per-tab visuals
@@ -28,7 +39,7 @@ import type { Pointer } from './Pointer';
 
 const SCENE_RACK_Y = 1.73;
 const SCENE_RACK_CENTER_X = -0.44;
-const SCENE_RACK_Z = -0.7;
+const SCENE_RACK_Z = 0.05;
 const SCENE_TAB_PITCH = 0.20;
 
 export interface SceneRackOptions {
