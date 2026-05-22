@@ -319,16 +319,12 @@ function easeInOutCubic(t: number): number {
 }
 
 // Ray–thumb / ray–button hit-test sphere is this multiple of each
-// primitive's visual radius. The cluster's `GRAB_RADIUS_MULTIPLIER`
-// (2.75) was tuned for mid-air sphere-aim ergonomics; quadrics is the
-// first scene to use `GRAB_RADIUS_MULTIPLIER_PLINTH` (1.5, #225 / E1.4
-// PR1) because plinth-mounted UI changes the kinematics from aim-AT
-// to hand-TO-surface, where a tighter radius reads as precise rather
-// than fiddly. The other three cluster scenes ship on the plinth in
-// PR2 (#251); until then they continue to import the 2.75 value, and
-// quadrics' intentionally mixed-state smoke is documented in
-// `_private/plans/225-control-plinth.md` §3.4 as expected, not a
-// regression.
+// primitive's visual radius. `GRAB_RADIUS_MULTIPLIER_PLINTH` (1.5)
+// from `scaffold/ui/clusterRackTokens.ts` is the cluster-uniform
+// plinth-mounted value — tighter than the pre-plinth mid-air 2.75
+// because plinth-mounted UI changes the kinematics from controller-
+// aim-AT to hand-TO-surface, where a tighter radius reads as precise
+// rather than fiddly.
 
 // Vertical stacking pitch for the rack (slot-local +Y on the plinth
 // working surface). Lower bound set by the slider's grab region: at

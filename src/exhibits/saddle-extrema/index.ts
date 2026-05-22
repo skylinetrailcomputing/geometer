@@ -13,14 +13,12 @@ import { Label } from '@/scaffold/ui/Label';
 import { Slider } from '@/scaffold/ui/Slider';
 import { Preset } from '@/scaffold/ui/Preset';
 import {
-  GRAB_RADIUS_MULTIPLIER,
+  GRAB_RADIUS_MULTIPLIER_PLINTH,
   SLIDER_LABEL_LINE_GAP,
   SLIDER_LABEL_PRIMARY_FONT_SIZE,
   SLIDER_LABEL_SECONDARY_FONT_SIZE,
   SLIDER_LABEL_X_OFFSET,
-  SLIDER_ROW_PITCH,
   SLIDER_SNAP_DETENT,
-  createSliderRackCenter,
 } from '@/scaffold/ui/clusterRackTokens';
 import { WorldAxes } from '@/scaffold/ui/WorldAxes';
 import {
@@ -39,6 +37,11 @@ import {
   createStageInnerRailing,
   type StageInnerRailingHandles,
 } from '@/scaffold/staging/StageInnerRailing';
+import {
+  createPlinth,
+  type PlinthHandles,
+  type PlinthSlot,
+} from '@/scaffold/staging/Plinth';
 import {
   createCriticalPointMarkers,
   type CriticalPointMarkersHandles,
@@ -79,9 +82,38 @@ import {
 // ────────────────────────────────────────────────────────────────────
 
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
-const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 const BASE_COLOR = new THREE.Color(0.4, 0.7, 0.95);
+
+// Plinth (#225 / E1.4 PR2). Cluster-uniform anchor matches quadrics'
+// PR1 ship — railing/floor geometry is shared. Working-surface depth
+// default 0.5 m fits the 2-row slider rack with breathing room; the
+// 5-preset row and 3-line readout deliberately float above the back
+// edge (slot-Y > 0.5), mirroring quadrics' preset-grid + classifier
+// pattern.
+const PLINTH_ANCHOR_WORLD_XYZ = [0, 0, 0.05] as const;
+
+// Slot-local layout. Two-row slider rack centered on slot-Y = 0.275:
+// x at 0.345, y at 0.205 — inter-slider distance 0.14 m, matching the
+// pre-plinth `X_SLIDER_Y - Y_SLIDER_Y = 0.14 m` straddle (see
+// `_private/plans/251-cluster-on-plinth.md` §3.3). Per-slider labels
+// at slot-X = SLIDER_LABEL_X_OFFSET = -0.2. Preset row of 5 buttons
+// centered on slot-X = 0 at slot-Y = 0.55 (just above the back edge):
+// columns at slot-X ∈ {-0.26, -0.13, 0, 0.13, 0.26} with cluster
+// pitch 0.13 (mirrors quadrics' 2 × 4 grid pattern, simplified to
+// one row). Readout above the presets at slot-Y = 0.70 — mirrors
+// quadrics' PLINTH_RACK_LABEL_Y = 0.74 row-above-content pattern.
+// Math-frame axis indicator at the right edge with orientation:
+// 'world'.
+const PLINTH_X_SLIDER_Y = 0.345;
+const PLINTH_Y_SLIDER_Y = 0.205;
+const PLINTH_PRESET_ROW_Y = 0.55;
+const PLINTH_PRESET_COL_PITCH = 0.13;
+// 5 columns centered on slot-X = 0 ⇒ leftmost col at -2 × pitch.
+const PLINTH_PRESET_ROW_START_X = -2 * PLINTH_PRESET_COL_PITCH;
+const PLINTH_READOUT_Y = 0.70;
+const PLINTH_AXIS_INDICATOR_X = 0.42;
+const PLINTH_AXIS_INDICATOR_Y = 0.275;
 
 // Stage floor cutout half-extent (#238 / E1.1) — derived from the
 // widest preset domain so a future preset with a wider (x, y) window
@@ -98,33 +130,17 @@ const STAGE_CUTOUT_HALF = Math.max(
   ),
 );
 
-// Classification readout (#181) — three lines (Hessian entries / D /
-// verdict). Anchored above the preset row (preset-row buttons cap at
-// y ≈ 1.32 including button radius) with ~0.12 m vertical clearance.
-// Shares the foreground-UI z-plane with the slider rack and preset
-// row so the user's gaze stays in one depth band.
-const READOUT_POSITION = new THREE.Vector3(0, 1.5, -0.7);
-
-// Slider rack — two-row symmetric straddle around SLIDER_RACK_CENTER. The
-// 3-row top-heavy pattern from gradient-levels (θ/φ/k at [center+pitch,
-// center, center-pitch]) doesn't carry over cleanly to a 2-row rack; the
-// straddle layout reads as balanced. SLIDER_RACK_CENTER / SLIDER_ROW_PITCH
-// imported from scaffold/ui/clusterRackTokens (#201 PR 4) — per-file
-// fresh THREE.Vector3 from the factory so mutation can't leak across
-// scenes.
-const SLIDER_RACK_CENTER = createSliderRackCenter();
-const X_SLIDER_Y = SLIDER_RACK_CENTER.y + SLIDER_ROW_PITCH / 2;
-const Y_SLIDER_Y = SLIDER_RACK_CENTER.y - SLIDER_ROW_PITCH / 2;
-
-// Slider design feel — quadric-tuned constants, ported from cluster
-// siblings. Snap detents combine the slider-canonical origin (always
-// seeded) with the active preset's critical-point coordinates,
-// projected per axis (#200). For every v0.8 preset the CPs sit at the
-// origin, so the projected snap set collapses to `[0]` and visible
-// behavior is unchanged from v0.7; future off-origin presets (or
-// user-supplied f(x, y) in v1.x) get correct CP-aware snaps for free.
-// SLIDER_SNAP_DETENT / GRAB_RADIUS_MULTIPLIER imported from
-// scaffold/ui/clusterRackTokens (#201 PR 4).
+// Slider rack — two-row symmetric straddle. Slot-Y values applied via
+// the slot manifest in mount(); per-slider plinth-Y derivations above
+// (`PLINTH_X_SLIDER_Y` / `PLINTH_Y_SLIDER_Y`).
+//
+// SLIDER_SNAP_DETENT / GRAB_RADIUS_MULTIPLIER_PLINTH / SLIDER_ROW_PITCH
+// imported from scaffold/ui/clusterRackTokens. Snap detents combine
+// the slider-canonical origin with the active preset's critical-point
+// coordinates, projected per axis (#200). For every v0.8 preset the
+// CPs sit at the origin, so the projected snap set collapses to `[0]`
+// and visible behavior is unchanged from v0.7; future off-origin
+// presets get correct CP-aware snaps for free.
 
 // Initial pose — off origin-snap, off endpoints, off both axes,
 // non-equal — so first-frame drag responds in any direction.
@@ -143,16 +159,14 @@ const INDICATOR_COLOR = 0xdddddd;
 // Cluster glyph convention for negative-magnitude formatting.
 const SLIDER_VALUE_MINUS = '−'; // U+2212
 
-// Preset row (#178). Five buttons in a single horizontal row above the
-// slider rack, centered on x = 0. Always-visible — five archetypes is
-// small enough to live on screen at all times (the quadrics manipulator's
-// 8-preset rack needed an expand/collapse chevron; here that machinery
-// would be friction without payoff). The y level clears the top slider's
-// grab sphere (≈ 0.07 m radius) with ~0.16 m of clear air.
-const PRESET_ROW_Y = 1.30;
-const PRESET_HORIZONTAL_PITCH = 0.13;
-// 5 columns centered on x = 0 ⇒ leftmost col at -2 × pitch.
-const PRESET_ROW_START_X = -2 * PRESET_HORIZONTAL_PITCH;
+// Preset row (#178). Five buttons in a single horizontal row above
+// the slider rack, centered on slot-X = 0. Always-visible — five
+// archetypes is small enough to live on screen at all times (the
+// quadrics manipulator's 8-preset rack needed an expand/collapse
+// chevron; here that machinery would be friction without payoff).
+// Slot positions applied via the slot manifest in mount(); column
+// pitch and start derivations above (`PLINTH_PRESET_COL_PITCH`,
+// `PLINTH_PRESET_ROW_START_X`, `PLINTH_PRESET_ROW_Y`).
 const PRESET_RES = 128;
 
 // Mirror the manipulator's `Preset` visual identity (cool blue base,
@@ -196,6 +210,7 @@ let stageFloor: StageFloorHandles | undefined;
 let contrastPit: ContrastPitHandles | undefined;
 let stageRailing: StageRailingHandles | undefined;
 let stageInnerRailing: StageInnerRailingHandles | undefined;
+let plinth: PlinthHandles | undefined;
 let activePresetIndex = DEFAULT_PRESET_INDEX;
 let saddleExtremaReadout: SaddleExtremaReadout | undefined;
 let camera: THREE.Camera | undefined;
@@ -322,7 +337,8 @@ const saddleExtremaExhibit: Exhibit = {
     // x slider — vermillion (math-X axis tint). Honest pickup since
     // x IS the math-X axis value, not a derived parameter. Mirrors
     // the quadrics manipulator's (a, b, c) coefficient-slider color
-    // convention.
+    // convention. Slot positions applied via the slot manifest at the
+    // end of this function.
     xSlider = new Slider({
       label: 'x',
       min: initialPreset.domain.xMin,
@@ -330,16 +346,10 @@ const saddleExtremaExhibit: Exhibit = {
       initial: X_INITIAL,
       snapDetent: SLIDER_SNAP_DETENT,
       snapPoints: buildAxisSnapPoints(initialPreset.criticalPoints, 0),
-      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
       baseColor: VERMILLION,
       thumbShape: 'sphere',
     });
-    xSlider.group.position.set(
-      SLIDER_RACK_CENTER.x,
-      X_SLIDER_Y,
-      SLIDER_RACK_CENTER.z,
-    );
-    group.add(xSlider.group);
 
     // y slider — bluish-green (math-Y axis tint).
     ySlider = new Slider({
@@ -349,16 +359,10 @@ const saddleExtremaExhibit: Exhibit = {
       initial: Y_INITIAL,
       snapDetent: SLIDER_SNAP_DETENT,
       snapPoints: buildAxisSnapPoints(initialPreset.criticalPoints, 1),
-      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
       baseColor: BLUISH_GREEN,
       thumbShape: 'sphere',
     });
-    ySlider.group.position.set(
-      SLIDER_RACK_CENTER.x,
-      Y_SLIDER_Y,
-      SLIDER_RACK_CENTER.z,
-    );
-    group.add(ySlider.group);
 
     // Per-slider labels — primary = variable name (set once at mount),
     // secondary = live value (per-frame in update()).
@@ -369,12 +373,6 @@ const saddleExtremaExhibit: Exhibit = {
       anchorX: 'right',
     });
     xLabel.setPrimary('x');
-    xLabel.group.position.set(
-      SLIDER_RACK_CENTER.x + SLIDER_LABEL_X_OFFSET,
-      X_SLIDER_Y,
-      SLIDER_RACK_CENTER.z,
-    );
-    group.add(xLabel.group);
 
     yLabel = new Label({
       primaryFontSize: SLIDER_LABEL_PRIMARY_FONT_SIZE,
@@ -383,16 +381,12 @@ const saddleExtremaExhibit: Exhibit = {
       anchorX: 'right',
     });
     yLabel.setPrimary('y');
-    yLabel.group.position.set(
-      SLIDER_RACK_CENTER.x + SLIDER_LABEL_X_OFFSET,
-      Y_SLIDER_Y,
-      SLIDER_RACK_CENTER.z,
-    );
-    group.add(yLabel.group);
 
-    // Indicator — sphere at the selected point. Position seeded at the
-    // boot pose so the first paint shows the correct location even
-    // before update() runs.
+    // Indicator — sphere at the selected point. Math-object affordance:
+    // stays world-anchored at SURFACE_CENTER (via writeGraphPointToWorld),
+    // NOT slotted on the plinth. Position seeded at the boot pose so
+    // the first paint shows the correct location even before update()
+    // runs.
     indicator = new THREE.Mesh(
       new THREE.SphereGeometry(INDICATOR_RADIUS, 16, 12),
       new THREE.MeshStandardMaterial({ color: INDICATOR_COLOR }),
@@ -407,44 +401,74 @@ const saddleExtremaExhibit: Exhibit = {
     indicator.position.copy(indicatorWorld);
     group.add(indicator);
 
+    // Math-frame axis indicator. orientation: 'world' so the X/Y/Z
+    // arrows read in the math frame, not the tabletop frame.
     worldAxes = new WorldAxes({ axisColors: DEFAULT_AXIS_COLORS });
-    worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
-    group.add(worldAxes.group);
 
     // Classification readout (#181). f_xx and f_yy tinted with the
-    // cluster's math-X / math-Y axis colors (vermillion / bluish-green)
-    // to reinforce "f_xx is the pure-x² term, f_yy is the pure-y²
-    // term"; the cross-term f_xy stays white to read as "neither pure
-    // axis." D and verdict use YELLOW — the same accent gradient-levels
-    // (#166) uses for the |∇f| numeric. Boots hidden; the first
-    // update() tick populates the slots and uncloaks.
+    // cluster's math-X / math-Y axis colors (vermillion / bluish-green);
+    // cross-term f_xy stays white. D and verdict use YELLOW — the same
+    // accent gradient-levels (#166) uses for the |∇f| numeric. Boots
+    // hidden; the first update() tick populates the slots and uncloaks.
+    // Billboard carve-out: faceCamera overwrites group.rotation every
+    // frame, so the slot's default 'surface' orientation is
+    // documentation-only.
     saddleExtremaReadout = new SaddleExtremaReadout({
       fxxColor: VERMILLION,
       fxyColor: 0xffffff,
       fyyColor: BLUISH_GREEN,
       accentColor: YELLOW,
     });
-    saddleExtremaReadout.group.position.copy(READOUT_POSITION);
-    group.add(saddleExtremaReadout.group);
 
     // Preset row (#178) — five archetypes left → right, mirroring the
-    // PRESETS array order. The starter (saddle, DEFAULT_PRESET_INDEX) is
-    // marked sticky-active so the user reads which archetype is current.
-    presetButtons = PRESETS.map((preset, i) => {
-      const btn = new Preset({
+    // PRESETS array order. The starter (saddle, DEFAULT_PRESET_INDEX)
+    // is marked sticky-active so the user reads which archetype is
+    // current. Slot positions applied via the manifest below.
+    presetButtons = PRESETS.map((preset) => {
+      return new Preset({
         name: preset.label,
-        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
         activeEmissive: PRESET_ACTIVE_EMISSIVE,
       });
-      btn.group.position.set(
-        PRESET_ROW_START_X + i * PRESET_HORIZONTAL_PITCH,
-        PRESET_ROW_Y,
-        SLIDER_RACK_CENTER.z,
-      );
-      group.add(btn.group);
-      return btn;
     });
     presetButtons[activePresetIndex]?.setActive(true);
+
+    // Slot manifest (#225 / E1.4 PR2). 11 slots: 2 sliders + 2 labels
+    // + 5 presets + 1 readout + 1 world-axes. createPlinth reparents
+    // each target under plinth.group at construction.
+    const slots: PlinthSlot[] = [
+      { id: 'slider-x', target: xSlider.group, localXYZ: [0, PLINTH_X_SLIDER_Y, 0] },
+      { id: 'slider-y', target: ySlider.group, localXYZ: [0, PLINTH_Y_SLIDER_Y, 0] },
+      { id: 'label-x', target: xLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_X_SLIDER_Y, 0] },
+      { id: 'label-y', target: yLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_Y_SLIDER_Y, 0] },
+    ];
+    presetButtons.forEach((btn, i) => {
+      slots.push({
+        id: `preset-${i}`,
+        target: btn.group,
+        localXYZ: [
+          PLINTH_PRESET_ROW_START_X + i * PLINTH_PRESET_COL_PITCH,
+          PLINTH_PRESET_ROW_Y,
+          0,
+        ],
+      });
+    });
+    slots.push({
+      id: 'readout',
+      target: saddleExtremaReadout.group,
+      localXYZ: [0, PLINTH_READOUT_Y, 0],
+    });
+    slots.push({
+      id: 'world-axes',
+      target: worldAxes.group,
+      localXYZ: [PLINTH_AXIS_INDICATOR_X, PLINTH_AXIS_INDICATOR_Y, 0],
+      orientation: 'world',
+    });
+    plinth = createPlinth({
+      anchorWorldXYZ: PLINTH_ANCHOR_WORLD_XYZ,
+      slots,
+    });
+    group.add(plinth.group);
   },
 
   update() {
@@ -568,6 +592,10 @@ const saddleExtremaExhibit: Exhibit = {
     if (stageInnerRailing) {
       stageInnerRailing.dispose();
       stageInnerRailing = undefined;
+    }
+    if (plinth) {
+      plinth.dispose();
+      plinth = undefined;
     }
 
     // 3. Drop external references so a re-mount starts clean.

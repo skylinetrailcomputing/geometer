@@ -761,3 +761,62 @@ preset's `x² − y²` surface — which reaches the full
 ±STAGE_CUTOUT_HALF domain — has a small annular breathing margin
 between math and railing. Other presets at narrower domains get
 the same margin scaled appropriately.
+
+### Staging — Control plinth (#225 / E1.4)
+
+Interactive UI (x / y sliders + per-slider labels + 5-preset row +
+classification readout + math-frame axis indicator) lifts onto the
+cluster-shared `createPlinth` primitive from
+`src/scaffold/staging/Plinth.ts`, matching quadrics' PR1 ship and
+the master plan (`_private/plans/225-control-plinth.md` §4.2 PR2 /
+`251-cluster-on-plinth.md` §3.3). Drafting-table-console silhouette
+anchored at world `(0, 0, 0.05)` — cluster-uniform anchor.
+Working-surface depth = `Plinth.ts` default 0.5 m: the 2-slider rack
+fits comfortably in slot-Y ∈ [0.205, 0.345]; the 5-preset row and
+3-line readout deliberately float above the back edge at slot-Y >
+0.5, mirroring quadrics' preset-grid + classifier pattern.
+
+Every UI primitive's `group` is reparented under `plinth.group` via
+the slot manifest in `mount()`; positions are slot-local (11 slots
+total: 2 sliders + 2 labels + 5 presets + 1 readout + 1 world-axes).
+Slot manifest:
+
+- **x slider** (top row) at slot-local `(0, 0.345, 0)`.
+- **y slider** (bottom row) at slot-local `(0, 0.205, 0)` —
+  inter-slider distance 0.14 m, matching the pre-plinth
+  `X_SLIDER_Y - Y_SLIDER_Y = 0.14 m` straddle.
+- **Per-slider labels** at slot-local
+  `(SLIDER_LABEL_X_OFFSET, sliderY, 0)` for each row.
+- **Preset row** of 5 buttons at slot-local
+  `(PLINTH_PRESET_ROW_START_X + i * PLINTH_PRESET_COL_PITCH, 0.55, 0)`
+  for `i ∈ [0, 4]` — columns at slot-X ∈ {-0.26, -0.13, 0, 0.13,
+  0.26} with cluster pitch 0.13. Just above the back edge at
+  slot-Y = 0.5, mirroring quadrics' 2 × 4 preset-grid pattern
+  simplified to one row.
+- **SaddleExtremaReadout** at slot-local `(0, 0.70, 0)` — above the
+  preset row; mirrors quadrics' `PLINTH_RACK_LABEL_Y = 0.74`
+  row-above-content pattern.
+- **WorldAxes** at slot-local `(0.42, 0.275, 0)`, `orientation:
+  'world'` — keeps the math-frame X/Y/Z arrows aligned to the math
+  frame regardless of plinth tilt.
+
+**Math-object affordances stay in world frame.** `graphSurface.mesh`,
+`criticalPointMarkers`, `taylorOverlay.mesh`, and `indicator` are
+children of `ctx.group`, never reparented under `plinth.group`. The
+`applyPreset()` rebuild (which swaps `graphSurface` /
+`criticalPointMarkers` / `taylorOverlay` on preset change) operates
+on `exhibitGroup`, not on the plinth — the sliders themselves stay
+reference-stable under `plinth.group` across preset swaps, with
+`setRange` / `setSnapPoints` adjusting their internal state in
+place.
+
+**Readout billboard carve-out.** `SaddleExtremaReadout` overwrites
+`group.rotation` every frame via `faceCamera`, so the slot's default
+`'surface'` orientation is documentation-only — the readout yaw-
+billboards regardless.
+
+**Grab radius.** All interactive primitives (two sliders + five
+presets) use `GRAB_RADIUS_MULTIPLIER_PLINTH = 1.5` from
+`scaffold/ui/clusterRackTokens.ts`. The pre-plinth mid-air `2.75`
+constant was deleted at PR2 (#251) once all four cluster scenes
+ported onto the plinth.

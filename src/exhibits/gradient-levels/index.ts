@@ -11,14 +11,13 @@ import { formatAnglePiFraction } from '@/scaffold/ui/formatAnglePiFraction';
 import { Label } from '@/scaffold/ui/Label';
 import { Slider } from '@/scaffold/ui/Slider';
 import {
-  GRAB_RADIUS_MULTIPLIER,
+  GRAB_RADIUS_MULTIPLIER_PLINTH,
   SLIDER_LABEL_LINE_GAP,
   SLIDER_LABEL_PRIMARY_FONT_SIZE,
   SLIDER_LABEL_SECONDARY_FONT_SIZE,
   SLIDER_LABEL_X_OFFSET,
   SLIDER_ROW_PITCH,
   SLIDER_SNAP_DETENT,
-  createSliderRackCenter,
 } from '@/scaffold/ui/clusterRackTokens';
 import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
 import {
@@ -44,6 +43,11 @@ import {
   createStageInnerRailing,
   type StageInnerRailingHandles,
 } from '@/scaffold/staging/StageInnerRailing';
+import {
+  createPlinth,
+  type PlinthHandles,
+  type PlinthSlot,
+} from '@/scaffold/staging/Plinth';
 import { createGradientArrow, type GradientArrowHandles } from './GradientArrow';
 import { GradientLevelsReadout } from './GradientLevelsReadout';
 import { BOUND, fJsRaw, gradJs } from './surfaceModel';
@@ -71,18 +75,28 @@ import { BOUND, fJsRaw, gradJs } from './surfaceModel';
 // Constants
 // ────────────────────────────────────────────────────────────────────
 
-// Match cluster siblings so SceneRack swaps don't visually relocate the
-// surface or the rack.
+// Cluster-shared math-object anchor so SceneRack swaps don't visually
+// relocate the surface across sibling scenes.
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
-// Per-file fresh THREE.Vector3 from scaffold/ui/clusterRackTokens
-// (#201 PR 4). Per-scene instance — mutation can't leak across scenes.
-const SLIDER_RACK_CENTER = createSliderRackCenter();
-const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
 
-// Live readout (#166) — anchored above the three-row slider rack. y bumped
-// to 1.42 (vs. tangent-planes' 1.32) to maintain ~0.18 m bottom-to-thumb-top
-// clearance over the taller rack (top of θ slider thumb at y ≈ 1.21).
-const READOUT_POSITION = new THREE.Vector3(0, 1.42, -0.7);
+// Plinth (#225 / E1.4 PR2). Cluster-uniform anchor matches quadrics'
+// PR1 ship — railing/floor geometry is shared. Working-surface depth
+// default 0.5 m fits the 3-row slider rack at SLIDER_ROW_PITCH = 0.14 m
+// (slot-Y ∈ [0.135, 0.415]) with breathing room above and below.
+const PLINTH_ANCHOR_WORLD_XYZ = [0, 0, 0.05] as const;
+
+// Slot-local layout (slot-local +X right, +Y up the tilted face toward
+// the back, +Z out from the surface normal). Three-row rack centered
+// on slot-Y = 0.275 (mid-surface): θ top at 0.415, φ middle at 0.275,
+// k bottom at 0.135 — full SLIDER_ROW_PITCH = 0.14 m between rows,
+// matching the pre-plinth `THETA_Y / PHI_Y / K_Y` derivation. Per-
+// slider labels at slot-X = SLIDER_LABEL_X_OFFSET = -0.2. Readout
+// above the back edge at slot-Y = 0.57. Math-frame axis indicator at
+// the right edge with orientation: 'world'.
+const PLINTH_SLIDER_MID_Y = 0.275;
+const PLINTH_READOUT_Y = 0.57;
+const PLINTH_AXIS_INDICATOR_X = 0.42;
+const PLINTH_AXIS_INDICATOR_Y = 0.275;
 
 // Per-slider variable + value labels (#170). All three sliders (θ/φ/k)
 // carry a two-line right-aligned label anchored ~0.05 m left of each
@@ -100,14 +114,15 @@ const BASE_COLOR = new THREE.Color(0.4, 0.7, 0.95);
 // Quadrics' design feel ports across the cluster — imported from
 // scaffold/ui/clusterRackTokens (#201 PR 4).
 
-// Three-row slider stack centered at SLIDER_RACK_CENTER.y. Top to bottom:
-// θ (point selector, polar), φ (point selector, azimuth), k (level value).
-// k moves to the bottom row in #164 — was at rack-center in #163. The
-// pedagogy hierarchy is "where on this surface (θ/φ) ← which surface (k)";
-// the where-question lives above the family-selector.
-const THETA_Y = SLIDER_RACK_CENTER.y + SLIDER_ROW_PITCH;
-const PHI_Y = SLIDER_RACK_CENTER.y;
-const K_Y = SLIDER_RACK_CENTER.y - SLIDER_ROW_PITCH;
+// Three-row slider stack: top to bottom, θ (polar point selector),
+// φ (azimuthal point selector), k (level value). k moves to the bottom
+// row in #164 — was at rack-center in #163. The pedagogy hierarchy is
+// "where on this surface (θ/φ) ← which surface (k)"; the where-question
+// lives above the family-selector. Slot-Y derivations below; positions
+// applied via the plinth slot manifest at the end of mount().
+const PLINTH_THETA_Y = PLINTH_SLIDER_MID_Y + SLIDER_ROW_PITCH;
+const PLINTH_PHI_Y = PLINTH_SLIDER_MID_Y;
+const PLINTH_K_Y = PLINTH_SLIDER_MID_Y - SLIDER_ROW_PITCH;
 
 // k ∈ [-2, 2]. Wide enough to show distinct 2-sheet and 1-sheet poses
 // while keeping the slider thumb's spatial sweep mapped to a meaningful
@@ -263,6 +278,7 @@ let stageFloor: StageFloorHandles | undefined;
 let contrastPit: ContrastPitHandles | undefined;
 let stageRailing: StageRailingHandles | undefined;
 let stageInnerRailing: StageInnerRailingHandles | undefined;
+let plinth: PlinthHandles | undefined;
 let pointers: readonly Pointer[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
 // yaw-billboarding in update().
@@ -346,11 +362,10 @@ const gradientLevelsExhibit: Exhibit = {
     surfaceMaterial = surfaceHandles.material;
     group.add(surfaceHandles.mesh);
 
-    // Three-row slider stack: θ on top, φ middle, k on bottom. The
-    // stack is centered at SLIDER_RACK_CENTER.y; row pitch matches
-    // cluster siblings (#147 § tangent-planes). All three share
-    // SLIDER_BASE_COLOR (neutral gray) — none carry axis meaning.
-
+    // Three-row slider stack: θ on top, φ middle, k on bottom. All
+    // three share SLIDER_BASE_COLOR (neutral gray) — none carry axis
+    // meaning. Slot positions applied via the slot manifest at the
+    // end of this function.
     thetaSlider = new Slider({
       label: 'θ',
       min: 0,
@@ -358,16 +373,10 @@ const gradientLevelsExhibit: Exhibit = {
       initial: THETA_INITIAL,
       snapDetent: SLIDER_SNAP_DETENT,
       snapPoints: THETA_SNAP_POINTS,
-      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
       baseColor: SLIDER_BASE_COLOR,
       thumbShape: 'sphere',
     });
-    thetaSlider.group.position.set(
-      SLIDER_RACK_CENTER.x,
-      THETA_Y,
-      SLIDER_RACK_CENTER.z,
-    );
-    group.add(thetaSlider.group);
 
     phiSlider = new Slider({
       label: 'φ',
@@ -376,16 +385,10 @@ const gradientLevelsExhibit: Exhibit = {
       initial: PHI_INITIAL,
       snapDetent: SLIDER_SNAP_DETENT,
       snapPoints: PHI_SNAP_POINTS,
-      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
       baseColor: SLIDER_BASE_COLOR,
       thumbShape: 'sphere',
     });
-    phiSlider.group.position.set(
-      SLIDER_RACK_CENTER.x,
-      PHI_Y,
-      SLIDER_RACK_CENTER.z,
-    );
-    group.add(phiSlider.group);
 
     // k slider — `initial` matches the extraUniforms.uK seed above so
     // the boot pose is consistent across material and slider on first
@@ -397,60 +400,44 @@ const gradientLevelsExhibit: Exhibit = {
       initial: K_INITIAL,
       snapDetent: SLIDER_SNAP_DETENT,
       snapPoints: K_SNAP_POINTS,
-      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
       baseColor: SLIDER_BASE_COLOR,
       thumbShape: 'sphere',
     });
-    kSlider.group.position.set(
-      SLIDER_RACK_CENTER.x,
-      K_Y,
-      SLIDER_RACK_CENTER.z,
-    );
-    group.add(kSlider.group);
 
-    // Point indicator. Positioned in update() each frame; visible
-    // only on raycast hit (Option A from plan §2.2 — miss → hide).
+    // Point indicator — math-object affordance at world frame.
+    // Positioned in update() each frame; visible only on raycast hit
+    // (Option A from #164 plan §2.2 — miss → hide).
     indicator = new THREE.Mesh(
       new THREE.SphereGeometry(INDICATOR_RADIUS, 16, 12),
       new THREE.MeshStandardMaterial({ color: INDICATOR_COLOR }),
     );
     group.add(indicator);
 
-    // Gradient-vector arrow at the selected point (#165). Constructed
+    // Gradient-vector arrow at the selected point (#165). Math-object
+    // affordance, stays world-anchored at SURFACE_CENTER. Constructed
     // with `group.visible = false` so the renderer can't paint a stale
-    // pose between mount and the first update tick — the first hit
-    // frame in update calls setPose then setVisible(true) to uncloak.
-    // Renders as overlay (depthTest: false, renderOrder: 2) so the
-    // §11.6 punch line stays visible regardless of camera angle, even
-    // for k<0 inward orientations where the surface body would
-    // otherwise occlude the arrow.
+    // pose between mount and the first update tick. Renders as overlay
+    // (depthTest: false, renderOrder: 2) so the §11.6 punch line stays
+    // visible regardless of camera angle.
     gradientArrow = createGradientArrow({ surfaceCenter: SURFACE_CENTER });
     group.add(gradientArrow.group);
 
-    // Live readout of ∇f components + |∇f| (#166). Anchored above the
-    // slider rack on the same z-plane. Top-line components carry the
-    // cluster's axis-color convention (vermillion/bluish-green/sky-blue
-    // for math-X/Y/Z); the |∇f| numeric is YELLOW to pair with the
-    // gradient arrow — direction (arrow) + magnitude (number) are
-    // facets of the same gradient vector. The arrow's rendered length
-    // is fixed per #165; the YELLOW pairing communicates "same vector,"
-    // not "this number is that arrow's length." See SPEC.md Readout
-    // section for the full color-identity-decoupling note.
+    // Live readout of ∇f components + |∇f| (#166). Slotted on the
+    // plinth at slot-Y = PLINTH_READOUT_Y. Top-line components carry
+    // the cluster's axis-color convention; the |∇f| numeric is YELLOW
+    // to pair with the gradient arrow. Billboard carve-out: faceCamera
+    // overwrites group.rotation every frame, so the slot's default
+    // 'surface' orientation is documentation-only.
     gradientLevelsReadout = new GradientLevelsReadout({
       axisColors: [VERMILLION, BLUISH_GREEN, SKY_BLUE],
       magnitudeColor: YELLOW,
     });
-    gradientLevelsReadout.group.position.copy(READOUT_POSITION);
-    group.add(gradientLevelsReadout.group);
 
-    // Per-slider variable + value labels (#170). All three sliders carry
-    // the same two-line right-aligned shape: primary = variable name (set
-    // once at mount), secondary = live value (per-frame in update()). The
-    // k label was originally one-line "k = 0.50" below the slider (#167);
-    // unified here into the cluster-uniform shape so all three sliders
-    // read visually identically. Right-align (anchorX: 'right') keeps
-    // worst-case secondary text — "−2.00" at k_min, "−0.80π" at φ
-    // extremes — clear of the slider thumb at any value.
+    // Per-slider labels (#170). Right-anchored so worst-case secondary
+    // text ("−2.00" at k_min, "−0.80π" at φ extremes) stays clear of
+    // the slider thumb at any value. Slot positions applied via the
+    // manifest below.
     thetaLabel = new Label({
       primaryFontSize: SLIDER_LABEL_PRIMARY_FONT_SIZE,
       secondaryFontSize: SLIDER_LABEL_SECONDARY_FONT_SIZE,
@@ -458,12 +445,6 @@ const gradientLevelsExhibit: Exhibit = {
       anchorX: 'right',
     });
     thetaLabel.setPrimary('θ');
-    thetaLabel.group.position.set(
-      SLIDER_RACK_CENTER.x + SLIDER_LABEL_X_OFFSET,
-      THETA_Y,
-      SLIDER_RACK_CENTER.z,
-    );
-    group.add(thetaLabel.group);
 
     phiLabel = new Label({
       primaryFontSize: SLIDER_LABEL_PRIMARY_FONT_SIZE,
@@ -472,12 +453,6 @@ const gradientLevelsExhibit: Exhibit = {
       anchorX: 'right',
     });
     phiLabel.setPrimary('φ');
-    phiLabel.group.position.set(
-      SLIDER_RACK_CENTER.x + SLIDER_LABEL_X_OFFSET,
-      PHI_Y,
-      SLIDER_RACK_CENTER.z,
-    );
-    group.add(phiLabel.group);
 
     kLabel = new Label({
       primaryFontSize: SLIDER_LABEL_PRIMARY_FONT_SIZE,
@@ -486,17 +461,34 @@ const gradientLevelsExhibit: Exhibit = {
       anchorX: 'right',
     });
     kLabel.setPrimary('k');
-    kLabel.group.position.set(
-      SLIDER_RACK_CENTER.x + SLIDER_LABEL_X_OFFSET,
-      K_Y,
-      SLIDER_RACK_CENTER.z,
-    );
-    group.add(kLabel.group);
 
-    // Math-frame axis indicator — same anchor as cluster siblings.
+    // Math-frame axis indicator. orientation: 'world' so the X/Y/Z
+    // arrows read in the math frame, not the tabletop frame.
     worldAxes = new WorldAxes({ axisColors: AXIS_COLORS });
-    worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
-    group.add(worldAxes.group);
+
+    // Slot manifest (#225 / E1.4 PR2). 8 slots: 3 sliders + 3 labels
+    // + 1 readout + 1 world-axes. createPlinth reparents each target
+    // under plinth.group at construction.
+    const slots: PlinthSlot[] = [
+      { id: 'slider-theta', target: thetaSlider.group, localXYZ: [0, PLINTH_THETA_Y, 0] },
+      { id: 'slider-phi', target: phiSlider.group, localXYZ: [0, PLINTH_PHI_Y, 0] },
+      { id: 'slider-k', target: kSlider.group, localXYZ: [0, PLINTH_K_Y, 0] },
+      { id: 'label-theta', target: thetaLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_THETA_Y, 0] },
+      { id: 'label-phi', target: phiLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_PHI_Y, 0] },
+      { id: 'label-k', target: kLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_K_Y, 0] },
+      { id: 'readout', target: gradientLevelsReadout.group, localXYZ: [0, PLINTH_READOUT_Y, 0] },
+      {
+        id: 'world-axes',
+        target: worldAxes.group,
+        localXYZ: [PLINTH_AXIS_INDICATOR_X, PLINTH_AXIS_INDICATOR_Y, 0],
+        orientation: 'world',
+      },
+    ];
+    plinth = createPlinth({
+      anchorWorldXYZ: PLINTH_ANCHOR_WORLD_XYZ,
+      slots,
+    });
+    group.add(plinth.group);
   },
 
   update() {
@@ -669,6 +661,10 @@ const gradientLevelsExhibit: Exhibit = {
     if (stageInnerRailing) {
       stageInnerRailing.dispose();
       stageInnerRailing = undefined;
+    }
+    if (plinth) {
+      plinth.dispose();
+      plinth = undefined;
     }
 
     // 3. Drop external references so a re-mount starts clean. The shell

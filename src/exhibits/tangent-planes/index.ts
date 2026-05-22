@@ -9,14 +9,13 @@ import { formatAnglePiFraction } from '@/scaffold/ui/formatAnglePiFraction';
 import { Label } from '@/scaffold/ui/Label';
 import { Slider } from '@/scaffold/ui/Slider';
 import {
-  GRAB_RADIUS_MULTIPLIER,
+  GRAB_RADIUS_MULTIPLIER_PLINTH,
   SLIDER_LABEL_LINE_GAP,
   SLIDER_LABEL_PRIMARY_FONT_SIZE,
   SLIDER_LABEL_SECONDARY_FONT_SIZE,
   SLIDER_LABEL_X_OFFSET,
   SLIDER_ROW_PITCH,
   SLIDER_SNAP_DETENT,
-  createSliderRackCenter,
 } from '@/scaffold/ui/clusterRackTokens';
 import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
 import {
@@ -44,6 +43,11 @@ import {
   createStageInnerRailing,
   type StageInnerRailingHandles,
 } from '@/scaffold/staging/StageInnerRailing';
+import {
+  createPlinth,
+  type PlinthHandles,
+  type PlinthSlot,
+} from '@/scaffold/staging/Plinth';
 import { createTangentPlane, type TangentPlaneHandles } from './TangentPlane';
 import { TangentPlaneReadout } from './TangentPlaneReadout';
 
@@ -67,24 +71,35 @@ import { TangentPlaneReadout } from './TangentPlaneReadout';
 // Constants
 // ────────────────────────────────────────────────────────────────────
 
-// Match quadrics' SURFACE_CENTER + SLIDER_RACK_CENTER + axis-indicator
-// position so navigating between cluster siblings doesn't visually
-// relocate the surface. The same arm's-length depth (z = -0.7) carries
-// across all rack tiers (slider rack, SectionTab rack, SceneRack).
+// Cluster-shared math-object anchor so SceneRack swaps don't visually
+// relocate the surface across sibling scenes.
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
-// Per-file fresh THREE.Vector3 from scaffold/ui/clusterRackTokens
-// (#201 PR 4). Shared canonical value is the immutable
-// SLIDER_RACK_CENTER_COORDS tuple; the factory builds a fresh instance
-// so mutation in one scene can't leak to another.
-const SLIDER_RACK_CENTER = createSliderRackCenter();
-const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
 
-// Tangent-plane readout (#149) sits above the slider rack, on the same
-// z-plane. y = 1.32 mirrors quadrics' EQUATION_READOUT_POSITION; clears
-// the θ slider's top (y ≈ 1.07) by ~0.25 m — enough vertical breathing
-// room for the two-line stack at fontSize 0.028 (line pitch 0.06, total
-// height ~0.06 m).
-const READOUT_POSITION = new THREE.Vector3(0, 1.32, -0.7);
+// Plinth (#225 / E1.4 PR2). Anchor + working-surface depth match
+// quadrics' PR1 ship — the railing/floor geometry is cluster-uniform
+// (backExtension: 3, inner-railing perimeter at the cutout) so the
+// anchor that cleared quadrics' inner railing tube clears the same
+// geometry here. Working-surface depth default 0.5 m fits the 2-row
+// slider rack at SLIDER_ROW_PITCH = 0.14 m with breathing room above
+// and below.
+const PLINTH_ANCHOR_WORLD_XYZ = [0, 0, 0.05] as const;
+
+// Slot-local layout (slot-local +X right, +Y up the tilted face toward
+// the back, +Z out from the surface normal). Two-row rack centered on
+// slot-Y = 0.275 (mid-surface for the default 0.5 m depth): θ at 0.345,
+// φ at 0.205 — inter-slider distance 0.14 m, matching the pre-plinth
+// `thetaY - phiY = 0.14 m` straddle (see `_private/plans/251-cluster-
+// on-plinth.md` §3.1). Per-slider labels at slot-X = SLIDER_LABEL_X_
+// OFFSET = -0.2. Readout floats above the working-surface back edge at
+// slot-Y = 0.57 (mirrors quadrics' "readout above back edge" pattern,
+// with the smaller 0.07 m offset that fits the default 0.5 m depth).
+// Math-frame axis indicator at the right edge with orientation:
+// 'world' so the X/Y/Z arrows read in the math frame, not the
+// tabletop frame.
+const PLINTH_SLIDER_TOP_Y = 0.345;
+const PLINTH_READOUT_Y = 0.57;
+const PLINTH_AXIS_INDICATOR_X = 0.42;
+const PLINTH_AXIS_INDICATOR_Y = 0.275;
 
 // Tighter than quadrics' BOUND=3.5: the unit sphere fits in [-1, 1]³ with
 // room to spare; no coefficient-driven expansion to budget for.
@@ -232,6 +247,7 @@ let stageFloor: StageFloorHandles | undefined;
 let contrastPit: ContrastPitHandles | undefined;
 let stageRailing: StageRailingHandles | undefined;
 let stageInnerRailing: StageInnerRailingHandles | undefined;
+let plinth: PlinthHandles | undefined;
 let pointers: readonly Pointer[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
 // yaw-billboarding in update().
@@ -375,12 +391,10 @@ const tangentPlanesExhibit: Exhibit = {
     surfaceMaterial = surfaceHandles.material;
     group.add(surfaceHandles.mesh);
 
-    // θ slider on top, φ below. Centered horizontally on the rack;
-    // pitch matches quadrics' SLIDER_ROW_PITCH so the rack reads as a
-    // sibling.
-    const thetaY = SLIDER_RACK_CENTER.y + 0.5 * SLIDER_ROW_PITCH;
-    const phiY = SLIDER_RACK_CENTER.y - 0.5 * SLIDER_ROW_PITCH;
-
+    // θ slider on top, φ below. Slot-Y positions set via the slot
+    // manifest at the end of this function — createPlinth reparents
+    // each slider's group under plinth.group, so we construct without
+    // positions and without adding to ctx.group here.
     thetaSlider = new Slider({
       label: 'θ',
       min: 0,
@@ -388,16 +402,10 @@ const tangentPlanesExhibit: Exhibit = {
       initial: THETA_INITIAL,
       snapDetent: SLIDER_SNAP_DETENT,
       snapPoints: THETA_SNAP_POINTS,
-      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
       baseColor: SLIDER_BASE_COLOR,
       thumbShape: 'sphere',
     });
-    thetaSlider.group.position.set(
-      SLIDER_RACK_CENTER.x,
-      thetaY,
-      SLIDER_RACK_CENTER.z,
-    );
-    group.add(thetaSlider.group);
 
     phiSlider = new Slider({
       label: 'φ',
@@ -406,23 +414,14 @@ const tangentPlanesExhibit: Exhibit = {
       initial: PHI_INITIAL,
       snapDetent: SLIDER_SNAP_DETENT,
       snapPoints: PHI_SNAP_POINTS,
-      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
       baseColor: SLIDER_BASE_COLOR,
       thumbShape: 'sphere',
     });
-    phiSlider.group.position.set(
-      SLIDER_RACK_CENTER.x,
-      phiY,
-      SLIDER_RACK_CENTER.z,
-    );
-    group.add(phiSlider.group);
 
-    // Per-slider variable + value labels (#170). Two-line billboarded
-    // text: primary line is the variable name (set once at mount);
-    // secondary line is the live value (updated each frame in update()).
-    // Right-aligned so the rendered text right-edge stays fixed at
-    // SLIDER_LABEL_X_OFFSET regardless of value-string length, keeping
-    // worst-case secondary text clear of the slider thumb at slider min.
+    // Per-slider variable + value labels (#170). Right-anchored so
+    // worst-case secondary text "−0.80π" stays clear of the slider
+    // thumb at slider min.
     thetaLabel = new Label({
       primaryFontSize: SLIDER_LABEL_PRIMARY_FONT_SIZE,
       secondaryFontSize: SLIDER_LABEL_SECONDARY_FONT_SIZE,
@@ -430,12 +429,6 @@ const tangentPlanesExhibit: Exhibit = {
       anchorX: 'right',
     });
     thetaLabel.setPrimary('θ');
-    thetaLabel.group.position.set(
-      SLIDER_RACK_CENTER.x + SLIDER_LABEL_X_OFFSET,
-      thetaY,
-      SLIDER_RACK_CENTER.z,
-    );
-    group.add(thetaLabel.group);
 
     phiLabel = new Label({
       primaryFontSize: SLIDER_LABEL_PRIMARY_FONT_SIZE,
@@ -444,46 +437,84 @@ const tangentPlanesExhibit: Exhibit = {
       anchorX: 'right',
     });
     phiLabel.setPrimary('φ');
-    phiLabel.group.position.set(
-      SLIDER_RACK_CENTER.x + SLIDER_LABEL_X_OFFSET,
-      phiY,
-      SLIDER_RACK_CENTER.z,
-    );
-    group.add(phiLabel.group);
 
-    // Point indicator. Positioned in update() each frame.
+    // Point indicator. Math-object affordance — stays a child of
+    // ctx.group at world frame, positioned in update() each frame.
+    // Not slotted: the indicator is the rendered location of the
+    // selected point ON the math surface, not a UI control.
     indicator = new THREE.Mesh(
       new THREE.SphereGeometry(INDICATOR_RADIUS, 16, 12),
       new THREE.MeshStandardMaterial({ color: INDICATOR_COLOR }),
     );
     group.add(indicator);
 
-    // Tangent-plane mesh. Constructed with `group.visible = false` so
-    // the renderer can't paint a stale construction-time pose between
-    // mount and the first update tick — the first hit frame in update
-    // calls setPose then setVisible(true) to uncloak. (Insertion order
-    // in the scene graph doesn't drive Three's render order; that's
-    // governed by renderOrder + opaque/transparent pass sorting. We add
-    // it here only as a human-reader breadcrumb.)
+    // Tangent-plane mesh — math-object affordance, same lifetime as
+    // surface mesh. Stays world-anchored at SURFACE_CENTER (not
+    // slotted). Constructed with `group.visible = false` so the
+    // renderer can't paint a stale construction-time pose between
+    // mount and the first update tick.
     tangentPlane = createTangentPlane({
       surfaceCenter: SURFACE_CENTER,
       halfExtent: TANGENT_PLANE_HALF_EXTENT,
     });
     group.add(tangentPlane.group);
 
-    // Live readout of the plane equation + normal (#149). Anchored above
-    // the slider rack on the same z-plane; updated each hit frame from
-    // the same raymarch result that drives the indicator + tangent plane.
+    // Live readout of the plane equation + normal (#149). Slotted on
+    // the plinth at slot-Y = PLINTH_READOUT_Y. EquationReadout-style
+    // billboard carve-out: faceCamera overwrites group.rotation every
+    // frame, so the slot's default 'surface' orientation is
+    // documentation-only — the readout yaw-billboards regardless.
     tangentPlaneReadout = new TangentPlaneReadout({
       axisColors: [VERMILLION, BLUISH_GREEN, SKY_BLUE],
     });
-    tangentPlaneReadout.group.position.copy(READOUT_POSITION);
-    group.add(tangentPlaneReadout.group);
 
-    // Math-frame axis indicator — same anchor as quadrics.
+    // Math-frame axis indicator. orientation: 'world' so the X/Y/Z
+    // arrows read in the math frame, not the tabletop frame —
+    // WorldAxes' faceCamera rotates only its child letter-Text nodes,
+    // so the world-aligned slot survives across frames.
     worldAxes = new WorldAxes({ axisColors: AXIS_COLORS });
-    worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
-    group.add(worldAxes.group);
+
+    // Slot manifest (#225 / E1.4 PR2). createPlinth reparents each
+    // target under plinth.group at construction. Ids are required +
+    // uniqueness-validated by the plinth.
+    const slots: PlinthSlot[] = [
+      {
+        id: 'slider-theta',
+        target: thetaSlider.group,
+        localXYZ: [0, PLINTH_SLIDER_TOP_Y, 0],
+      },
+      {
+        id: 'slider-phi',
+        target: phiSlider.group,
+        localXYZ: [0, PLINTH_SLIDER_TOP_Y - SLIDER_ROW_PITCH, 0],
+      },
+      {
+        id: 'label-theta',
+        target: thetaLabel.group,
+        localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_SLIDER_TOP_Y, 0],
+      },
+      {
+        id: 'label-phi',
+        target: phiLabel.group,
+        localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_SLIDER_TOP_Y - SLIDER_ROW_PITCH, 0],
+      },
+      {
+        id: 'readout',
+        target: tangentPlaneReadout.group,
+        localXYZ: [0, PLINTH_READOUT_Y, 0],
+      },
+      {
+        id: 'world-axes',
+        target: worldAxes.group,
+        localXYZ: [PLINTH_AXIS_INDICATOR_X, PLINTH_AXIS_INDICATOR_Y, 0],
+        orientation: 'world',
+      },
+    ];
+    plinth = createPlinth({
+      anchorWorldXYZ: PLINTH_ANCHOR_WORLD_XYZ,
+      slots,
+    });
+    group.add(plinth.group);
   },
 
   update() {
@@ -626,6 +657,10 @@ const tangentPlanesExhibit: Exhibit = {
     if (stageInnerRailing) {
       stageInnerRailing.dispose();
       stageInnerRailing = undefined;
+    }
+    if (plinth) {
+      plinth.dispose();
+      plinth = undefined;
     }
 
     // 3. Drop external references so a re-mount starts clean. The shell

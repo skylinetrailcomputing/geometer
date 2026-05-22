@@ -487,8 +487,10 @@ slider thumb stays disjoint at the new 1.5× multiplier (the
 `CROSS_SECTION_TOGGLE_OFFSET_X = -0.22` separation is generous
 relative to the tighter hit radius).
 
-PR1 ships quadrics only; the other three cluster scenes still use
-the mid-air `GRAB_RADIUS_MULTIPLIER = 2.75` and free-floating UI
-positions until PR2 (#251) closes the cluster sweep. The mixed
-state is intentional per `_private/plans/225-control-plinth.md` §3.4
-— not a regression to flag.
+PR2 (#251) closed the cluster sweep — all four cluster scenes
+(quadrics, tangent-planes, gradient-levels, saddle-extrema) now use
+`GRAB_RADIUS_MULTIPLIER_PLINTH = 1.5` and slot their interactive UI
+under their own plinth. The pre-plinth `GRAB_RADIUS_MULTIPLIER = 2.75`
+export was deleted from `scaffold/ui/clusterRackTokens.ts` at the
+same PR; the static-grep regression test in `test/exhibits/`
+enforces zero references in `.ts` files repo-wide.

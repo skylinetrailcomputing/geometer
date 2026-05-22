@@ -430,3 +430,51 @@ Inner railing (#223 v3): shared `StageInnerRailing` primitive, rect
 path. 4 corner posts at the cutout corners (`±BOUND` from
 `SURFACE_CENTER.xz`) + 4 perimeter tubes. Same height + color as
 the outer railing.
+
+### Staging — Control plinth (#225 / E1.4)
+
+Interactive UI (θ / φ / k sliders + per-slider labels + gradient-
+levels readout + math-frame axis indicator) lifts onto the cluster-
+shared `createPlinth` primitive from `src/scaffold/staging/Plinth.ts`,
+matching quadrics' PR1 ship and the master plan
+(`_private/plans/225-control-plinth.md` §4.2 PR2 / `251-cluster-on-
+plinth.md` §3.2). Drafting-table-console silhouette anchored at world
+`(0, 0, 0.05)` — cluster-uniform anchor. Working-surface depth =
+`Plinth.ts` default 0.5 m: the 3-slider rack at `SLIDER_ROW_PITCH =
+0.14 m` fits in slot-Y ∈ [0.135, 0.415] with breathing room above
+and below.
+
+Every UI primitive's `group` is reparented under `plinth.group` via
+the slot manifest in `mount()`; positions are slot-local. Slot
+manifest:
+
+- **θ slider** (top row) at slot-local `(0, 0.415, 0)`.
+- **φ slider** (mid row) at slot-local `(0, 0.275, 0)`.
+- **k slider** (bottom row) at slot-local `(0, 0.135, 0)` — full
+  `SLIDER_ROW_PITCH = 0.14 m` between rows, matching the pre-plinth
+  `THETA_Y / PHI_Y / K_Y` derivation.
+- **Per-slider labels** at slot-local
+  `(SLIDER_LABEL_X_OFFSET, sliderY, 0)` for each row.
+- **GradientLevelsReadout** at slot-local `(0, 0.57, 0)` — floats
+  above the working-surface back edge at slot-Y = 0.5, mirroring
+  quadrics' "readout above back edge" pattern.
+- **WorldAxes** at slot-local `(0.42, 0.275, 0)`, `orientation:
+  'world'` — keeps the math-frame X/Y/Z arrows aligned to the math
+  frame regardless of plinth tilt.
+
+**Math-object affordances stay in world frame.** `surfaceMesh`,
+`gradientArrow`, and `indicator` are children of `ctx.group`, never
+reparented under `plinth.group` — they're rendered at the math
+object's position (`SURFACE_CENTER`), not on the control surface.
+
+**Readout billboard carve-out.** `GradientLevelsReadout` overwrites
+`group.rotation` every frame via `faceCamera`, so the slot's default
+`'surface'` orientation is documentation-only — the readout yaw-
+billboards regardless. The slot position binds it to the plinth's
+slot-Y axis above the rack.
+
+**Grab radius.** All interactive primitives (three sliders) use
+`GRAB_RADIUS_MULTIPLIER_PLINTH = 1.5` from
+`scaffold/ui/clusterRackTokens.ts`. The pre-plinth mid-air `2.75`
+constant was deleted at PR2 (#251) once all four cluster scenes
+ported onto the plinth.
