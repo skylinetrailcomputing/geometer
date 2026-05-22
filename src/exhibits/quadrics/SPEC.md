@@ -413,3 +413,66 @@ are scaled 1.05× outward from `SURFACE_CENTER.xz`, so the rendered
 surface doesn't kiss the cutout / railing edge at extreme
 `a/b/c/d` parameters. Preserves the Path A "math envelope projected
 onto floor" framing while adding a small annular breathing margin.
+
+### Staging — Control plinth (#225 / E1.4)
+
+Quadrics' free-floating UI (sliders, presets, section tabs, equation
++ classifier readouts, math-frame axis indicator) lifts onto the
+shared `createPlinth` primitive from `src/scaffold/staging/Plinth.ts`
+as the densest cluster member — the API stress test for the slot
+model. Drafting-table-console silhouette anchored at world `(0, 0,
+-0.7)` (the cluster's pre-plinth UI z-plane), `~20°` working-surface
+tilt, 0.9 m wide × `PLINTH_WORKING_HEIGHT_QUADRICS = 0.55` m deep
+working surface — slightly deeper than the Plinth default so the
+4-slider rack fits at the cluster's standard 0.14 m pitch without
+needing a per-scene pitch override.
+
+Every primitive's `group` is reparented under `plinth.group` via the
+slot manifest in `mount()`; positions are slot-local (origin at the
+working-surface front edge center, +X right, +Y up the tilted face
+toward the back, +Z out from the surface normal). The squared /
+linear / cross-section slider racks deliberately share the same
+slot-Y positions — `Section.setActive(false)` hides whichever rack
+isn't currently selected via the `group.visible` cascade, so the
+overlap never co-renders.
+
+**WorldAxes carve-out: `orientation: 'world'`.** The math-frame
+indicator's X/Y/Z arrows have to read as the math frame the equation
+is written in, not as the tabletop frame. The slot's `'world'`
+orientation keeps the indicator world-aligned regardless of plinth
+tilt; WorldAxes' own `faceCamera` only rotates the child letter-Text
+labels, so the world-aligned slot orientation survives across frames.
+
+**Readout billboard carve-out.** `EquationReadout` and the family
+classifier `Label` overwrite `group.rotation` every frame via
+`faceCamera`, so their slot's `orientation: 'surface'` is
+documentation-only — they yaw-billboard regardless. The slot position
+still binds them to the plinth's slot-Y axis above the rack; the
+yaw-billboarding keeps text legible across pancake and headset
+viewing distances rather than foreshortening with the surface tilt.
+
+**Grab radius retune.** `GRAB_RADIUS_MULTIPLIER_PLINTH = 1.5`
+(`scaffold/ui/clusterRackTokens.ts`) replaces the mid-air `2.75` for
+every interactive primitive on the plinth — sliders / presets /
+tabs / heading / cross-section toggles. Plinth-mounted UI changes
+the kinematics from controller-aim-AT to hand-TO-surface, where a
+tighter radius reads as precise rather than fiddly. First-pass
+smoke-tunable (bracket `[1.25, 2.0]`); the value is pancake-biased,
+and the §6 headset smoke checklist evaluates grab comfort separately
+per form factor.
+
+**AxisToggle carve-out (`:1073`).** The cross-section axis toggle's
+slider-local position (`toggle.group.position.set(CROSS_SECTION_TOGGLE
+_OFFSET_X, 0, 0)`) is unchanged — the toggle is a child of its
+slider's group via `slider.group.add(toggle.group)`, so it inherits
+the slider's plinth-slot transform transitively. Not a slot itself;
+not in the manifest. The toggle's hit-sphere math against the
+slider thumb stays disjoint at the new 1.5× multiplier (the
+`CROSS_SECTION_TOGGLE_OFFSET_X = -0.22` separation is generous
+relative to the tighter hit radius).
+
+PR1 ships quadrics only; the other three cluster scenes still use
+the mid-air `GRAB_RADIUS_MULTIPLIER = 2.75` and free-floating UI
+positions until PR2 (#251) closes the cluster sweep. The mixed
+state is intentional per `_private/plans/225-control-plinth.md` §3.4
+— not a regression to flag.

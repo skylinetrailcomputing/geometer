@@ -32,14 +32,17 @@ import {
   createStageInnerRailing,
   type StageInnerRailingHandles,
 } from '@/scaffold/staging/StageInnerRailing';
+import {
+  createPlinth,
+  type PlinthHandles,
+  type PlinthSlot,
+} from '@/scaffold/staging/Plinth';
 import { Section } from '@/scaffold/ui/Section';
 import { SectionTab } from '@/scaffold/ui/SectionTab';
 import { Slider, type ThumbShape } from '@/scaffold/ui/Slider';
 import {
-  GRAB_RADIUS_MULTIPLIER,
-  SLIDER_ROW_PITCH,
+  GRAB_RADIUS_MULTIPLIER_PLINTH,
   SLIDER_SNAP_DETENT,
-  createSliderRackCenter,
 } from '@/scaffold/ui/clusterRackTokens';
 import { AxisToggle } from './AxisToggle';
 import { createSlicingPlanes, type SlicingPlanesHandles } from './SlicingPlane';
@@ -57,64 +60,90 @@ import { WorldAxes, type AxisName } from '@/scaffold/ui/WorldAxes';
 // door open for non-rectilinear perspectives once teleportation lets the
 // user self-position.
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
-// Imported as a fresh THREE.Vector3 from scaffold/ui/clusterRackTokens
-// (#201 PR 4) — per-file instance, so mutation in one scene can't leak
-// to another. The shared canonical value is the immutable
-// SLIDER_RACK_CENTER_COORDS tuple.
-const SLIDER_RACK_CENTER = createSliderRackCenter();
 
-// Vertical stacking (top → bottom):
-//   centered column (x = 0):
-//     y = 1.85  — debug FPS overlay (?fps=1, hidden by default)
-//     y = 1.72  — preset 2 × 4 grid row 0 (centered on x = 0, slightly above
-//                 classifier so labels don't overlap the family text)
-//     y = 1.59  — preset 2 × 4 grid row 1
-//     y = 1.41  — family classifier readout
-//     y = 1.32  — live equation readout (#58)
-//     y = 1.21  — top slider 'a' (= SLIDER_RACK_CENTER.y + 1.5 * SLIDER_ROW_PITCH)
-//   left rack (x = -0.44) — section / canonical-forms tabs (#93 follow-up):
-//     y = 1.50 — Canonical forms expandable heading (▸ collapsed / ▾ expanded)
-//     y = 1.27 — Squared terms tab
-//     y = 1.04 — Linear terms tab
-//     y = 0.81 — Cross sections tab
-//   right side (x ≈ 0.35):
-//     y = 1.17 — math-frame axis indicator origin (Z arrow points up to ≈ 1.32,
-//                aligning the indicator's top with the equation readout)
-// The vertical tab rack replaced an earlier horizontal row at y = 1.78
-// (#93 first-pass landed it horizontally; the second pass moved it left
-// per headset feedback that the horizontal row was crowding the upper
-// viewport and reading further from the sliders it controls than the
-// rack center where the slider names live).
-// #110 first-pass anchored the preset row at the heading's y. Headset
-// feedback (#110 follow-up) was: 1) the grid sat left-of-center, asking
-// the eye to scan away from the surface to read it; 2) the rack tabs
-// crowded the grid's labels with no horizontal breathing room. Fixed by
-// decoupling — grid centered on x=0 just above the classifier; rack
-// shifted down + right so its column sits well clear of the leftmost
-// preset col.
-const RACK_LABEL_POSITION = new THREE.Vector3(0, 1.41, -0.7);
-const EQUATION_READOUT_POSITION = new THREE.Vector3(0, 1.32, -0.7);
+// Plinth (#225 / E1.4 PR1). Quadrics is the cluster's densest UI
+// surface (4 sliders × 3 mutually-exclusive sections + 8-button preset
+// grid + 3 section tabs + 1 canonical-forms heading + equation +
+// classifier + axis indicator) and thus the API stress test for the
+// slot model in `scaffold/staging/Plinth.ts`. The earlier free-
+// floating layout's world-frame anchor constants (RACK_LABEL_POSITION
+// / EQUATION_READOUT_POSITION / AXIS_INDICATOR_POSITION / SECTION_
+// TAB_RACK_* / PRESET_ROW_*) collapsed into the slot manifest in
+// mount() below — see the plinth layout comment there for the new
+// slot-local coordinates and how they relate to the previous world-
+// frame layout (#110 / #93 follow-up).
+//
+// Anchor: floor-footprint center at world (0, 0, -0.7), preserving
+// the cluster's pre-plinth UI z-plane so the math object's spatial
+// relationship to the controls stays familiar from the audition
+// surface (v1.0.md §3). First-pass smoke-tunable; PR4 (E1.4e) is the
+// pancake-vs-VR calibration sweep.
+const PLINTH_ANCHOR_WORLD_XYZ = [0, 0, -0.7] as const;
 
-// Debug-only FPS readout (#99), gated behind `?fps=1`. Sits above the
-// family classifier so it doesn't crowd the surface viewport when
-// enabled. Same z-plane as the rack stack so yaw-billboarding behaves
-// the same as the other readouts.
+// Slightly deeper than the Plinth default (0.5) to fit the 4-slider
+// rack at 0.14 m pitch with breathing room above and below. Back-
+// edge world Y at this depth + 20° tilt = 0.95 + 0.55 * cos(20°) ≈
+// 1.467 m, still below the pancake default-camera horizontal line at
+// y = 1.5 so the plinth doesn't occlude the math object (§4.1
+// foreground-occlusion gate).
+const PLINTH_WORKING_HEIGHT_QUADRICS = 0.55;
+
+// Slider stacking pitch in slot-local +Y. With grabRadiusMultiplier
+// = 1.5 the per-thumb hit sphere is 0.025 × 1.5 = 0.0375 m on each
+// side; the disjoint-grab floor is 2 × 0.0375 = 0.075 m. 0.14 leaves
+// ~0.065 m of clearance — generously above the floor, and matches
+// the cluster's pre-plinth `SLIDER_ROW_PITCH = 0.14` so the rack
+// visually compresses by only the surface-tilt projection factor
+// (cos(20°) ≈ 0.94) without changing the per-slider feel.
+const PLINTH_SLIDER_ROW_PITCH = 0.14;
+// 4-slider rack centered on slot-Y = 0.275 (mid-surface). With pitch
+// 0.14 the top slider 'a' sits at 0.485 and the bottom 'd' at 0.065.
+const PLINTH_SLIDER_TOP_Y = 0.485;
+
+// 3 section tabs + 1 heading stacked at slot-X = −0.42 (just inside
+// the left edge of the 0.9 m surface). Pitch compressed from the
+// pre-plinth 0.23 m to 0.13 m so the full 4-element stack fits the
+// surface depth.
+const PLINTH_SECTION_TAB_X = -0.42;
+const PLINTH_SECTION_TAB_PITCH = 0.13;
+const PLINTH_SECTION_TAB_HEADING_Y = 0.55;
+const PLINTH_SECTION_TAB_TOP_Y = 0.42;
+
+// Preset 2 × 4 grid placed ABOVE the working-surface back edge in
+// slot-local +Y space (the grid is hidden by default and only
+// appears when the canonical-forms heading is expanded; it floats
+// up-and-back of the slab visually). Columns at the cluster's
+// shared 0.13 m pitch; rows at a slightly tighter 0.11 m to leave
+// vertical breathing room above the rack-label/equation-readout
+// stack.
+const PLINTH_PRESET_COL_PITCH = 0.13;
+const PLINTH_PRESET_ROW_PITCH = 0.11;
+const PLINTH_PRESET_ROW_TOP_Y = 0.94;
+// Centers the 4-col span on slot-X = 0: leftmost col at -1.5 × pitch.
+const PLINTH_PRESET_ROW_START_X = -1.5 * PLINTH_PRESET_COL_PITCH;
+
+// Billboarded readouts above the slider rack. EquationReadout sits
+// just above the surface back edge so the live coefficients read as
+// part of the slot-Y axis the sliders drive; the family classifier
+// (rackLabel) floats one row higher.
+const PLINTH_EQUATION_READOUT_Y = 0.62;
+const PLINTH_RACK_LABEL_Y = 0.74;
+
+// Math-frame axis indicator at the right of the surface. Orientation
+// is 'world' (per `Plinth.ts` carve-out), so the indicator stays
+// math-frame-aligned regardless of the working-surface tilt.
+const PLINTH_AXIS_INDICATOR_X = 0.42;
+const PLINTH_AXIS_INDICATOR_Y = 0.275;
+
+// Debug-only FPS readout (#99), gated behind `?fps=1`. Kept at its
+// world-frame position rather than going through the plinth slot
+// manifest — `?fps=1`-gated dev tooling, not user-facing UI (see
+// §5 acceptance carve-out in `_private/plans/225-control-plinth.md`).
 const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.85, -0.7);
 
 // Smaller than Label's 0.16 default; matches the closer ~0.7 m viewing
 // distance from the user's spawn point.
 const RACK_LABEL_PRIMARY_FONT_SIZE = 0.06;
-
-// Math-frame axis indicator (#43): pinned next to the slider rack so it
-// stays visible regardless of the surface's current parameters. x = 0.35
-// sits well clear of the right end of the 0.3 m slider track (spans ±0.15
-// from rack center). y = 1.17 raises the origin so the Z-axis arrow (which
-// extends up by AXIS_LENGTH = 0.15) terminates at y ≈ 1.32 — aligned with
-// the equation readout, per #110 follow-up. Was at y = 0.925 (centered
-// on the rack), but headset feedback was that the indicator read as
-// "down by the floor" instead of as a reference for the math frame the
-// equation is written in. z matches the slider plane.
-const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
 
 // Section-selector tab rack (#57; rotated to a vertical left column in
 // #93; relocated in #110 follow-up): a stack of buttons at the left of
@@ -139,9 +168,10 @@ const AXIS_INDICATOR_POSITION = new THREE.Vector3(0.35, 1.17, -0.7);
 // — clear of the slider rack rather than crammed inside it. With three
 // sections the rack now spans the full vertical extent of the slider
 // column; if a fourth lens lands the pitch will need to tighten to fit.
-const SECTION_TAB_RACK_X = -0.44;
-const SECTION_TAB_RACK_TOP_Y = 1.50;
-const SECTION_TAB_RACK_PITCH = 0.23;
+// Pre-plinth world-frame section-tab anchors lived here (SECTION_TAB_
+// RACK_X / _TOP_Y / _PITCH). Lifted to slot-local under E1.4 (#225 PR1);
+// see PLINTH_SECTION_TAB_* above and the slot manifest in mount() for
+// the new positions.
 
 // Canonical-pose preset grid (#46, relocated #93, restructured #110):
 // 2 × 4 grid anchored to the canonical-forms heading on the left rack,
@@ -219,11 +249,9 @@ const PRESETS: readonly {
 // ~0.11 m of horizontal real estate at the chosen 0.022 m font, so 0.08
 // had labels overlapping into adjacent buttons.
 const PRESET_COLS = 4;
-const PRESET_ROW_TOP_Y = 1.72;
-const PRESET_HORIZONTAL_PITCH = 0.13;
-const PRESET_VERTICAL_PITCH = 0.13;
-// Centers the 4-col span on x = 0: leftmost col at -1.5 × pitch.
-const PRESET_ROW_START_X = -1.5 * PRESET_HORIZONTAL_PITCH;
+// Pre-plinth world-frame anchors (PRESET_ROW_TOP_Y / _PITCH / _START_X)
+// were lifted to slot-local under E1.4 (#225 PR1); see PLINTH_PRESET_*
+// above + the slot manifest in mount() for the new positions.
 
 // Canonical-forms heading label text. Includes a chevron that flips on
 // expand/collapse so the affordance is unambiguous even at a glance:
@@ -281,26 +309,26 @@ function easeInOutCubic(t: number): number {
 }
 
 // Ray–thumb / ray–button hit-test sphere is this multiple of each
-// primitive's visual radius. Wider than the visual makes re-grab
-// forgiving when the hand drifts off-aim during release. Used
-// consistently across this exhibit's Slider, Preset, and SectionTab
-// constructions so all three feel the same when sweeping the
-// controller across the rack. Formerly hardcoded inside each
-// primitive (#120 made it a required ctor option). Imported from
-// scaffold/ui/clusterRackTokens (#201 PR 4) — shared 2.75 across the
-// cluster.
+// primitive's visual radius. The cluster's `GRAB_RADIUS_MULTIPLIER`
+// (2.75) was tuned for mid-air sphere-aim ergonomics; quadrics is the
+// first scene to use `GRAB_RADIUS_MULTIPLIER_PLINTH` (1.5, #225 / E1.4
+// PR1) because plinth-mounted UI changes the kinematics from aim-AT
+// to hand-TO-surface, where a tighter radius reads as precise rather
+// than fiddly. The other three cluster scenes ship on the plinth in
+// PR2 (#251); until then they continue to import the 2.75 value, and
+// quadrics' intentionally mixed-state smoke is documented in
+// `_private/plans/225-control-plinth.md` §3.4 as expected, not a
+// regression.
 
-// Vertical stacking pitch for the rack. SPEC pins the rack center but
-// not per-slider positions. Lower bound is set by the slider's grab
-// region: at thumbRadius (0.025) × GRAB_RADIUS_MULTIPLIER (2.75), each
-// thumb's hit sphere is ~0.069 m, so adjacent thumbs need ≥ 0.138 m of
-// pitch to keep their grab regions disjoint (otherwise a ray near the
-// midpoint could resolve to either slider). 0.14 leaves ~2.5 mm of
-// clearance — tighter than the original 0.15 (#110 follow-up: headset
-// feedback called the rack overly spread out and asked for a more
-// compact stack), but still above the disjoint-grab floor. Imported
-// from scaffold/ui/clusterRackTokens (#201 PR 4) — shared 0.14 m
-// across the cluster.
+// Vertical stacking pitch for the rack (slot-local +Y on the plinth
+// working surface). Lower bound set by the slider's grab region: at
+// thumbRadius (0.025) × GRAB_RADIUS_MULTIPLIER_PLINTH (1.5), each
+// thumb's hit sphere is ~0.0375 m, so adjacent thumbs need ≥ 0.075 m
+// of pitch to keep their grab regions disjoint. The cluster's
+// pre-plinth `SLIDER_ROW_PITCH` was 0.14 — well above the new floor,
+// and preserved on the plinth via `PLINTH_SLIDER_ROW_PITCH` so the
+// rack visually compresses by only the cos(20°) surface-tilt
+// projection without changing the per-slider feel.
 
 // Wong / Okabe-Ito colorblind-safe palette imported from
 // @/scaffold/design/tokens (#120). The fourth slot — yellow on slider
@@ -806,6 +834,7 @@ let stageFloor: StageFloorHandles | undefined;
 let contrastPit: ContrastPitHandles | undefined;
 let stageRailing: StageRailingHandles | undefined;
 let stageInnerRailing: StageInnerRailingHandles | undefined;
+let plinth: PlinthHandles | undefined;
 
 const quadricsExhibit: Exhibit = {
   id: 'quadrics',
@@ -926,38 +955,35 @@ const quadricsExhibit: Exhibit = {
     });
     group.add(doublePlane.group);
 
-    // Top → bottom: a, b, c, d. Span centered on SLIDER_RACK_CENTER.
-    // Per-slider color + shape pull from SLIDER_CONFIG (#58); the
-    // equation readout above the rack now carries the live coefficient
-    // values, so per-slider numeric labels are gone in this version.
+    // Top → bottom: a, b, c, d. Per-slider color + shape pull from
+    // SLIDER_CONFIG (#58); the equation readout above the rack
+    // carries the live coefficient values, so per-slider numeric
+    // labels are gone in this version.
     //
-    // `d` is the constant term, conceptually orthogonal to whether the
-    // user is in the Squared or Linear lens (#140). It's constructed
-    // alongside a/b/c here so vertical layout stays uniform, then split
-    // out below: only a/b/c go into the Squared section's sliders array,
-    // while `d` lives outside any Section and persists across the Squared
-    // ↔ Linear toggle.
-    const topY =
-      SLIDER_RACK_CENTER.y + ((SLIDER_CONFIG.length - 1) / 2) * SLIDER_ROW_PITCH;
-    const coefficientSliders = SLIDER_CONFIG.map((cfg, i) => {
-      const slider = new Slider({
+    // `d` is the constant term, conceptually orthogonal to whether
+    // the user is in the Squared or Linear lens (#140). It's
+    // constructed alongside a/b/c here so vertical layout stays
+    // uniform, then split out below: only a/b/c go into the Squared
+    // section's sliders array, while `d` lives outside any Section
+    // and persists across the Squared ↔ Linear toggle.
+    //
+    // Slider groups are constructed without positions and without
+    // being added to ctx.group here — `createPlinth(...)` later in
+    // this function reparents them under `plinth.group` and applies
+    // their slot-local positions via the slot manifest (#225 / E1.4
+    // PR1).
+    const coefficientSliders = SLIDER_CONFIG.map((cfg) => {
+      return new Slider({
         label: cfg.name,
         min: -2,
         max: 2,
         initial: 1,
         snapDetent: SLIDER_SNAP_DETENT,
         snapPoints: SLIDER_SNAP_POINTS_CANONICAL,
-        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
         baseColor: cfg.color,
         thumbShape: cfg.shape,
       });
-      slider.group.position.set(
-        SLIDER_RACK_CENTER.x,
-        topY - i * SLIDER_ROW_PITCH,
-        SLIDER_RACK_CENTER.z,
-      );
-      group.add(slider.group);
-      return slider;
     });
     // `sliders` is the math-routing array [a, b, c, d] and feeds the
     // slider→uniform read in update() plus the preset tween's coefficient
@@ -967,95 +993,72 @@ const quadricsExhibit: Exhibit = {
     const axisCoefficientSliders = coefficientSliders.slice(0, 3);
     dSlider = coefficientSliders[3];
 
-    // Preset 2 × 4 grid, anchored to the canonical-forms heading on the
-    // left rack and extending rightward + downward (#93, restructured
-    // #110). Hidden by default — the heading toggle below controls
-    // visibility. Reading order is row-major left → right, top → bottom,
-    // matching the array order in PRESETS above.
-    presets = PRESETS.map((p, i) => {
-      const preset = new Preset({ ...p, grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER });
-      const col = i % PRESET_COLS;
-      const row = Math.floor(i / PRESET_COLS);
-      preset.group.position.set(
-        PRESET_ROW_START_X + col * PRESET_HORIZONTAL_PITCH,
-        PRESET_ROW_TOP_Y - row * PRESET_VERTICAL_PITCH,
-        SLIDER_RACK_CENTER.z,
-      );
+    // Preset 2 × 4 grid (#93, restructured #110). Hidden by default —
+    // the canonical-forms heading toggle below controls visibility.
+    // Reading order is row-major left → right, top → bottom, matching
+    // the array order in PRESETS above; the plinth slot manifest
+    // mirrors that order so visual reading and slot-id ordering line
+    // up. Position-on-plinth deferred to the slot manifest at the end
+    // of this function.
+    presets = PRESETS.map((p) => {
+      const preset = new Preset({
+        ...p,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
+      });
       preset.group.visible = false;
-      group.add(preset.group);
       return preset;
     });
 
-    // Linear-terms section sliders (#88). Same spatial position as the
-    // coefficient rack — Section.setActive(false) hides whichever rack is
-    // not currently selected, so they never co-render. Three rows for
-    // u/v/w. Default value 0 (so the linear-terms section starts as
-    // "pure quadric" until the user drags); range ±2 mirrors the
+    // Linear-terms section sliders (#88). Same slot-local positions
+    // as the coefficient rack's top three sliders (u stacks on a, v
+    // on b, w on c) — Section.setActive(false) hides whichever rack
+    // is not currently selected, so they never co-render. Three rows
+    // for u/v/w. Default value 0 (so the linear-terms section starts
+    // as "pure quadric" until the user drags); range ±2 mirrors the
     // coefficient-slider domain.
     //
-    // Top row aligned with the coefficient rack's top row (#110): u stacks
-    // exactly on slider 'a', v on slider 'b', w on slider 'c'. The
-    // sections never co-render, so there's no need to physically separate
-    // their vertical centers — aligning the same-axis sliders keeps the
-    // mental model "color = math axis" continuous when toggling between
-    // sections. The bottom slot stays anchored to slider `d`, which is
-    // shared across both lenses (#140) — `d` is the equation's constant
-    // term, orthogonal to the squared-vs-linear distinction, so it lives
-    // outside the Section abstraction and stays visible across the toggle.
-    const linearTopY = topY;
-    const linearTermSliders = LINEAR_SLIDER_CONFIG.map((cfg, i) => {
-      const slider = new Slider({
+    // The bottom slot stays anchored to slider `d`, which is shared
+    // across both lenses (#140) — `d` is the equation's constant
+    // term, orthogonal to the squared-vs-linear distinction, so it
+    // lives outside the Section abstraction and stays visible across
+    // the toggle.
+    const linearTermSliders = LINEAR_SLIDER_CONFIG.map((cfg) => {
+      return new Slider({
         label: cfg.name,
         min: -2,
         max: 2,
         initial: 0,
         snapDetent: SLIDER_SNAP_DETENT,
         snapPoints: SLIDER_SNAP_POINTS_CANONICAL,
-        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
         baseColor: cfg.color,
         thumbShape: cfg.shape,
       });
-      slider.group.position.set(
-        SLIDER_RACK_CENTER.x,
-        linearTopY - i * SLIDER_ROW_PITCH,
-        SLIDER_RACK_CENTER.z,
-      );
-      group.add(slider.group);
-      return slider;
     });
     linearSliders = linearTermSliders;
 
-    // Cross-sections section (#84, expanded #112). Three sliders x₀/y₀/z₀
-    // driving math-axis-aligned slicing planes. Vermillion / bluish-green
-    // / sky-blue + arrow-x/y/z mirrors the squared rack (a/b/c) and the
-    // linear rack (u/v/w) row-for-row — same axis, different math role
-    // per section — so "color = math axis, position = math axis" stays
-    // consistent across lenses. Default 0 each so the section opens
-    // showing three orthogonal cross-section rings through the surface
-    // center: the section's pedagogy is visible without dragging.
-    const crossSectionTopY = topY;
-    const crossSectionTermSliders = CROSS_SECTION_SLIDER_CONFIG.map(
-      (cfg, i) => {
-        const slider = new Slider({
-          label: cfg.name,
-          min: -CROSS_SECTION_SLIDER_RANGE,
-          max: CROSS_SECTION_SLIDER_RANGE,
-          initial: 0,
-          snapDetent: SLIDER_SNAP_DETENT,
-          snapPoints: SLIDER_SNAP_POINTS_ZERO_ONLY,
-          grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
-          baseColor: cfg.color,
-          thumbShape: cfg.shape,
-        });
-        slider.group.position.set(
-          SLIDER_RACK_CENTER.x,
-          crossSectionTopY - i * SLIDER_ROW_PITCH,
-          SLIDER_RACK_CENTER.z,
-        );
-        group.add(slider.group);
-        return slider;
-      },
-    );
+    // Cross-sections section (#84, expanded #112). Three sliders
+    // x₀/y₀/z₀ driving math-axis-aligned slicing planes. Vermillion
+    // / bluish-green / sky-blue + arrow-x/y/z mirrors the squared
+    // rack (a/b/c) and the linear rack (u/v/w) row-for-row — same
+    // axis, different math role per section — so "color = math
+    // axis, position = math axis" stays consistent across lenses.
+    // Default 0 each so the section opens showing three orthogonal
+    // cross-section rings through the surface center: the section's
+    // pedagogy is visible without dragging.
+    const crossSectionTermSliders = CROSS_SECTION_SLIDER_CONFIG.map((cfg) => {
+      return new Slider({
+        label: cfg.name,
+        min: -CROSS_SECTION_SLIDER_RANGE,
+        max: CROSS_SECTION_SLIDER_RANGE,
+        initial: 0,
+        snapDetent: SLIDER_SNAP_DETENT,
+        snapPoints: SLIDER_SNAP_POINTS_ZERO_ONLY,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
+        baseColor: cfg.color,
+        thumbShape: cfg.shape,
+      });
+    });
     crossSectionSliders = crossSectionTermSliders;
 
     // Per-axis on/off toggles (#134). One small axis-colored sphere per
@@ -1067,14 +1070,21 @@ const quadricsExhibit: Exhibit = {
       const cfg = CROSS_SECTION_SLIDER_CONFIG[i];
       const toggle = new AxisToggle({
         baseColor: cfg.color,
-        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
         initialEnabled: true,
       });
+      // Toggle position is slider-local (slider.group is a child of
+      // plinth.group after `createPlinth(...)` reparenting below; the
+      // toggle inherits its placement transitively). This is the
+      // single slider-child slot.target.position.set that PERSISTS on
+      // the plinth (#225 PR1 issue body acceptance carve-out for
+      // `:1073`).
       toggle.group.position.set(CROSS_SECTION_TOGGLE_OFFSET_X, 0, 0);
-      // Parenting to the slider's group keeps the toggle co-located if
-      // the slider ever moves (e.g. a future per-section layout shuffle),
-      // and lets Section.setActive on the slider's section hide the
-      // toggle in lockstep with the slider via group.visible cascade.
+      // Parenting to the slider's group keeps the toggle co-located
+      // if the slider ever moves (e.g. a future per-section layout
+      // shuffle), and lets Section.setActive on the slider's section
+      // hide the toggle in lockstep with the slider via group.visible
+      // cascade.
       slider.group.add(toggle.group);
       return toggle;
     });
@@ -1125,23 +1135,15 @@ const quadricsExhibit: Exhibit = {
     dSlider.group.visible =
       sections[activeSectionIndex].name !== CROSS_SECTION_SECTION_NAME;
 
-    // Vertical tab rack on the left (#93). Top → bottom: canonical-forms
-    // heading (built below the section tabs but positioned above them in
-    // y), then one button per Section. The slot for the heading is
-    // SECTION_TAB_RACK_TOP_Y; section tabs follow at SECTION_TAB_RACK_PITCH
-    // intervals below.
-    tabs = sections.map((section, i) => {
-      const tab = new SectionTab({
+    // Vertical tab rack on the left (#93). Top → bottom: canonical-
+    // forms heading, then one button per Section. Positions on the
+    // plinth are set via the slot manifest below; the tabs are
+    // constructed here without scene-graph parenting.
+    tabs = sections.map((section) => {
+      return new SectionTab({
         name: section.name,
-        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+        grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
       });
-      tab.group.position.set(
-        SECTION_TAB_RACK_X,
-        SECTION_TAB_RACK_TOP_Y - (i + 1) * SECTION_TAB_RACK_PITCH,
-        SLIDER_RACK_CENTER.z,
-      );
-      group.add(tab.group);
-      return tab;
     });
     tabs[activeSectionIndex].setActive(true);
 
@@ -1153,33 +1155,134 @@ const quadricsExhibit: Exhibit = {
       name: presetsExpanded
         ? CANONICAL_FORMS_LABEL_EXPANDED
         : CANONICAL_FORMS_LABEL_COLLAPSED,
-      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER,
+      grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
     });
-    canonicalFormsHeading.group.position.set(
-      SECTION_TAB_RACK_X,
-      SECTION_TAB_RACK_TOP_Y,
-      SLIDER_RACK_CENTER.z,
-    );
     canonicalFormsHeading.setActive(presetsExpanded);
-    group.add(canonicalFormsHeading.group);
 
-    // Family classifier readout sits at the top of the stack above the
-    // rack. The live equation readout (#58) carries the four coefficient
-    // numerics directly below it, replacing the per-slider labels that
-    // used to live left of each track.
+    // Family classifier readout sits at the top of the stack above
+    // the rack. The live equation readout (#58) carries the four
+    // coefficient numerics directly below it, replacing the per-
+    // slider labels that used to live left of each track. Both are
+    // billboarded — they yaw-face the camera every frame via
+    // faceCamera, so their slot's `orientation: 'surface'` is
+    // documentation-only (per `Plinth.ts` billboarded-primitive
+    // carve-out).
     rackLabel = new Label({ primaryFontSize: RACK_LABEL_PRIMARY_FONT_SIZE });
-    rackLabel.group.position.copy(RACK_LABEL_POSITION);
-    group.add(rackLabel.group);
 
     equationReadout = new EquationReadout({
       coefficientColors: EQUATION_COEFFICIENT_COLORS,
     });
-    equationReadout.group.position.copy(EQUATION_READOUT_POSITION);
-    group.add(equationReadout.group);
 
+    // Math-frame axis indicator (#43). Uses `orientation: 'world'`
+    // so the indicator stays math-frame-aligned regardless of the
+    // plinth's working-surface tilt — the X/Y/Z arrows have to read
+    // as the math frame the equation is written in, not as the
+    // tabletop frame. WorldAxes' own `faceCamera` only rotates the
+    // child letter-Text labels (not the parent group), so the
+    // world-aligned slot orientation survives across frames.
     worldAxes = new WorldAxes({ axisColors: AXIS_COLORS });
-    worldAxes.group.position.copy(AXIS_INDICATOR_POSITION);
-    group.add(worldAxes.group);
+
+    // Slot manifest (#225 / E1.4 PR1). Each entry takes a UI
+    // primitive's `group` and a slot-local position; createPlinth
+    // reparents the group under plinth.group and applies the
+    // position. Ids are required + unique-validated; the names below
+    // mirror the per-section variable names so logs / inspector reads
+    // map directly to math meaning.
+    //
+    // Layout summary (slot-local +X right, +Y up the tilted face
+    // toward the back, +Z out of surface normal):
+    //   slot-X = 0      — center column: 4 / 3 / 3 sliders + 2 readouts
+    //   slot-X = ±0.42  — left rack (tabs + heading), right (world axes)
+    //   slot-X ∈ ±0.20  — preset 2 × 4 grid above the back edge
+    // The squared / linear / cross-section sections deliberately
+    // overlap on the same slot-Y positions: `Section.setActive(false)`
+    // hides whichever rack is not currently selected via
+    // `group.visible` cascade, so the overlap never co-renders.
+    const slots: PlinthSlot[] = [];
+    // Squared sliders a/b/c/d top → bottom.
+    coefficientSliders.forEach((slider, i) => {
+      slots.push({
+        id: `slider-squared-${SLIDER_CONFIG[i].name}`,
+        target: slider.group,
+        localXYZ: [0, PLINTH_SLIDER_TOP_Y - i * PLINTH_SLIDER_ROW_PITCH, 0],
+      });
+    });
+    // Linear sliders u/v/w stacked on the top three squared slots.
+    linearTermSliders.forEach((slider, i) => {
+      slots.push({
+        id: `slider-linear-${LINEAR_SLIDER_CONFIG[i].name}`,
+        target: slider.group,
+        localXYZ: [0, PLINTH_SLIDER_TOP_Y - i * PLINTH_SLIDER_ROW_PITCH, 0],
+      });
+    });
+    // Cross-section sliders x₀/y₀/z₀ stacked on the top three
+    // squared slots. Unicode subscripts in slot ids stripped to
+    // ASCII for log-readability.
+    const crossSectionAsciiNames = ['x0', 'y0', 'z0'] as const;
+    crossSectionTermSliders.forEach((slider, i) => {
+      slots.push({
+        id: `slider-cross-${crossSectionAsciiNames[i]}`,
+        target: slider.group,
+        localXYZ: [0, PLINTH_SLIDER_TOP_Y - i * PLINTH_SLIDER_ROW_PITCH, 0],
+      });
+    });
+    // Preset 2 × 4 grid above the working-surface back edge.
+    presets.forEach((preset, i) => {
+      const col = i % PRESET_COLS;
+      const row = Math.floor(i / PRESET_COLS);
+      slots.push({
+        id: `preset-${i}`,
+        target: preset.group,
+        localXYZ: [
+          PLINTH_PRESET_ROW_START_X + col * PLINTH_PRESET_COL_PITCH,
+          PLINTH_PRESET_ROW_TOP_Y - row * PLINTH_PRESET_ROW_PITCH,
+          0,
+        ],
+      });
+    });
+    // Canonical-forms heading + 3 section tabs at the left rack.
+    slots.push({
+      id: 'canonical-forms-heading',
+      target: canonicalFormsHeading.group,
+      localXYZ: [PLINTH_SECTION_TAB_X, PLINTH_SECTION_TAB_HEADING_Y, 0],
+    });
+    tabs.forEach((tab, i) => {
+      slots.push({
+        id: `section-tab-${i}`,
+        target: tab.group,
+        localXYZ: [
+          PLINTH_SECTION_TAB_X,
+          PLINTH_SECTION_TAB_TOP_Y - i * PLINTH_SECTION_TAB_PITCH,
+          0,
+        ],
+      });
+    });
+    // Billboarded readouts above the slider rack.
+    slots.push({
+      id: 'equation-readout',
+      target: equationReadout.group,
+      localXYZ: [0, PLINTH_EQUATION_READOUT_Y, 0],
+    });
+    slots.push({
+      id: 'rack-label',
+      target: rackLabel.group,
+      localXYZ: [0, PLINTH_RACK_LABEL_Y, 0],
+    });
+    // Math-frame axis indicator at the right edge. 'world' keeps the
+    // indicator math-frame-aligned despite the surface tilt.
+    slots.push({
+      id: 'world-axes',
+      target: worldAxes.group,
+      localXYZ: [PLINTH_AXIS_INDICATOR_X, PLINTH_AXIS_INDICATOR_Y, 0],
+      orientation: 'world',
+    });
+
+    plinth = createPlinth({
+      anchorWorldXYZ: PLINTH_ANCHOR_WORLD_XYZ,
+      workingSurfaceHeight: PLINTH_WORKING_HEIGHT_QUADRICS,
+      slots,
+    });
+    group.add(plinth.group);
 
     // Optional in-VR FPS readout (#99) + console renderer.info dump
     // (#102). Both off by default; opt-in via a `?fps=1` query string
@@ -1437,6 +1540,10 @@ const quadricsExhibit: Exhibit = {
     if (stageInnerRailing) {
       stageInnerRailing.dispose();
       stageInnerRailing = undefined;
+    }
+    if (plinth) {
+      plinth.dispose();
+      plinth = undefined;
     }
     if (material) {
       material.dispose();
