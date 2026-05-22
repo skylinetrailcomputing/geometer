@@ -13,24 +13,14 @@ import type { Pointer } from './Pointer';
 // (`shell.ts` step 5 of #150), and the placement constants below are
 // the cluster's worldspace anchor — not a per-exhibit design choice.
 //
-// Worldspace anchor (per the v3 plan §5; #225 PR1 v2 smoke update):
+// Worldspace anchor (per the v3 plan §5):
 //   * `SCENE_RACK_Y = 1.73` — one `SECTION_TAB_RACK_PITCH` (0.23)
-//     above quadrics' pre-plinth canonical-forms heading at Y=1.50,
-//     leaving 17+ cm of clearance above the SectionTab column. On
-//     the plinth (#225 PR1), the heading sits at world Y ≈ 1.467
-//     (slot-Y 0.55 × cos(20°) + workingSurfaceHeightFromFloor 0.95),
-//     so the clearance grows to ~26 cm — comfortable headroom.
-//   * `SCENE_RACK_CENTER_X = -0.44` — matches the pre-plinth
-//     `SECTION_TAB_RACK_X` (also matches the post-plinth
-//     `PLINTH_SECTION_TAB_X = -0.42` within ~2 cm so the two racks
-//     still read as one vertical column).
-//   * `SCENE_RACK_Z = -0.75` — matches `PLINTH_ANCHOR_WORLD_XYZ.z`
-//     in quadrics so the SceneRack moves with the plinth's
-//     "translation" (#225 PR1 v2 smoke: pre-PR1 z = -0.7 left the
-//     bulbs stranded over the math-object cutout after the plinth
-//     shifted). The 0.05 m offset from the other three cluster
-//     scenes' still-pre-plinth UI at z = -0.7 is imperceptible
-//     until PR2 (#251) ports them to the same primitive.
+//     above quadrics' canonical-forms heading at Y=1.50, leaving
+//     17 cm of clearance above the SectionTab column.
+//   * `SCENE_RACK_CENTER_X = -0.44` — matches `SECTION_TAB_RACK_X`
+//     so the two racks stack as a single vertical column.
+//   * `SCENE_RACK_Z = -0.7` — matches `SLIDER_RACK_CENTER.z` so
+//     all three rack tiers sit at the same arm's-length depth.
 //   * `SCENE_TAB_PITCH = 0.20` — horizontal spacing between tabs.
 // These constants live here (rather than in SceneTab) because they
 // are layout concerns for the rack as a whole; per-tab visuals
@@ -38,7 +28,7 @@ import type { Pointer } from './Pointer';
 
 const SCENE_RACK_Y = 1.73;
 const SCENE_RACK_CENTER_X = -0.44;
-const SCENE_RACK_Z = -0.75;
+const SCENE_RACK_Z = -0.7;
 const SCENE_TAB_PITCH = 0.20;
 
 export interface SceneRackOptions {

@@ -73,20 +73,19 @@ const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
 // slot-local coordinates and how they relate to the previous world-
 // frame layout (#110 / #93 follow-up).
 //
-// Anchor: floor-footprint center at world (0, 0, -0.75). v1 of #225
+// Anchor: floor-footprint center at world (0, 0, 0.05). v1 of #225
 // PR1 placed the anchor at (0, 0, 0) so the plinth body (z ∈ [-0.3,
 // 0]) sat 0.025 m clear of the inner railing front edge at world
 // z = SURFACE_CENTER.z + BOUND * CUTOUT_VISUAL_MARGIN = -4 + 3.675 =
 // -0.325 (tube radius 0.03 gives a tube +Z edge at z = -0.295). v1
 // smoke (Brad, 2026-05-22) found the body back at z = -0.3 still
-// visually overlapping with the railing tube (penetration into the
-// tube's volumetric envelope), and pulled the anchor back to
-// z = -0.75 — body now at z ∈ [-1.05, -0.75], reading as inside-the-
-// railing-perimeter stage-display vocabulary (the plinth + math
-// object both sit within the railing, with the user outside and
-// leaning over to operate the controls). First-pass smoke-tunable;
-// PR4 (E1.4e) is the pancake-vs-VR calibration sweep.
-const PLINTH_ANCHOR_WORLD_XYZ = [0, 0, -0.75] as const;
+// visually penetrating the railing tube's volumetric envelope. v2
+// nudges the anchor 0.05 m further in +world-Z (= -math-Y, toward
+// the user) so the body back lands at z = -0.25 — 0.045 m clear of
+// the tube +Z edge at z = -0.295, an order of magnitude more visual
+// margin than v1 had. First-pass smoke-tunable; PR4 (E1.4e) is the
+// pancake-vs-VR calibration sweep.
+const PLINTH_ANCHOR_WORLD_XYZ = [0, 0, 0.05] as const;
 
 // Slightly deeper than the Plinth default (0.5) to fit the 4-slider
 // rack at 0.14 m pitch with breathing room above and below. Back-
@@ -150,7 +149,7 @@ const PLINTH_AXIS_INDICATOR_Y = 0.275;
 // X / Y unchanged; Z tracks PLINTH_ANCHOR_WORLD_XYZ.z so the overlay
 // continues to sit above the slider rack rather than getting
 // stranded somewhere else in world-Z when the anchor shifts.
-const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.85, -0.75);
+const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.85, 0.05);
 
 // Smaller than Label's 0.16 default; matches the closer ~0.7 m viewing
 // distance from the user's spawn point.
