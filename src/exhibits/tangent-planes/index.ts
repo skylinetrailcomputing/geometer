@@ -48,6 +48,7 @@ import {
   type PlinthHandles,
   type PlinthSlot,
 } from '@/scaffold/staging/Plinth';
+import { FpsOverlay } from '@/scaffold/perf/FpsOverlay';
 import { createTangentPlane, type TangentPlaneHandles } from './TangentPlane';
 import { TangentPlaneReadout } from './TangentPlaneReadout';
 
@@ -100,6 +101,14 @@ const PLINTH_SLIDER_TOP_Y = 0.345;
 const PLINTH_READOUT_Y = 0.57;
 const PLINTH_AXIS_INDICATOR_X = 0.42;
 const PLINTH_AXIS_INDICATOR_Y = 0.275;
+
+// Debug-only FPS readout (#99), gated behind `?fps=1`. Kept at its
+// world-frame position rather than going through the plinth slot
+// manifest — `?fps=1`-gated dev tooling, not user-facing UI (see §5
+// acceptance carve-out in `_private/plans/225-control-plinth.md`).
+// Stopgap per-scene wiring (#261); the proper shell-owned lift is a
+// future PR.
+const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.85, 0.05);
 
 // Tighter than quadrics' BOUND=3.5: the unit sphere fits in [-1, 1]³ with
 // room to spare; no coefficient-driven expansion to budget for.
@@ -248,6 +257,7 @@ let contrastPit: ContrastPitHandles | undefined;
 let stageRailing: StageRailingHandles | undefined;
 let stageInnerRailing: StageInnerRailingHandles | undefined;
 let plinth: PlinthHandles | undefined;
+let fpsOverlay: FpsOverlay | undefined;
 let pointers: readonly Pointer[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
 // yaw-billboarding in update().
@@ -515,9 +525,19 @@ const tangentPlanesExhibit: Exhibit = {
       slots,
     });
     group.add(plinth.group);
+
+    // Optional in-VR FPS readout (#99), gated behind `?fps=1` on the
+    // URL. Stopgap per-scene wiring per #261; proper shell-owned lift
+    // is a future PR. World-anchored above the plinth, not slotted —
+    // dev tooling shouldn't ride along with user-facing UI.
+    if (isFpsOverlayEnabled()) {
+      fpsOverlay = new FpsOverlay();
+      fpsOverlay.group.position.copy(FPS_OVERLAY_POSITION);
+      group.add(fpsOverlay.group);
+    }
   },
 
-  update() {
+  update({ delta }) {
     // Labels are accessory (#170) — handled by per-call guards below;
     // not gated here so a missing label never blocks slider/raycast updates.
     if (!thetaSlider || !phiSlider || !indicator || !tangentPlane) return;
@@ -601,6 +621,10 @@ const tangentPlanesExhibit: Exhibit = {
     // they read at any user yaw. Same per-frame contract as quadrics.
     if (worldAxes && camera) worldAxes.faceCamera(camera);
     if (tangentPlaneReadout && camera) tangentPlaneReadout.faceCamera(camera);
+    if (fpsOverlay) {
+      fpsOverlay.update(delta, performance.now());
+      if (camera) fpsOverlay.faceCamera(camera);
+    }
   },
 
   unmount() {
@@ -662,6 +686,10 @@ const tangentPlanesExhibit: Exhibit = {
       plinth.dispose();
       plinth = undefined;
     }
+    if (fpsOverlay) {
+      fpsOverlay.dispose();
+      fpsOverlay = undefined;
+    }
 
     // 3. Drop external references so a re-mount starts clean. The shell
     //    removes ctx.group and its descendants automatically. Clear the
@@ -706,6 +734,11 @@ const tangentPlanesExhibit: Exhibit = {
     }
   },
 };
+
+function isFpsOverlayEnabled(): boolean {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('fps') === '1';
+}
 
 registerExhibit(tangentPlanesExhibit);
 
