@@ -318,3 +318,56 @@ path. 8 evenly-spaced posts around the cutout circumference (radius
 `BOUND = 1.5`) + 1 `TorusGeometry` top-rail. Same height + color as
 the outer railing. The torus provides a clean curved top rail without
 piecewise approximation.
+
+### Staging — Control plinth (#225 / E1.4)
+
+Interactive UI (θ / φ sliders + per-slider labels + tangent-plane
+readout + math-frame axis indicator) lifts onto the cluster-shared
+`createPlinth` primitive from `src/scaffold/staging/Plinth.ts`,
+matching quadrics' PR1 ship and the master plan
+(`_private/plans/225-control-plinth.md` §4.2 PR2 / `251-cluster-on-
+plinth.md` §3.1). Drafting-table-console silhouette anchored at world
+`(0, 0, 0.05)` — cluster-uniform anchor; the railing/floor clearance
+checked for quadrics' v2 smoke applies here too (shared backExtension
++ inner-railing geometry). Working-surface depth = `Plinth.ts`
+default 0.5 m: the 2-slider rack at `SLIDER_ROW_PITCH = 0.14 m` fits
+comfortably in slot-Y ∈ [0.205, 0.345], well inside [0, 0.5].
+
+Every UI primitive's `group` is reparented under `plinth.group` via
+the slot manifest in `mount()`; positions are slot-local (origin at
+the working-surface front-edge center, +X right, +Y up the tilted
+face toward the back, +Z out from the surface normal). Slot manifest:
+
+- **θ slider** at slot-local `(0, 0.345, 0)`.
+- **φ slider** at slot-local `(0, 0.205, 0)` — inter-slider distance
+  0.14 m, matching the pre-plinth `thetaY - phiY = 0.14 m` straddle.
+- **θ label** at slot-local `(SLIDER_LABEL_X_OFFSET, 0.345, 0)`.
+- **φ label** at slot-local `(SLIDER_LABEL_X_OFFSET, 0.205, 0)`.
+- **Tangent-plane readout** at slot-local `(0, 0.57, 0)` — floats
+  above the working-surface back edge at slot-Y = 0.5, mirroring
+  quadrics' "readout above back edge" pattern.
+- **WorldAxes** at slot-local `(0.42, 0.275, 0)`, `orientation:
+  'world'` — keeps the math-frame X/Y/Z arrows aligned to the math
+  frame regardless of plinth tilt; WorldAxes' own `faceCamera`
+  rotates only its child letter-`Text` nodes, so the world-aligned
+  slot survives across frames.
+
+**Math-object affordances stay in world frame.** `surfaceMesh`,
+`tangentPlane`, and `indicator` are children of `ctx.group`, never
+reparented under `plinth.group`. The #197 VR controller-aim sphere
+picker is unchanged: it raycasts world rays against the implicit
+surface, decoupled from the plinth scene graph.
+
+**Readout billboard carve-out.** `TangentPlaneReadout` overwrites
+`group.rotation` every frame via `faceCamera`, so the slot's default
+`'surface'` orientation is documentation-only — the readout yaw-
+billboards regardless. The slot position binds the readout to the
+plinth's slot-Y axis above the rack; the yaw-billboarding keeps text
+legible across pancake and headset viewing distances rather than
+foreshortening with the surface tilt.
+
+**Grab radius.** All interactive primitives (both sliders) use
+`GRAB_RADIUS_MULTIPLIER_PLINTH = 1.5` from
+`scaffold/ui/clusterRackTokens.ts`, the cluster-uniform plinth-mounted
+value. The pre-plinth mid-air `2.75` constant was deleted at PR2
+(#251) once all four cluster scenes ported onto the plinth.
