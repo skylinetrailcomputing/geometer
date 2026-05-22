@@ -421,19 +421,28 @@ Quadrics' free-floating UI (sliders, presets, section tabs, equation
 shared `createPlinth` primitive from `src/scaffold/staging/Plinth.ts`
 as the densest cluster member — the API stress test for the slot
 model. Drafting-table-console silhouette anchored at world `(0, 0,
-0)` (#225 PR1 v1 smoke: shifted +0.7 m in +world-Z from the
-pre-plinth UI z-plane at z = -0.7, so the plinth body extending
-from z = 0 to z = -0.3 lands on the user side of the inner railing
-front edge at z = -0.325 rather than straddling it). `~20°` working-
-surface tilt, 0.9 m wide × `PLINTH_WORKING_HEIGHT_QUADRICS = 0.55` m
-deep working surface — slightly deeper than the Plinth default so
-the 4-slider rack fits at the cluster's standard 0.14 m pitch
-without needing a per-scene pitch override.
+-0.75)` (#225 PR1 v2 smoke). v1 of PR1 anchored at z = 0 to clear
+the inner railing front edge at z = -0.325; v2 pulled the anchor
+back to z = -0.75 after maintainer smoke flagged the body back at
+z = -0.3 was still visually penetrating the railing tube's
+volumetric envelope (tube radius 0.03 m, so tube +Z edge at z =
+-0.295). Plinth body now sits at z ∈ [-1.05, -0.75], reading as
+inside-the-railing stage-display vocabulary (math object + plinth
+both within the railing; user outside, leaning over to operate the
+controls). `~20°` working-surface tilt, 0.9 m wide ×
+`PLINTH_WORKING_HEIGHT_QUADRICS = 0.55` m deep working surface —
+slightly deeper than the Plinth default so the 4-slider rack fits
+at the cluster's standard 0.14 m pitch without needing a per-scene
+pitch override.
 
-The pancake spawn camera is paired-shifted to `(0, 1.6, 3.7)`
-(`shell/cameraControls.ts`) so the user spawns on the same side of
-the inner railing as the plinth's interactables. Foreground floor at
-this pose is ~2.2 m (was ~1.5 m pre-#225 PR1).
+The pancake spawn camera sits at `(0, 1.6, 3.7)`
+(`shell/cameraControls.ts`); pre-#225 PR1 was z = 3, shifted +0.7 m
+in +world-Z so the user spawns well in front of the railing
+perimeter rather than crowding into it. Foreground floor at this
+pose is ~2.2 m (was ~1.5 m pre-PR1). The SceneRack
+(`shell/SceneRack.ts`) tracks the plinth at `SCENE_RACK_Z = -0.75`
+so the navigation bulbs co-locate with the rest of the plinth UI
+stack instead of getting stranded over the cutout.
 
 Every primitive's `group` is reparented under `plinth.group` via the
 slot manifest in `mount()`; positions are slot-local (origin at the
