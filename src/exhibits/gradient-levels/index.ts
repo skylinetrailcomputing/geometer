@@ -48,6 +48,7 @@ import {
   type PlinthHandles,
   type PlinthSlot,
 } from '@/scaffold/staging/Plinth';
+import { FpsOverlay } from '@/scaffold/perf/FpsOverlay';
 import { createGradientArrow, type GradientArrowHandles } from './GradientArrow';
 import { GradientLevelsReadout } from './GradientLevelsReadout';
 import { BOUND, fJsRaw, gradJs } from './surfaceModel';
@@ -97,6 +98,12 @@ const PLINTH_SLIDER_MID_Y = 0.275;
 const PLINTH_READOUT_Y = 0.57;
 const PLINTH_AXIS_INDICATOR_X = 0.42;
 const PLINTH_AXIS_INDICATOR_Y = 0.275;
+
+// Debug-only FPS readout (#99), gated behind `?fps=1`. World-anchored
+// above the plinth, not slotted — dev tooling, not user-facing UI.
+// Stopgap per-scene wiring (#261); the proper shell-owned lift is a
+// future PR.
+const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.85, 0.05);
 
 // Per-slider variable + value labels (#170). All three sliders (θ/φ/k)
 // carry a two-line right-aligned label anchored ~0.05 m left of each
@@ -279,6 +286,7 @@ let contrastPit: ContrastPitHandles | undefined;
 let stageRailing: StageRailingHandles | undefined;
 let stageInnerRailing: StageInnerRailingHandles | undefined;
 let plinth: PlinthHandles | undefined;
+let fpsOverlay: FpsOverlay | undefined;
 let pointers: readonly Pointer[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
 // yaw-billboarding in update().
@@ -489,9 +497,18 @@ const gradientLevelsExhibit: Exhibit = {
       slots,
     });
     group.add(plinth.group);
+
+    // Optional in-VR FPS readout (#99), gated behind `?fps=1` on the
+    // URL. Stopgap per-scene wiring per #261; proper shell-owned lift
+    // is a future PR.
+    if (isFpsOverlayEnabled()) {
+      fpsOverlay = new FpsOverlay();
+      fpsOverlay.group.position.copy(FPS_OVERLAY_POSITION);
+      group.add(fpsOverlay.group);
+    }
   },
 
-  update() {
+  update({ delta }) {
     // Per-slider labels (θ/φ/k) are accessory (#170) — handled by per-call
     // guards below; not gated here so a missing label never blocks
     // slider/raycast updates.
@@ -595,6 +612,10 @@ const gradientLevelsExhibit: Exhibit = {
     //    (Per-slider label faceCamera calls live in step 2b above.)
     if (worldAxes && camera) worldAxes.faceCamera(camera);
     if (camera) gradientLevelsReadout.faceCamera(camera);
+    if (fpsOverlay) {
+      fpsOverlay.update(delta, performance.now());
+      if (camera) fpsOverlay.faceCamera(camera);
+    }
   },
 
   unmount() {
@@ -666,6 +687,10 @@ const gradientLevelsExhibit: Exhibit = {
       plinth.dispose();
       plinth = undefined;
     }
+    if (fpsOverlay) {
+      fpsOverlay.dispose();
+      fpsOverlay = undefined;
+    }
 
     // 3. Drop external references so a re-mount starts clean. The shell
     //    removes ctx.group and its descendants automatically.
@@ -688,6 +713,11 @@ const gradientLevelsExhibit: Exhibit = {
     kSlider?.releaseFromPointer(pointer);
   },
 };
+
+function isFpsOverlayEnabled(): boolean {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('fps') === '1';
+}
 
 registerExhibit(gradientLevelsExhibit);
 
