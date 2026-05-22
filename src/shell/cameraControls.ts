@@ -70,16 +70,21 @@ export function createCameraControls(
   // configuration, not whatever spherical the constructor derived
   // against the default `target = (0, 0, 0)`.
   controls.target.copy(SURFACE_CENTER);
-  // Pancake spawn pose (#240). Z = 3 places the camera ~7 m from
-  // `SURFACE_CENTER`, leaving ~1.5 m of foreground floor visible
-  // between the user and quadrics' cutout near-edge (the tightest of
-  // the four cluster scenes' StageFloor cutouts at z = -0.5). Earlier
-  // spawn pose `(0, 1.6, 0)` placed the camera right at the front of
-  // every cutout — no foreground floor on first paint. Z values that
+  // Pancake spawn pose (#240; v2 #225 PR1). Z = 3.7 places the
+  // camera ~7.7 m from `SURFACE_CENTER`, leaving ~2.2 m of foreground
+  // floor visible between the user and quadrics' cutout near-edge
+  // (the tightest of the four cluster scenes' StageFloor cutouts at
+  // z = -0.5). Original #240 pose was Z = 3 (~1.5 m foreground);
+  // shifted +0.7 m in +world-Z alongside the plinth lift (#225 PR1
+  // first-smoke maintainer feedback) so the user spawns on the same
+  // side of the inner railing as the plinth's interactables rather
+  // than orbiting in from "behind" the controls. Earlier #240 pose
+  // `(0, 1.6, 0)` placed the camera right at the front of every
+  // cutout — no foreground floor on first paint. Z values that
   // expose foreground depend on the shell's vertical FOV = 75°
   // (`shell.ts:86`); the math derivation is in
   // `_private/plans/240-pancake-default-camera.md` §3.
-  camera.position.set(0, 1.6, 3);
+  camera.position.set(0, 1.6, 3.7);
   camera.lookAt(SURFACE_CENTER);
 
   // Re-seed OrbitControls' internal `_lastPosition` from the corrected

@@ -73,12 +73,20 @@ const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
 // slot-local coordinates and how they relate to the previous world-
 // frame layout (#110 / #93 follow-up).
 //
-// Anchor: floor-footprint center at world (0, 0, -0.7), preserving
-// the cluster's pre-plinth UI z-plane so the math object's spatial
-// relationship to the controls stays familiar from the audition
-// surface (v1.0.md §3). First-pass smoke-tunable; PR4 (E1.4e) is the
-// pancake-vs-VR calibration sweep.
-const PLINTH_ANCHOR_WORLD_XYZ = [0, 0, -0.7] as const;
+// Anchor: floor-footprint center at world (0, 0, 0). The pre-plinth
+// UI z-plane was z = -0.7, which puts the plinth body STRADDLING the
+// inner railing front edge at world z = SURFACE_CENTER.z + BOUND *
+// CUTOUT_VISUAL_MARGIN = -4 + 3.675 = -0.325 — the railing would
+// poke through the plinth visually and the controls would spawn
+// behind the railing on the math-object side. Shifted +0.7 m in
+// +world-Z (= -0.7 m in math-Y direction, since math-Y forward maps
+// to -world-Z) so the plinth body (extending from z = 0 to z = -0.3)
+// lands 0.025 m clear of the railing front edge — the entire
+// interaction surface spawns on the user side of the railing
+// perimeter, matching Brad's "interactables on the human side"
+// framing (#250 v0 → v1 maintainer smoke). First-pass smoke-tunable;
+// PR4 (E1.4e) is the pancake-vs-VR calibration sweep.
+const PLINTH_ANCHOR_WORLD_XYZ = [0, 0, 0] as const;
 
 // Slightly deeper than the Plinth default (0.5) to fit the 4-slider
 // rack at 0.14 m pitch with breathing room above and below. Back-
@@ -137,9 +145,12 @@ const PLINTH_AXIS_INDICATOR_Y = 0.275;
 
 // Debug-only FPS readout (#99), gated behind `?fps=1`. Kept at its
 // world-frame position rather than going through the plinth slot
-// manifest — `?fps=1`-gated dev tooling, not user-facing UI (see
-// §5 acceptance carve-out in `_private/plans/225-control-plinth.md`).
-const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.85, -0.7);
+// manifest — `?fps=1`-gated dev tooling, not user-facing UI (see §5
+// acceptance carve-out in `_private/plans/225-control-plinth.md`).
+// X / Y unchanged; Z shifts with PLINTH_ANCHOR_WORLD_XYZ.z so the
+// overlay continues to sit above the slider rack in the user-side
+// stack rather than getting stranded over the math object's railing.
+const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.85, 0);
 
 // Smaller than Label's 0.16 default; matches the closer ~0.7 m viewing
 // distance from the user's spawn point.
