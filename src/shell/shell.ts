@@ -101,8 +101,10 @@ async function bootShellAsync(): Promise<void> {
   );
   // Pre-mode camera position; overwritten by `createCameraControls` in
   // desktop mode and unused-in-XR (HMD pose drives an `ArrayCamera`)
-  // in VR mode.
-  camera.position.set(0, 1.6, 3);
+  // in VR mode. Z = 3.7 (was 3 pre-#225 PR1 smoke) — shifted +0.7 m
+  // in +world-Z alongside the plinth so the user spawns on the same
+  // side of the inner railing as the plinth's interactables.
+  camera.position.set(0, 1.6, 3.7);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);

@@ -22,6 +22,26 @@ export const SLIDER_ROW_PITCH = 0.14;
 export const SLIDER_SNAP_DETENT = 0.05;
 export const GRAB_RADIUS_MULTIPLIER = 2.75;
 
+/**
+ * Plinth-mounted UI variant of `GRAB_RADIUS_MULTIPLIER` (#225 / E1.4).
+ * The 2.75 above was tuned for mid-air sphere-aim ergonomics — the
+ * user's hand aims AT a small floating sphere from across the room
+ * and a generous hit radius forgives drift on re-grab. Plinth-mounted
+ * UI changes the kinematics: the user's hand goes TO the working
+ * surface (hover-near-surface, touch-on-surface) so a tighter radius
+ * reads as precise rather than imprecise, especially in quadrics'
+ * dense rack.
+ *
+ * First-pass smoke-tunable (feedback_staging_dimensions_first_pass).
+ * Bracket [1.25, 2.0]: bump up if smoke flags too tight, bump down if
+ * still too generous. Note: 1.5 is **pancake-biased** — mouse
+ * precision tolerates this radius; VR controller comfort may want
+ * [1.5, 2.0] (feedback_binary_search_visual_constants — one dial per
+ * round). The §6 headset smoke checklist evaluates grab-radius
+ * comfort separately per form factor.
+ */
+export const GRAB_RADIUS_MULTIPLIER_PLINTH = 1.5;
+
 // Per-slider variable + value label layout (#170). Right-anchored so
 // worst-case secondary text "−1.50" stays clear of the slider thumb at
 // any value. Consumers: tangent-planes, gradient-levels, saddle-extrema.
