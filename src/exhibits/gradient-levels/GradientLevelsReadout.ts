@@ -1,6 +1,6 @@
-import * as THREE from 'three';
 import { Text } from 'troika-three-text';
 import type { MathVec3 } from '@/scaffold/math/frames';
+import { PanelReadout } from '@/scaffold/ui/PanelReadout';
 import {
   READOUT_FONT_SIZE,
   READOUT_LINE_PITCH,
@@ -78,9 +78,27 @@ const SEPARATOR_COLOR = 0xffffff;
 const AXIS_X = 0;
 const AXIS_Z = 2;
 
-export class GradientLevelsReadout {
-  readonly group: THREE.Group;
+// Plinth panel-backing dims (#252 / E1.4c). Computed from this readout's
+// own em constants × READOUT_FONT_SIZE per plan §3.3 methodology — see
+// the envelope-assertion test in PanelReadout.test.ts for the bound.
+//
+// Worst-case line: top — PREFIX_GRAD_EM(2.8) + 3 × NUMERIC_SIGNED_EM(2.6)
+// + 2 × COMMA_EM(1.0) + CLOSE_PAREN_EM(1.0)
+//                 = 2.8 + 7.8 + 2.0 + 1.0 = 13.6 em
+//                 × 0.028 = 0.381 m
+// Half-width = 0.381 / 2 + 0.012 padding = 0.202 → rounded 0.200.
+//
+// Worst-case top-line string corpus:
+//   `∇f = ( -2.50 , -2.50 , -2.50 )`
+//
+// Bracket [0.195, 0.220]; first-pass smoke-tunable per
+// feedback_staging_dimensions_first_pass. One dial per round.
+export const READOUT_PANEL_HALF_WIDTH_GRADIENT_LEVELS = 0.2;
 
+// 2-line layout, rows at ±LINE_PITCH/2 = ±0.03; glyph + padding → 0.055.
+export const READOUT_PANEL_HALF_HEIGHT_GRADIENT_LEVELS = 0.055;
+
+export class GradientLevelsReadout extends PanelReadout {
   private readonly fontSize: number;
 
   // Top-line component numerics: [∂f/∂x, ∂f/∂y, ∂f/∂z].
@@ -98,21 +116,18 @@ export class GradientLevelsReadout {
   private bottomNumericCache = '';
 
   private lastSyncMs = 0;
-
-  // Hoisted out of `faceCamera` so per-frame billboarding does no
-  // allocation. Same convention as `TangentPlaneReadout`.
-  private readonly camWorld = new THREE.Vector3();
-  private readonly groupWorld = new THREE.Vector3();
+  // Visibility-bootstrap guard (#252 §3.6 cloak normalization). Boots
+  // `group.visible = false` (set by PanelReadout base ctor); flips to
+  // `true` AFTER the first `setValues` writes real text + .sync()s,
+  // not before. Matches the EquationReadout / TangentPlaneReadout
+  // throttle-bypass-on-first-call pattern. Avoids a first-frame paint
+  // where the dark back-plate would render BEFORE the numeric Text
+  // geometries resolve (#252 plan §3.6).
+  private hasBootstrapped = false;
 
   constructor(opts: GradientLevelsReadoutOptions) {
+    super('gradient-levels-readout');
     this.fontSize = opts.fontSize ?? READOUT_FONT_SIZE;
-
-    this.group = new THREE.Group();
-    this.group.name = 'gradient-levels-readout';
-    // Stay hidden until the first setValues() populates the numerics.
-    // The first update() tick uncloaks; deep-link/state-restore to a
-    // miss state stays hidden gracefully.
-    this.group.visible = false;
 
     const numericSignedW = NUMERIC_SIGNED_EM * this.fontSize;
     const numericUnsignedW = NUMERIC_UNSIGNED_EM * this.fontSize;
@@ -185,6 +200,13 @@ export class GradientLevelsReadout {
     this.bottomNumeric = this.makeNumericText(this.fontSize, opts.magnitudeColor);
     this.bottomNumeric.position.set(cursor + numericUnsignedW / 2, bottomY, 0);
     this.group.add(this.bottomNumeric);
+
+    // Plinth back-plate (#252 / E1.4c). See parent §3.5 v3 (option-c)
+    // billboarding lock; back-plate inherits per-frame yaw transitively.
+    this.createPanel({
+      halfWidth: READOUT_PANEL_HALF_WIDTH_GRADIENT_LEVELS,
+      halfHeight: READOUT_PANEL_HALF_HEIGHT_GRADIENT_LEVELS,
+    });
   }
 
   private makeNumericText(fontSize: number, color: number): Text {
@@ -216,16 +238,22 @@ export class GradientLevelsReadout {
    * skips the .text + .sync() write when the formatted string hasn't
    * changed.
    *
-   * On first call, uncloaks `group.visible = true` — the readout boots
-   * hidden so it can't paint empty strings before the first hit frame.
+   * Cloak normalization (#252 §3.6): `group.visible = true` flips AFTER
+   * the first .sync()-resolving write — the throttle gate is bypassed
+   * on the bootstrap call (`hasBootstrapped` is false) so the first
+   * call always paints. Same shape as EquationReadout / TangentPlaneReadout.
    */
   setValues(gradient: MathVec3): void {
-    // First-call uncloak: before throttle gate so the readout becomes
-    // visible on the first tick regardless of throttle timing.
-    if (!this.group.visible) this.group.visible = true;
-
     const now = performance.now();
-    if (now - this.lastSyncMs < READOUT_SYNC_INTERVAL_MS) return;
+    // First call bypasses the throttle so the readout uncloaks with
+    // real text on frame 1 even if `lastSyncMs` was set elsewhere (in
+    // practice `lastSyncMs = 0` and `now - 0` is always >> 33 ms).
+    if (
+      this.hasBootstrapped &&
+      now - this.lastSyncMs < READOUT_SYNC_INTERVAL_MS
+    ) {
+      return;
+    }
     this.lastSyncMs = now;
 
     const strings: GradientLevelsReadoutStrings = formatGradientLevelsReadout(gradient);
@@ -244,21 +272,22 @@ export class GradientLevelsReadout {
       this.bottomNumeric.text = strings.magnitude;
       this.bottomNumeric.sync();
     }
+
+    // First-call uncloak — after all .sync() writes above. Flipping
+    // `group.visible = true` here paints the first real frame with
+    // both panel + populated text, not panel + empty text.
+    if (!this.hasBootstrapped) {
+      this.group.visible = true;
+      this.hasBootstrapped = true;
+    }
   }
 
-  // Yaw-only billboard, matching TangentPlaneReadout / EquationReadout /
-  // Label. World-up stays world-up; head pitch and roll don't tilt.
-  faceCamera(camera: THREE.Camera): void {
-    camera.getWorldPosition(this.camWorld);
-    this.group.getWorldPosition(this.groupWorld);
-    const dx = this.camWorld.x - this.groupWorld.x;
-    const dz = this.camWorld.z - this.groupWorld.z;
-    this.group.rotation.set(0, Math.atan2(dx, dz), 0);
-  }
+  // Yaw-only billboard inherited from PanelReadout base (#252).
 
   dispose(): void {
     for (const t of this.topNumerics) t.dispose();
     this.bottomNumeric.dispose();
     for (const t of this.separators) t.dispose();
+    this.disposePanel();
   }
 }

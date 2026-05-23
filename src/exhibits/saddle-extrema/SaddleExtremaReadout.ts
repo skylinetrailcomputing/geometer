@@ -1,5 +1,5 @@
-import * as THREE from 'three';
 import { Text } from 'troika-three-text';
+import { PanelReadout } from '@/scaffold/ui/PanelReadout';
 import {
   READOUT_FONT_SIZE,
   READOUT_LINE_PITCH,
@@ -96,9 +96,31 @@ const SEPARATOR_COLOR = 0xffffff;
 const ENTRY_XX = 0;
 const ENTRY_YY = 2;
 
-export class SaddleExtremaReadout {
-  readonly group: THREE.Group;
+// Plinth panel-backing dims (#252 / E1.4c). Computed from this readout's
+// own em constants × READOUT_FONT_SIZE per plan §3.3 methodology — see
+// the envelope-assertion test in PanelReadout.test.ts for the bound.
+//
+// Worst-case line: top — 3 × PREFIX_ENTRY_EM(3.5) + 3 × NUMERIC_ENTRY_EM(3.2)
+// + 2 × TOP_ENTRY_GAP_EM(1.2) = 10.5 + 9.6 + 2.4 = 22.5 em × 0.028 = 0.630 m
+// Half-width = 0.630 / 2 + 0.012 padding = 0.327 → rounded 0.325.
+//
+// Worst-case string corpus:
+//   top:     `f_xx = -2.50   f_xy = -2.50   f_yy = -2.50`
+//   middle:  `D = -103.68`  (monkey-saddle corner per NUMERIC_D_EM doc)
+//   bottom:  verdict ∈ { 'saddle', 'local max', 'local min',
+//                        'inconclusive', 'degenerate' }  (max 12 chars
+//            `inconclusive` — anchorX: 'center', not em-slot-allocated,
+//            ~0.20 m wide ≪ 0.63 m top line, panel covers easily)
+//
+// Bracket [0.320, 0.345]; first-pass smoke-tunable.
+export const READOUT_PANEL_HALF_WIDTH_SADDLE_EXTREMA = 0.325;
 
+// 3-line layout: rows at +LINE_PITCH (0.06), 0, -LINE_PITCH (-0.06) ⇒
+// vertical span 0.12 m + glyph ~0.034 + padding 0.008 = ~0.162 m, half =
+// ~0.081 → rounded 0.090.
+export const READOUT_PANEL_HALF_HEIGHT_SADDLE_EXTREMA = 0.09;
+
+export class SaddleExtremaReadout extends PanelReadout {
   private readonly fontSize: number;
 
   // Top-line entry numerics: [f_xx, f_xy, f_yy].
@@ -120,20 +142,17 @@ export class SaddleExtremaReadout {
   private verdictCache = '';
 
   private lastSyncMs = 0;
-
-  // Hoisted scratch for per-frame yaw billboarding — no allocation.
-  private readonly camWorld = new THREE.Vector3();
-  private readonly groupWorld = new THREE.Vector3();
+  // Visibility-bootstrap guard (#252 §3.6 cloak normalization). Boots
+  // `group.visible = false` (set by PanelReadout base ctor); flips to
+  // `true` AFTER the first `setValues` writes real text + .sync()s,
+  // not before. Matches the Equation/TangentPlane throttle-bypass-on-
+  // first-call pattern so the dark back-plate never renders before
+  // the numeric Text geometries resolve.
+  private hasBootstrapped = false;
 
   constructor(opts: SaddleExtremaReadoutOptions) {
+    super('saddle-extrema-readout');
     this.fontSize = opts.fontSize ?? READOUT_FONT_SIZE;
-
-    this.group = new THREE.Group();
-    this.group.name = 'saddle-extrema-readout';
-    // Hidden until first setValues() populates the numerics. Avoids
-    // painting empty strings on the first frame between mount and
-    // first update().
-    this.group.visible = false;
 
     const numericEntryW = NUMERIC_ENTRY_EM * this.fontSize;
     const numericDW = NUMERIC_D_EM * this.fontSize;
@@ -206,6 +225,13 @@ export class SaddleExtremaReadout {
     this.verdictText = this.makeNumericText(this.fontSize, opts.accentColor);
     this.verdictText.position.set(0, bottomY, 0);
     this.group.add(this.verdictText);
+
+    // Plinth back-plate (#252 / E1.4c). Sized to the top-line worst
+    // case (the widest of the three lines); verdict + D fit easily.
+    this.createPanel({
+      halfWidth: READOUT_PANEL_HALF_WIDTH_SADDLE_EXTREMA,
+      halfHeight: READOUT_PANEL_HALF_HEIGHT_SADDLE_EXTREMA,
+    });
   }
 
   private makeNumericText(fontSize: number, color: number): Text {
@@ -235,14 +261,21 @@ export class SaddleExtremaReadout {
    * ≈30 Hz via READOUT_SYNC_INTERVAL_MS, with per-slot caching so unchanged
    * strings don't re-trigger troika's `.sync()`.
    *
-   * On first call, uncloaks `group.visible = true` — the readout
-   * boots hidden so empty-string frames never paint.
+   * Cloak normalization (#252 §3.6): `group.visible = true` flips AFTER
+   * the first .sync()-resolving write — the throttle gate is bypassed
+   * on the bootstrap call so the first call always paints. Same shape
+   * as EquationReadout / TangentPlaneReadout.
    */
   setValues(hessian: Hessian): void {
-    if (!this.group.visible) this.group.visible = true;
-
     const now = performance.now();
-    if (now - this.lastSyncMs < READOUT_SYNC_INTERVAL_MS) return;
+    // First call bypasses the throttle so the readout uncloaks with
+    // real text on frame 1.
+    if (
+      this.hasBootstrapped &&
+      now - this.lastSyncMs < READOUT_SYNC_INTERVAL_MS
+    ) {
+      return;
+    }
     this.lastSyncMs = now;
 
     const s: SaddleExtremaReadoutStrings = formatSaddleExtremaReadout(hessian);
@@ -267,23 +300,23 @@ export class SaddleExtremaReadout {
       this.verdictText.text = s.verdict;
       this.verdictText.sync();
     }
+
+    // First-call uncloak — after all .sync() writes above. Flipping
+    // `group.visible = true` here paints the first real frame with
+    // both panel + populated text together, not panel + empty text.
+    if (!this.hasBootstrapped) {
+      this.group.visible = true;
+      this.hasBootstrapped = true;
+    }
   }
 
-  // Yaw-only billboard. World-up stays world-up; head pitch/roll don't
-  // tilt the readout. Mirrors GradientLevelsReadout / TangentPlaneReadout
-  // / Label.
-  faceCamera(camera: THREE.Camera): void {
-    camera.getWorldPosition(this.camWorld);
-    this.group.getWorldPosition(this.groupWorld);
-    const dx = this.camWorld.x - this.groupWorld.x;
-    const dz = this.camWorld.z - this.groupWorld.z;
-    this.group.rotation.set(0, Math.atan2(dx, dz), 0);
-  }
+  // Yaw-only billboard inherited from PanelReadout base (#252).
 
   dispose(): void {
     for (const t of this.entryNumerics) t.dispose();
     this.dNumeric.dispose();
     this.verdictText.dispose();
     for (const t of this.separators) t.dispose();
+    this.disposePanel();
   }
 }

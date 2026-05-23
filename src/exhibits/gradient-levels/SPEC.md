@@ -478,3 +478,32 @@ slot-Y axis above the rack.
 `scaffold/ui/clusterRackTokens.ts`. The pre-plinth mid-air `2.75`
 constant was deleted at PR2 (#251) once all four cluster scenes
 ported onto the plinth.
+
+## Plinth panel-backing (#252)
+
+`GradientLevelsReadout` extends the shared `PanelReadout` base
+(`scaffold/ui/PanelReadout.ts`) which contributes the cluster-shared
+THREE.Group + boot-cloak + per-frame yaw `faceCamera` + dark
+`MeshBasicMaterial` back-plate quad.
+
+Per parent plan #225 §3.5 v3 lock (option-c), the back-plate is a
+child of the readout's group, inheriting the yaw-billboard
+transitively — panel + text face the user together.
+
+**Panel dimensions:** `READOUT_PANEL_HALF_WIDTH_GRADIENT_LEVELS =
+0.200 m`, `READOUT_PANEL_HALF_HEIGHT_GRADIENT_LEVELS = 0.055 m`.
+Computed from worst-case top line `PREFIX_GRAD_EM (2.8) + 3 ×
+NUMERIC_SIGNED_EM (2.6) + 2 × COMMA_EM (1.0) + CLOSE_PAREN_EM (1.0)
+= 13.6 em × 0.028 = 0.381 m`, half + 0.012 m padding = 0.202 → 0.200.
+Envelope test in `test/scaffold/ui/PanelReadout.test.ts` locks
+against formatter drift. Bracket [0.195, 0.220]; smoke-tunable.
+
+**Cloak normalization (#252 §3.6).** GradientLevelsReadout's
+`setValues()` was restructured at PR3 to match the
+Equation/TangentPlane pattern — added a `hasBootstrapped: boolean`
+field, replaced the pre-throttle `if (!this.group.visible)
+this.group.visible = true;` with a post-`.sync()` block guarded by
+`hasBootstrapped`, and gated the throttle return with
+`this.hasBootstrapped && ...` so the first call always paints.
+Without this, the dark back-plate would render BEFORE the numeric
+Text geometries resolve on first uncloak.

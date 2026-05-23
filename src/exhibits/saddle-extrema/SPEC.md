@@ -820,3 +820,35 @@ presets) use `GRAB_RADIUS_MULTIPLIER_PLINTH = 1.5` from
 `scaffold/ui/clusterRackTokens.ts`. The pre-plinth mid-air `2.75`
 constant was deleted at PR2 (#251) once all four cluster scenes
 ported onto the plinth.
+
+## Plinth panel-backing (#252)
+
+`SaddleExtremaReadout` extends the shared `PanelReadout` base
+(`scaffold/ui/PanelReadout.ts`) which contributes the cluster-shared
+THREE.Group + boot-cloak + per-frame yaw `faceCamera` + dark
+`MeshBasicMaterial` back-plate quad.
+
+Per parent plan #225 §3.5 v3 lock (option-c), the back-plate is a
+child of the readout's group, inheriting the yaw-billboard
+transitively — panel + text face the user together.
+
+**Panel dimensions:** `READOUT_PANEL_HALF_WIDTH_SADDLE_EXTREMA =
+0.325 m`, `READOUT_PANEL_HALF_HEIGHT_SADDLE_EXTREMA = 0.090 m`.
+Computed from worst-case top line `3 × PREFIX_ENTRY_EM (3.5) + 3 ×
+NUMERIC_ENTRY_EM (3.2) + 2 × TOP_ENTRY_GAP_EM (1.2) = 22.5 em ×
+0.028 = 0.630 m`, half + 0.012 m padding = 0.327 → 0.325. Three-line
+layout (`topY = +LINE_PITCH`, `midY = 0`, `bottomY = -LINE_PITCH`)
+drives the 0.090 m half-height; vertical span 0.12 m + glyph +
+padding. The verdict ('inconclusive' worst case, anchorX:'center',
+not em-slot-allocated) is comfortably narrower than the top line.
+Envelope test in `test/scaffold/ui/PanelReadout.test.ts` locks
+against formatter drift. Bracket [0.320, 0.345]; smoke-tunable.
+
+**Cloak normalization (#252 §3.6).** SaddleExtremaReadout's
+`setValues()` was restructured at PR3 to match the
+Equation/TangentPlane pattern — added a `hasBootstrapped: boolean`
+field, replaced the pre-throttle uncloak with a post-`.sync()` block
+guarded by `hasBootstrapped`, and gated the throttle return with
+`this.hasBootstrapped && ...` so the first call always paints.
+Without this, the dark back-plate would render BEFORE the numeric
+Text geometries resolve on first uncloak.

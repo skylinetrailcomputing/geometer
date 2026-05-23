@@ -371,3 +371,27 @@ foreshortening with the surface tilt.
 `scaffold/ui/clusterRackTokens.ts`, the cluster-uniform plinth-mounted
 value. The pre-plinth mid-air `2.75` constant was deleted at PR2
 (#251) once all four cluster scenes ported onto the plinth.
+
+## Plinth panel-backing (#252)
+
+`TangentPlaneReadout` extends the shared `PanelReadout` base
+(`scaffold/ui/PanelReadout.ts`) which contributes the cluster-shared
+THREE.Group + boot-cloak + per-frame yaw `faceCamera` + dark
+`MeshBasicMaterial` back-plate quad.
+
+Per parent plan #225 §3.5 v3 lock (option-c), the back-plate is a
+child of the readout's group, inheriting the yaw-billboard
+transitively — panel + text face the user together.
+
+**Panel dimensions:** `READOUT_PANEL_HALF_WIDTH_TANGENT_PLANE = 0.380
+m`, `READOUT_PANEL_HALF_HEIGHT_TANGENT_PLANE = 0.055 m`. Computed
+from worst-case top line `6 × NUMERIC_SLOT_EM (2.6) + 3 × OPEN_PAREN_EM
+(1.8) + 2 × CLOSE_PAREN_OP_EM (1.6) + CLOSE_PAREN_EQ_EM (1.9) = 26.1
+em × 0.028 = 0.731 m`, half + 0.012 m padding = 0.378 → 0.380.
+Envelope test in `test/scaffold/ui/PanelReadout.test.ts` locks
+against formatter drift. Bracket [0.375, 0.395]; smoke-tunable.
+
+**Cloak normalization.** TangentPlaneReadout was already at the
+target pattern pre-#252 — `hasBootstrapped` field + throttle-bypass
+on first call + post-sync `group.visible = true`. No setValues
+changes in this scene.
