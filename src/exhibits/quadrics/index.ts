@@ -107,10 +107,24 @@ const PLINTH_SLIDER_ROW_PITCH = 0.14;
 // 0.14 the top slider 'a' sits at 0.485 and the bottom 'd' at 0.065.
 const PLINTH_SLIDER_TOP_Y = 0.485;
 
-// 3 section tabs + 1 heading stacked at slot-X = −0.42 (just inside
-// the left edge of the 0.9 m surface). Pitch compressed from the
+// 3 section tabs + 1 heading stacked at slot-X = −0.37 (was −0.42 in
+// #255 PR1 v1; PR1 headset-smoke nudged the column 0.05 m in +slot-X
+// so the rack reads as INTERIOR to the working surface rather than
+// hugging the left edge of the 0.9 m slab). Pitch compressed from the
 // pre-plinth 0.23 m to 0.13 m so the full 4-element stack fits the
 // surface depth.
+//
+// Horizontal placement (#255 PR1 v2):
+//   • Button centers at slot-X = -0.37; sphere extent ~[-0.392, -0.348]
+//     (buttonRadius 0.022). Slab left edge at -0.45, so the sphere
+//     clears the slab edge by ~58 mm.
+//   • Slider rack is centered on slot-X = 0; the closest leftward
+//     slider geometry stays clear of slot-X ≈ -0.3 in practice, so
+//     the section-tab column at -0.37 keeps a comfortable 30+ mm
+//     horizontal gap from the slider rack.
+//   • Bracket: if labels still feel too edge-y → -0.34 or -0.32; if
+//     the rack starts crowding the slider track → step back toward
+//     -0.40. One dial per round.
 //
 // Vertical anchoring (#255 PR1). SectionTab labels sit ABOVE their
 // buttons (labelOffsetY = +0.04, labelAnchorY = 'bottom'; see
@@ -130,7 +144,7 @@ const PLINTH_SLIDER_TOP_Y = 0.485;
 // Heading label top = 0.518 (32 mm clear of back edge); bottom-tab
 // sphere bottom = 0.029 (29 mm clear of front edge).
 //
-// Brackets (binary-search-visual-constants; one dial per round):
+// Vertical brackets (binary-search-visual-constants; one dial per round):
 //   • If heading label visually grazes back edge → HEADING_Y → 0.42
 //     (clearance 52 mm), bottom recomputes to 0.03 (clearance 9 mm).
 //   • If bottom tab visually too close to front edge → tighten
@@ -138,7 +152,7 @@ const PLINTH_SLIDER_TOP_Y = 0.485;
 //     becomes 0.08 (clearance 60 mm).
 //   • Documented invariants: HEADING_Y + 0.078 ≤ 0.55 − 0.01;
 //     BOTTOM_Y (= HEADING_Y − 3 × PITCH) − 0.0207 ≥ 0.01.
-const PLINTH_SECTION_TAB_X = -0.42;
+const PLINTH_SECTION_TAB_X = -0.37;
 const PLINTH_SECTION_TAB_PITCH = 0.13;
 const PLINTH_SECTION_TAB_HEADING_Y = 0.44;
 const PLINTH_SECTION_TAB_TOP_Y = 0.31;
