@@ -45,6 +45,38 @@ export interface TapButtonVisuals {
   // below; 'bottom' anchor + positive offset places it above.
   labelOffsetY: number;
   labelAnchorY: 'top' | 'bottom';
+  // Label-rendering policy (#255 PR2). Default `'face-camera'` —
+  // `faceCamera` yaw-billboards the label every frame so text stays
+  // facing the user; matches the §225 §3.3 billboarded-primitive
+  // carve-out and is desired for mid-air mounts (Preset, SceneTab)
+  // where the button group has no surface tilt or is in mid-air
+  // above any tilted slab.
+  //
+  // `'surface'` — used by primitives mounted on a tilted plinth
+  // working surface (today: SectionTab). When the button's parent
+  // group is rotated by the plinth slot transform to align with
+  // the surface (`R_x(-tilt)`), yaw-billboarding the label rotates
+  // it about an already-tilted local-Y axis. The result is a
+  // compound rotation: label inherits the surface tilt AND yaws
+  // about the tilted axis, producing a plane that diverges from
+  // both the slab plane and the user-facing plane — text visibly
+  // clips into the slab volume from typical viewing angles.
+  //
+  // `'surface'` resolves this by leaving the label in the button's
+  // local frame (identity rotation). The label co-tilts with the
+  // slab through the parent group's transform; no plane divergence.
+  // Worst-case viewer-relative foreshortening at the plinth's
+  // ~20° tilt is ~8% across plausible head poses (per
+  // `_private/plans/255-section-tab-anchoring-labels.md` §3.2) —
+  // accepted as a legibility cost well below the
+  // "facing-but-clipping" alternative.
+  //
+  // The ctor explicitly sets `label.rotation = (0, 0, 0)` when this
+  // is `'surface'`, so the surface-aligned orientation is established
+  // at construction (not implicitly via skipped `faceCamera` writes).
+  // `faceCamera` early-returns on `'surface'` so per-frame ticks
+  // are cheap and don't drift the label off identity.
+  labelOrientation?: 'face-camera' | 'surface';
 }
 
 export interface TapButtonOptions {
@@ -69,6 +101,22 @@ const LABEL_COLOR = 0xffffff;
 const LABEL_OUTLINE_WIDTH = '8%';
 const LABEL_OUTLINE_COLOR = 0x000000;
 
+// Standoff (in label-local +Z, meters) applied to surface-oriented
+// labels (#255 PR2 smoke follow-up). Without this, the text quad sits
+// at z = 0 in button-local — and because the button group is rotated
+// by the plinth slot's `R_x(-tilt)`, that's coplanar with the slab
+// top face in slot-local Z. A static camera renders cleanly, but
+// per-pixel depth-buffer comparisons flip under camera rotation and
+// produce a z-fight aliasing / shimmer that reads as the label
+// "clipping into the plinth." Lifting 1 mm in button-local +Z
+// (= surface-normal direction in plinth-local after the parent
+// rotation) sits the label JUST in front of the slab and resolves the
+// z-fight. 1 mm is well below the pixel size of a Quest 3S panel at
+// arm's-length viewing distance (~0.7 m), so the gap is not visible.
+// Bracket [0.0005, 0.003] if further tuning is needed (one dial per
+// round, per `feedback_binary_search_visual_constants`).
+const SURFACE_LABEL_STANDOFF_M = 0.001;
+
 export class TapButton {
   readonly group: THREE.Group;
   readonly name: string;
@@ -78,6 +126,7 @@ export class TapButton {
   private readonly hoverEmissive: number;
   private readonly pressEmissive: number;
   private readonly activeEmissive: number | undefined;
+  private readonly labelOrientation: 'face-camera' | 'surface';
 
   private readonly button: THREE.Mesh;
   private readonly label: Text;
@@ -99,6 +148,7 @@ export class TapButton {
     this.hoverEmissive = opts.visuals.hoverEmissive;
     this.pressEmissive = opts.visuals.pressEmissive;
     this.activeEmissive = opts.visuals.activeEmissive;
+    this.labelOrientation = opts.visuals.labelOrientation ?? 'face-camera';
 
     this.group = new THREE.Group();
     this.group.name = `${opts.visuals.groupNamePrefix}:${opts.name}`;
@@ -118,6 +168,23 @@ export class TapButton {
     this.label.outlineWidth = LABEL_OUTLINE_WIDTH;
     this.label.outlineColor = LABEL_OUTLINE_COLOR;
     this.label.position.set(0, opts.visuals.labelOffsetY, 0);
+    // Establish surface-aligned orientation at construction (not
+    // implicitly via skipped `faceCamera` writes). troika's `Text` ctor
+    // defaults rotation to identity, but writing it explicitly closes
+    // the convergent C1 + C2 finding window from the #255 roundtable:
+    // tests can verify identity directly (via the non-identity StubText
+    // default in TapButton.test.ts), and a future runtime switch from
+    // 'face-camera' to 'surface' won't strand the label at a stale
+    // yaw-billboard rotation.
+    //
+    // Also lift the label off the slab by SURFACE_LABEL_STANDOFF_M in
+    // label-local +Z (#255 PR2 smoke follow-up). The label is coplanar
+    // with the slab top face without this lift — see the constant's
+    // doc comment for the z-fight rationale.
+    if (this.labelOrientation === 'surface') {
+      this.label.rotation.set(0, 0, 0);
+      this.label.position.z = SURFACE_LABEL_STANDOFF_M;
+    }
     this.label.sync();
     this.group.add(this.label);
   }
@@ -186,7 +253,14 @@ export class TapButton {
 
   // Yaw-only billboard for the text label, matching the family / per-
   // slider labels — head pitch and roll stay out (#29).
+  //
+  // Early-return on `labelOrientation === 'surface'` (#255 PR2): the
+  // label was identity-set at construction and is meant to inherit the
+  // parent group's surface tilt unmodified. Per-frame ticks stay
+  // symmetric — consumers dispatch `faceCamera` on every TapButton
+  // regardless of orientation; the branch just becomes a cheap no-op.
   faceCamera(camera: THREE.Camera): void {
+    if (this.labelOrientation === 'surface') return;
     camera.getWorldPosition(this.camWorld);
     this.label.getWorldPosition(this.labelWorld);
     const dx = this.camWorld.x - this.labelWorld.x;

@@ -492,6 +492,26 @@ Pre-PR1 (`main`): HEADING_Y was at 0.55 (flush with the back edge),
 so the heading button's upper hemisphere read as floating in air
 behind the surface and the rack as a whole bunched against the back.
 
+**SectionTab label rendering on the tilted surface (#255 PR2).**
+SectionTab + canonical-forms heading sit ON the slab (not in mid-air
+above it like the readouts), so the readout-billboard carve-out
+above doesn't fit — yaw-billboarding their text labels would produce
+a compound rotation (label inherits surface tilt from parent group,
+AND yaws about that tilted local-Y axis) that clips text into the
+slab volume. The fix: `SectionTab.ts` opts its module-level VISUALS
+into `labelOrientation: 'surface'` (a new `TapButtonVisuals` field
+added in PR2). `TapButton` reads this at ctor time, identity-sets
+`label.rotation`, and short-circuits the yaw-billboard write in
+`faceCamera`. Labels co-tilt with the slab through the parent
+group's transform — no plane divergence, no clipping. Worst-case
+viewer-relative foreshortening across plausible head poses is ~8%
+(per the §3.2 pose matrix in
+`_private/plans/255-section-tab-anchoring-labels.md`), well below
+the legibility floor at the existing 0.035 m font + 8% troika
+outline. Preset / SceneTab keep the default `'face-camera'` — they
+mount in mid-air above the slab where yaw-billboard is desired
+(audited as part of PR2's subclass option-forwarding sweep).
+
 **Grab radius retune.** `GRAB_RADIUS_MULTIPLIER_PLINTH = 1.5`
 (`scaffold/ui/clusterRackTokens.ts`) replaces the mid-air `2.75` for
 every interactive primitive on the plinth — sliders / presets /

@@ -24,6 +24,20 @@ export interface SectionTabOptions {
 // Label sits above the button (anchor 'bottom' + positive offset) rather
 // than to the right (Preset's layout): the tab row is horizontal, so
 // right-of-button labels would collide with the next tab's button.
+//
+// `labelOrientation: 'surface'` (#255 PR2). SectionTab is exclusively
+// plinth-mounted in geometer today (quadrics' canonical-forms heading
+// + 3 SectionTabs at slot-X = -0.42). The button group inherits the
+// plinth slot's `R_x(-tilt)` surface tilt, so the default yaw-billboard
+// label rotation would diverge from the slab plane and visibly clip
+// into the slab volume (see TapButton.ts `labelOrientation` doc + plan
+// `_private/plans/255-section-tab-anchoring-labels.md`). `'surface'`
+// leaves the label in the button's local frame (identity), co-tilting
+// with the slab through the parent group's transform — no clipping,
+// ~8% worst-case foreshortening accepted as legibility-acceptable.
+// Bake the choice into VISUALS rather than threading per-instance: the
+// surface-mounted-tap-affordance identity is what SectionTab IS today;
+// a future mid-air SectionTab consumer would override at that point.
 const VISUALS: TapButtonVisuals = {
   groupNamePrefix: 'tab',
   buttonRadius: 0.022,
@@ -34,6 +48,7 @@ const VISUALS: TapButtonVisuals = {
   labelFontSize: 0.035,
   labelOffsetY: 0.04,
   labelAnchorY: 'bottom',
+  labelOrientation: 'surface',
 };
 
 export class SectionTab extends TapButton {
