@@ -107,24 +107,36 @@ const PLINTH_SLIDER_ROW_PITCH = 0.14;
 // 0.14 the top slider 'a' sits at 0.485 and the bottom 'd' at 0.065.
 const PLINTH_SLIDER_TOP_Y = 0.485;
 
-// 3 section tabs + 1 heading stacked at slot-X = −0.37 (was −0.42 in
-// #255 PR1 v1; PR1 headset-smoke nudged the column 0.05 m in +slot-X
-// so the rack reads as INTERIOR to the working surface rather than
-// hugging the left edge of the 0.9 m slab). Pitch compressed from the
-// pre-plinth 0.23 m to 0.13 m so the full 4-element stack fits the
-// surface depth.
+// 3 section tabs + 1 heading stacked at slot-X = −0.32 (was −0.37 in
+// #255 PR1 v2 / −0.42 in v1). Two rounds of PR1 headset-smoke nudges
+// in +slot-X so the rack reads as INTERIOR to the working surface
+// rather than hugging the −math-X edge of the 0.9 m slab. Pitch
+// compressed from the pre-plinth 0.23 m to 0.13 m so the full
+// 4-element stack fits the surface depth.
 //
-// Horizontal placement (#255 PR1 v2):
-//   • Button centers at slot-X = -0.37; sphere extent ~[-0.392, -0.348]
+// Horizontal placement (#255 PR1 v3):
+//   • Button centers at slot-X = -0.32; sphere extent ~[-0.342, -0.298]
 //     (buttonRadius 0.022). Slab left edge at -0.45, so the sphere
-//     clears the slab edge by ~58 mm.
-//   • Slider rack is centered on slot-X = 0; the closest leftward
-//     slider geometry stays clear of slot-X ≈ -0.3 in practice, so
-//     the section-tab column at -0.37 keeps a comfortable 30+ mm
-//     horizontal gap from the slider rack.
-//   • Bracket: if labels still feel too edge-y → -0.34 or -0.32; if
-//     the rack starts crowding the slider track → step back toward
-//     -0.40. One dial per round.
+//     clears the slab edge by ~108 mm.
+//   • Slider rack track length is 0.3 m centered on slot-X = 0
+//     (`Slider.ts:61` `DEFAULT_TRACK_LENGTH`), so the leftmost slider
+//     geometry sits at slot-X ≈ -0.15. The section-tab column at
+//     -0.32 keeps a comfortable 148 mm sphere-to-slider gap.
+//   • LABEL extent is the binding constraint, not the sphere extent.
+//     SectionTab labels use anchorX 'center' at fontSize 0.035 m;
+//     the longest label is the canonical-forms heading at "Canonical
+//     forms ▸" / "Canonical forms ▾" (17 chars including the
+//     chevron). At column = -0.32 the heading label's left edge
+//     should land near the slab edge (~5–20 mm clearance depending
+//     on troika's actual char metrics for the chevron glyph), and
+//     its right edge ~30–50 mm clear of the slider rack.
+//   • Bracket: if the heading's chevron still hangs off the slab
+//     left in smoke, the next dial is the HEADING TEXT (shorten to
+//     "Canonical ▾" — 11 chars — at lines 310–311), NOT the column
+//     X. Moving the column further inward (-0.30 / -0.28) would
+//     push the heading's right edge onto / into the slider rack.
+//     If the slider rack feels crowded → step back to -0.34. One
+//     dial per round.
 //
 // Vertical anchoring (#255 PR1). SectionTab labels sit ABOVE their
 // buttons (labelOffsetY = +0.04, labelAnchorY = 'bottom'; see
@@ -152,7 +164,7 @@ const PLINTH_SLIDER_TOP_Y = 0.485;
 //     becomes 0.08 (clearance 60 mm).
 //   • Documented invariants: HEADING_Y + 0.078 ≤ 0.55 − 0.01;
 //     BOTTOM_Y (= HEADING_Y − 3 × PITCH) − 0.0207 ≥ 0.01.
-const PLINTH_SECTION_TAB_X = -0.37;
+const PLINTH_SECTION_TAB_X = -0.32;
 const PLINTH_SECTION_TAB_PITCH = 0.13;
 const PLINTH_SECTION_TAB_HEADING_Y = 0.44;
 const PLINTH_SECTION_TAB_TOP_Y = 0.31;
