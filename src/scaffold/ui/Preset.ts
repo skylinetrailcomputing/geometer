@@ -64,6 +64,13 @@ export interface PresetOptions {
 // air between "H 2-sheets" and its neighbors. Label sits below the
 // button (anchor 'top' + negative offset) so it falls toward the family
 // classifier rather than crowding the section tabs above.
+//
+// `labelOrientation` defaults to `'face-camera'` (#255 PR2): Preset
+// rows sit ABOVE the plinth back edge in mid-air (e.g. quadrics
+// PLINTH_PRESET_ROW_TOP_Y = 0.94, saddle-extrema PLINTH_PRESET_ROW_Y
+// = 0.55). No slab to clip into; yaw-billboard keeps labels facing
+// the user across pancake + headset distances. Audited per #255
+// PR2's subclass option-forwarding audit (GPT #4 roundtable finding).
 const VISUALS: TapButtonVisuals = {
   groupNamePrefix: 'preset',
   buttonRadius: 0.02,

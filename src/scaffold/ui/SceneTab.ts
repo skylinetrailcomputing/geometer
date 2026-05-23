@@ -29,6 +29,14 @@ export interface SceneTabOptions {
 // SectionTab's (anchor 'bottom' + positive offset) — the SceneRack lays
 // out horizontally, so right-of-button labels would collide with the
 // next tab's button.
+//
+// `labelOrientation` defaults to `'face-camera'` (#255 PR2): the
+// SceneRack is shell-owned and floats in mid-air at world-Y 1.73
+// (`SceneRack.ts` `SCENE_RACK_Y`), above any plinth's tilted slab.
+// No surface tilt is applied to the SceneTab group via a slot
+// transform; the default yaw-billboard is the right behavior across
+// pancake + headset viewing distances. Audited per #255 PR2's
+// subclass option-forwarding audit (GPT #4 roundtable finding).
 const VISUALS: TapButtonVisuals = {
   groupNamePrefix: 'scene-tab',
   buttonRadius: 0.028,

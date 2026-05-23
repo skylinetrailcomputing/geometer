@@ -60,6 +60,23 @@ import * as THREE from 'three';
 // but the text on it stays facing you," which is desired behavior
 // for legibility, not a compromise.
 //
+// Surface-tilted tap-affordance opt-out (#255 PR2). TapButton-based
+// primitives (Preset / SectionTab / SceneTab) also use `faceCamera`
+// to yaw-billboard their text label, but the body's mesh itself is
+// NOT billboarded — it inherits the slot rotation cleanly. When
+// such a button is mounted on the tilted working surface (today:
+// SectionTab specifically, via its module-level VISUALS const), the
+// label's yaw-billboard combines with the parent's surface tilt to
+// produce a compound rotation that diverges from BOTH the slab
+// plane and the user-facing plane — text visibly clips into the
+// slab volume. TapButtonVisuals' `labelOrientation: 'surface'` opts
+// the label OUT of the yaw-billboard (early-returns from
+// `faceCamera`) so the label stays at identity in the button's
+// local frame and co-tilts with the slab cleanly. See
+// `_private/plans/255-section-tab-anchoring-labels.md` for the
+// design and the viewer-relative legibility analysis (~8% worst-
+// case foreshortening at the plinth's ~20° tilt — accepted).
+//
 // Ownership (matches StageFloor / StageRailing / StageInnerRailing /
 // ContrastPit — exhibit-owned, per the cluster's established staging
 // convention). Allocated in `mount`, disposed in `unmount`. The shell
@@ -143,6 +160,14 @@ const PLINTH_SLAB_THICKNESS = 0.025;
  * `orientation` is documentation-only — they yaw-billboard
  * regardless of the slot rotation contract. See file-top
  * "Billboarded-primitive carve-out" comment.
+ *
+ * Note: TapButton-based primitives (Preset / SectionTab / SceneTab)
+ * inherit the slot rotation on their button bodies cleanly, but
+ * their text labels yaw-billboard via `faceCamera`. Their
+ * `TapButtonVisuals.labelOrientation: 'surface'` opts the LABEL
+ * (not the body) out of yaw-billboard for surface-mounted mounts
+ * where the compound rotation would clip text into the slab. See
+ * file-top "Surface-tilted tap-affordance opt-out" comment.
  */
 export type SlotOrientation = 'surface' | 'world' | 'custom';
 
