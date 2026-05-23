@@ -51,4 +51,12 @@ describe('TangentPlaneReadout visibility-bootstrap', () => {
     readout.setValues(point, normal);
     expect(readout.group.visible).toBe(true);
   });
+
+  it('mounts the plinth back-plate as a child of group (#252)', () => {
+    const readout = makeReadout();
+    const meshChildren = readout.group.children.filter(
+      (c) => c.type === 'Mesh',
+    );
+    expect(meshChildren.length).toBe(1);
+  });
 });

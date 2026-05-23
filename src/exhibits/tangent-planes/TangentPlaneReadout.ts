@@ -1,6 +1,6 @@
-import * as THREE from 'three';
 import { Text } from 'troika-three-text';
 import type { MathVec3 } from '@/scaffold/math/frames';
+import { PanelReadout } from '@/scaffold/ui/PanelReadout';
 import {
   READOUT_FONT_SIZE,
   READOUT_LINE_PITCH,
@@ -76,9 +76,27 @@ const SEPARATOR_COLOR = 0xffffff;
 const AXIS_X = 0;
 const AXIS_Z = 2;
 
-export class TangentPlaneReadout {
-  readonly group: THREE.Group;
+// Plinth panel-backing dims (#252 / E1.4c). Computed from this readout's
+// own em constants × READOUT_FONT_SIZE per plan §3.3 methodology — see
+// the envelope-assertion test in PanelReadout.test.ts for the bound.
+//
+// Worst-case line: top — 6 numerics + 3 open-paren + 2 close-paren-op
+// + 1 close-paren-eq = 6 × 2.6 + 3 × 1.8 + 2 × 1.6 + 1.9
+//                    = 15.6 + 5.4 + 3.2 + 1.9 = 26.1 em
+//                    × 0.028 = 0.731 m
+// Half-width = 0.731 / 2 + 0.012 padding = 0.378 → rounded 0.380.
+//
+// Worst-case top-line string corpus:
+//   `-2.50 (x -2.50) + -2.50 (y -2.50) + -2.50 (z -2.50) = 0`
+//
+// First-pass smoke-tunable per feedback_staging_dimensions_first_pass.
+// Bracket [0.375, 0.395]; one dial per round.
+export const READOUT_PANEL_HALF_WIDTH_TANGENT_PLANE = 0.38;
 
+// 2-line layout, rows at ±LINE_PITCH/2 = ±0.03; glyph + padding → 0.055.
+export const READOUT_PANEL_HALF_HEIGHT_TANGENT_PLANE = 0.055;
+
+export class TangentPlaneReadout extends PanelReadout {
   private readonly fontSize: number;
 
   // Six top-line numerics in visual reading order:
@@ -103,25 +121,13 @@ export class TangentPlaneReadout {
 
   private lastSyncMs = 0;
   // Visibility-bootstrap guard (#201 PR 3). Boots `group.visible =
-  // false`; flips to `true` after the first `setValues` writes real
-  // text into the troika `Text` slots. Avoids a first-frame paint of
-  // empty strings between mount and the first update() tick.
+  // false` (set by PanelReadout base ctor); flips to `true` after the
+  // first `setValues` writes real text into the troika `Text` slots.
   private hasBootstrapped = false;
 
-  // Hoisted out of `faceCamera` so per-frame billboarding does no
-  // allocation. Same convention as `EquationReadout.ts:115-116`.
-  private readonly camWorld = new THREE.Vector3();
-  private readonly groupWorld = new THREE.Vector3();
-
   constructor(opts: TangentPlaneReadoutOptions) {
+    super('tangent-plane-readout');
     this.fontSize = opts.fontSize ?? READOUT_FONT_SIZE;
-
-    this.group = new THREE.Group();
-    this.group.name = 'tangent-plane-readout';
-    // Boot hidden — uncloaks on first setValues (#201 PR 3). Avoids
-    // a first-frame paint of empty troika `Text` slots between mount
-    // and the first update() tick.
-    this.group.visible = false;
 
     const numericW = NUMERIC_SLOT_EM * this.fontSize;
     const openParenW = OPEN_PAREN_EM * this.fontSize;
@@ -228,6 +234,14 @@ export class TangentPlaneReadout {
       this.separators.push(sep);
     }
     this.bottomNumerics = bottomNumerics;
+
+    // Plinth back-plate (#252 / E1.4c). See parent §3.5 v3 (option-c)
+    // billboarding lock — back-plate inherits the per-frame yaw from
+    // PanelReadout.faceCamera() transitively via group-child reparenting.
+    this.createPanel({
+      halfWidth: READOUT_PANEL_HALF_WIDTH_TANGENT_PLANE,
+      halfHeight: READOUT_PANEL_HALF_HEIGHT_TANGENT_PLANE,
+    });
   }
 
   private makeNumericText(fontSize: number, color: number): Text {
@@ -313,19 +327,12 @@ export class TangentPlaneReadout {
     }
   }
 
-  // Yaw-only billboard, matching EquationReadout (#29) and Label.
-  // World-up stays world-up; head pitch and roll don't tilt the readout.
-  faceCamera(camera: THREE.Camera): void {
-    camera.getWorldPosition(this.camWorld);
-    this.group.getWorldPosition(this.groupWorld);
-    const dx = this.camWorld.x - this.groupWorld.x;
-    const dz = this.camWorld.z - this.groupWorld.z;
-    this.group.rotation.set(0, Math.atan2(dx, dz), 0);
-  }
+  // Yaw-only billboard inherited from PanelReadout base (#252).
 
   dispose(): void {
     for (const t of this.topNumerics) t.dispose();
     for (const t of this.bottomNumerics) t.dispose();
     for (const t of this.separators) t.dispose();
+    this.disposePanel();
   }
 }

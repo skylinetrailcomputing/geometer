@@ -1,6 +1,6 @@
-import * as THREE from 'three';
 import { Text } from 'troika-three-text';
 import { formatSignedMagnitude } from '@/scaffold/ui/formatSignedMagnitude';
+import { PanelReadout } from '@/scaffold/ui/PanelReadout';
 import {
   READOUT_FONT_SIZE,
   READOUT_LINE_PITCH,
@@ -87,9 +87,31 @@ const BOTTOM_NON_D_SLOTS: readonly number[] = [SLOT_U, SLOT_V, SLOT_W];
 const TOP_SEPARATOR_POOL = 3;
 const BOTTOM_SEPARATOR_POOL = 3;
 
-export class EquationReadout {
-  readonly group: THREE.Group;
+// Plinth panel-backing dims (#252 / E1.4c). Computed from this readout's
+// own em constants × READOUT_FONT_SIZE per plan §3.3 methodology — see
+// the envelope-assertion test in PanelReadout.test.ts for the bound.
+//
+// Worst-case line: bottom, all-non-d slots visible — 4 numerics + 3
+// separators = 4 × NUMERIC_SLOT_EM(2.6) + 3 × SEPARATOR_SLOT_EM(2.4)
+//             = 10.4 + 7.2 = 17.6 em × 0.028 m/em = 0.493 m
+// Half-width = 0.493 / 2 + 0.012 padding = 0.258 → rounded 0.260.
+//
+// Worst-case strings (corpus this constant covers):
+//   bottom: `-2.50 u + -2.50 v + -2.50 w = -2.50`
+//   top:    `-2.50 x² + -2.50 y² + -2.50 z²` (narrower than bottom)
+//
+// First-pass smoke-tunable per feedback_staging_dimensions_first_pass.
+// Bracket [0.255, 0.280]; one dial per round (feedback_binary_search_
+// visual_constants). If smoke shows clipping → bump up; if too loose →
+// shrink; if a formatter changes worst-case width, the envelope test
+// fires.
+export const READOUT_PANEL_HALF_WIDTH_EQUATION = 0.26;
 
+// 2-line layout: rows at ±LINE_PITCH/2 = ±0.03; glyph half-height
+// ~0.014; padding 0.008. Total = 0.052 → rounded 0.055.
+export const READOUT_PANEL_HALF_HEIGHT_EQUATION = 0.055;
+
+export class EquationReadout extends PanelReadout {
   private readonly fontSize: number;
   private readonly numericTexts: readonly Text[];
   private readonly numericValues: number[] = new Array<number>(
@@ -104,26 +126,15 @@ export class EquationReadout {
   ).fill(true);
   private lastSyncMs = 0;
   // Visibility-bootstrap guard (#201 PR 3). The readout boots with
-  // `group.visible = false` so the first frame doesn't paint empty
-  // troika `Text` slots. The first `setValues` call writes real values
-  // and then flips `group.visible = true`; subsequent calls are no-op
-  // on visibility.
+  // `group.visible = false` (set by PanelReadout base ctor) so the
+  // first frame doesn't paint empty troika `Text` slots. The first
+  // `setValues` call writes real values and then flips
+  // `group.visible = true`; subsequent calls are no-op on visibility.
   private hasBootstrapped = false;
 
-  // Hoisted out of `faceCamera` so per-frame billboarding does no allocation.
-  private readonly camWorld = new THREE.Vector3();
-  private readonly groupWorld = new THREE.Vector3();
-
   constructor(opts: EquationReadoutOptions) {
+    super('equation-readout');
     this.fontSize = opts.fontSize ?? READOUT_FONT_SIZE;
-
-    this.group = new THREE.Group();
-    this.group.name = 'equation-readout';
-    // Boot hidden — uncloaks on first setValues (#201 PR 3). Avoids
-    // a first-frame paint of empty troika `Text` slots between mount
-    // and the first update() tick. Bypassed once `hasBootstrapped`
-    // flips on the first real value write.
-    this.group.visible = false;
 
     // Numerics — one per slot, color baked in. Position is assigned by
     // applyLayout(); kept at origin until the first layout pass.
@@ -157,6 +168,16 @@ export class EquationReadout {
     // setValues call will flip u/v/w to hidden (their initial value is 0)
     // and reflow once; that's a deliberately small cost paid at startup.
     this.applyLayout();
+
+    // Plinth back-plate (#252 / E1.4c). Per parent §3.5 v3 lock
+    // (option-c), the panel mesh is a child of `group` and inherits
+    // the per-frame yaw-billboard from PanelReadout.faceCamera()
+    // transitively. Sized to the readout's widest-line worst case +
+    // padding; see READOUT_PANEL_HALF_WIDTH_EQUATION above.
+    this.createPanel({
+      halfWidth: READOUT_PANEL_HALF_WIDTH_EQUATION,
+      halfHeight: READOUT_PANEL_HALF_HEIGHT_EQUATION,
+    });
   }
 
   private makeNumericText(fontSize: number, color: number): Text {
@@ -368,20 +389,12 @@ export class EquationReadout {
     }
   }
 
-  // Yaw-only billboard, matching the family-classifier label behavior
-  // (#29). The whole equation reads from one consistent direction — head
-  // pitch and roll stay out.
-  faceCamera(camera: THREE.Camera): void {
-    camera.getWorldPosition(this.camWorld);
-    this.group.getWorldPosition(this.groupWorld);
-    const dx = this.camWorld.x - this.groupWorld.x;
-    const dz = this.camWorld.z - this.groupWorld.z;
-    this.group.rotation.set(0, Math.atan2(dx, dz), 0);
-  }
+  // Yaw-only billboard inherited from PanelReadout base (#252).
 
   dispose(): void {
     for (const t of this.numericTexts) t.dispose();
     for (const t of this.topSeparators) t.dispose();
     for (const t of this.bottomSeparators) t.dispose();
+    this.disposePanel();
   }
 }

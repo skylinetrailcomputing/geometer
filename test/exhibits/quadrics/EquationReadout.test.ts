@@ -68,4 +68,22 @@ describe('EquationReadout visibility-bootstrap', () => {
     readout.setValues(2, 0, 0, 0, 0, 0, 0);
     expect(readout.group.visible).toBe(true);
   });
+
+  it('mounts the plinth back-plate as a child of group (#252)', () => {
+    const readout = new EquationReadout({
+      coefficientColors: [
+        0xd55e00, 0x009e73, 0x56b4e9, 0xd55e00, 0x009e73, 0x56b4e9,
+        0xf0e442,
+      ],
+    });
+    // Per #252 plan §3.5 v3 (option-c), the back-plate is a direct
+    // child of `group` so it inherits the per-frame yaw-billboard
+    // transitively. Asserting via a single THREE.Mesh child is the
+    // minimal observable surface (text Texts are stubbed to Object3D
+    // by the test mock; the panel is the only real THREE.Mesh).
+    const meshChildren = readout.group.children.filter(
+      (c) => c.type === 'Mesh',
+    );
+    expect(meshChildren.length).toBe(1);
+  });
 });

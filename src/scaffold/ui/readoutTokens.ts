@@ -28,3 +28,13 @@ export const READOUT_OUTLINE_COLOR = 0x000000;
 // during fast drags. ≈30 Hz is the cap shared by every readout (#38
 // rationale, originally calibrated on Slider's per-slider label cap).
 export const READOUT_SYNC_INTERVAL_MS = 33;
+
+// Back-plate base color for plinth-mounted readouts (#252 / E1.4c).
+// Near-black with a slight cool bias — reads as an LCD-off panel
+// against the dark warm-purple plinth surface (PLINTH_BASE_COLOR_RGB),
+// not as a hole. Calibrated against axis-tinted troika text (vermillion
+// / bluish-green / sky-blue / yellow). First-pass smoke-tunable per
+// feedback_staging_dimensions_first_pass; bracket [0.05, 0.12] each
+// component. Immutable tuple per feedback_threejs_token_exports_
+// immutable — produce a fresh THREE.Color in each consumer.
+export const READOUT_PANEL_COLOR_RGB = [0.08, 0.08, 0.1] as const;

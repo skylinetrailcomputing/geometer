@@ -539,3 +539,32 @@ under their own plinth. The pre-plinth `GRAB_RADIUS_MULTIPLIER = 2.75`
 export was deleted from `scaffold/ui/clusterRackTokens.ts` at the
 same PR; the static-grep regression test in `test/exhibits/`
 enforces zero references in `.ts` files repo-wide.
+
+## Plinth panel-backing (#252)
+
+`EquationReadout` extends the shared `PanelReadout` base
+(`scaffold/ui/PanelReadout.ts`) which contributes (1) the THREE.Group
+construction + boot-cloak, (2) the per-frame yaw-only `faceCamera`
+billboard (formerly duplicated identical-by-copy across the four
+cluster readouts), and (3) a dark `MeshBasicMaterial` back-plate quad
+sized to the readout's worst-case content + padding.
+
+Per parent plan #225 §3.5 v3 lock (option-c), the back-plate sits as
+a child of the readout's group, so it inherits the yaw-billboard
+rotation transitively — panel + text yaw-billboard together as a
+single facing-the-user panel. PR3 does NOT counter-rotate the panel
+to surface-tilt with the plinth slab; that path is reserved as a
+smoke-escape follow-up if the option-c read disagrees in headset.
+
+**Panel dimensions:** `READOUT_PANEL_HALF_WIDTH_EQUATION = 0.260 m`,
+`READOUT_PANEL_HALF_HEIGHT_EQUATION = 0.055 m`. Computed from the
+existing em-width constants — worst-case bottom line `4 × NUMERIC_SLOT_EM
+(2.6) + 3 × SEPARATOR_SLOT_EM (2.4) = 17.6 em × 0.028 m = 0.493 m`,
+half + 0.012 m padding = 0.258 → rounded 0.260. The envelope assertion
+in `test/scaffold/ui/PanelReadout.test.ts` locks the math against
+future formatter drift. Bracket [0.255, 0.280]; smoke-tunable.
+
+**Cloak normalization.** EquationReadout was already at the
+target pattern pre-#252 — `hasBootstrapped` field + throttle-bypass
+on first call + post-sync `group.visible = true`. No setValues
+changes in this scene.
