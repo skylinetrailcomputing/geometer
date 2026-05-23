@@ -467,6 +467,31 @@ still binds them to the plinth's slot-Y axis above the rack; the
 yaw-billboarding keeps text legible across pancake and headset
 viewing distances rather than foreshortening with the surface tilt.
 
+**Section-tab + canonical-forms-heading anchoring (#255 PR1).** The
+4-element vertical rack at the left of the plinth (canonical-forms
+heading + 3 SectionTabs) is centered on the working-surface
+mid-Y = 0.275. Constants in `index.ts`:
+
+- `PLINTH_SECTION_TAB_HEADING_Y = 0.44`
+- `PLINTH_SECTION_TAB_TOP_Y = 0.31`
+- `PLINTH_SECTION_TAB_PITCH = 0.13` (unchanged)
+
+Tabs land at slot-Y `0.31 / 0.18 / 0.05`. The geometry honors the
+fact that SectionTab labels sit ABOVE their button bodies (per
+`SectionTab.ts:34–36`: `labelOffsetY = +0.04`, `labelAnchorY =
+'bottom'`, `labelFontSize = 0.035`), so the tight edges are the
+**heading label vs slab back edge** (top of rack) and the **bottom
+tab sphere vs slab front edge** (bottom of rack). With these
+constants: heading label top at slot-Y `0.518` (32 mm clear of back
+edge); bottom-tab sphere bottom at slot-Y `0.029` (29 mm clear of
+front edge); rack envelope `[0.029, 0.518]` centered on `0.275`. See
+the bracket + next-step doc comment on the constants for the
+binary-search bracket.
+
+Pre-PR1 (`main`): HEADING_Y was at 0.55 (flush with the back edge),
+so the heading button's upper hemisphere read as floating in air
+behind the surface and the rack as a whole bunched against the back.
+
 **Grab radius retune.** `GRAB_RADIUS_MULTIPLIER_PLINTH = 1.5`
 (`scaffold/ui/clusterRackTokens.ts`) replaces the mid-air `2.75` for
 every interactive primitive on the plinth — sliders / presets /
