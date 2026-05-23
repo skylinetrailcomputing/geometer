@@ -49,6 +49,23 @@ let booted = false;
 let bootGeneration = 0;
 const disposers: Array<() => void> = [];
 
+/**
+ * VR-spawn forward distance, world meters. The XR session-start
+ * handler in `bootShellAsync` translates the reference space so the
+ * user spawns at world `(0, ~head-height, +VR_SPAWN_FORWARD_Z_M)`.
+ *
+ * Chosen against the plinth front face at world `z = 0.05` (anchor =
+ * `PLINTH_ANCHOR_WORLD_XYZ.z = 0.05`, depth extends back to
+ * `-PLINTH_BODY_DEPTH = -0.25` per `scaffold/staging/Plinth.ts`).
+ * `1.5` puts the user ~1.45 m forward of the plinth's user-facing
+ * face — clear of the plinth volume with arm's-length reach to the
+ * working surface.
+ *
+ * Cluster-uniform stopgap for #262. Per-scene-adaptive offset
+ * (deriving from each scene's inner-railing geometry) is #263.
+ */
+const VR_SPAWN_FORWARD_Z_M = 1.5;
+
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     bootGeneration++;
@@ -195,6 +212,42 @@ async function bootShellAsync(): Promise<void> {
     // in motion at the Quest 3S panel's pixel density. SPEC.md `## Frame-pacing
     // knobs` named this as the next deferred knob; this is its first land.
     renderer.xr.setFramebufferScaleFactor(0.85);
+    // VR spawn offset (#262). The default `local-floor` reference space
+    // origin sits at world (0, 0, 0), which after #225 PR1 + PR2 is
+    // *inside* the plinth body (world x ∈ ±0.45, y ∈ [0, 0.95],
+    // z ∈ [-0.25, +0.05] for `PLINTH_ANCHOR_WORLD_XYZ = [0, 0, 0.05]`
+    // and `PLINTH_BODY_DEPTH = 0.3`). On session start, translate the
+    // reference space so the user spawns at world (0, ~1.6, +1.5) —
+    // ~1.45 m forward of the plinth's user-facing front face at
+    // z = 0.05, with clear sightlines onto the math object beyond the
+    // inner railing.
+    //
+    // Sign convention: `XRReferenceSpace.getOffsetReferenceSpace(origin)`
+    // returns a new space whose origin, *expressed in the base space*,
+    // sits at `origin.position`. HMD pose is then reported in the new
+    // space's coordinates, so to make the HMD report `+1.5` in z we
+    // place the new space's origin at `-1.5` in the base. The HMD's
+    // y component stays floor-relative (head height) regardless of
+    // this offset.
+    //
+    // Cluster-uniform stopgap. Per-scene-adaptive spawn is #263; this
+    // bare offset just gets the user out of the plinth volume for the
+    // current four-scene cluster.
+    const onXrSessionStart = (): void => {
+      const baseReferenceSpace = renderer.xr.getReferenceSpace();
+      if (!baseReferenceSpace) return;
+      const originOffset = new XRRigidTransform(
+        { x: 0, y: 0, z: -VR_SPAWN_FORWARD_Z_M },
+        { x: 0, y: 0, z: 0, w: 1 },
+      );
+      const offsetSpace =
+        baseReferenceSpace.getOffsetReferenceSpace(originOffset);
+      renderer.xr.setReferenceSpace(offsetSpace);
+    };
+    renderer.xr.addEventListener('sessionstart', onXrSessionStart);
+    disposers.push(() =>
+      renderer.xr.removeEventListener('sessionstart', onXrSessionStart),
+    );
     const vrButton = VRButton.createButton(renderer);
     document.body.appendChild(vrButton);
     disposers.push(() => vrButton.remove());
