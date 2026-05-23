@@ -111,10 +111,37 @@ const PLINTH_SLIDER_TOP_Y = 0.485;
 // the left edge of the 0.9 m surface). Pitch compressed from the
 // pre-plinth 0.23 m to 0.13 m so the full 4-element stack fits the
 // surface depth.
+//
+// Vertical anchoring (#255 PR1). SectionTab labels sit ABOVE their
+// buttons (labelOffsetY = +0.04, labelAnchorY = 'bottom'; see
+// `SectionTab.ts:34–36`), so the tight edge for the heading is its
+// label TOP vs the slab BACK edge; for the bottom tab it's the
+// sphere bottom vs the slab FRONT edge. With labelFontSize 0.035 +
+// 8% outline, label extends ~0.078 m above its button center; sphere
+// half-extent in slot-Y is `r_proj = buttonRadius × cos(tilt) =
+// 0.022 × cos(20°) ≈ 0.0207 m`.
+//
+// Centering the rack ENVELOPE (heading label top down to bottom-tab
+// sphere bottom) within `[0, PLINTH_WORKING_HEIGHT_QUADRICS = 0.55]`:
+//   envelope_top    = HEADING_Y + 0.078
+//   envelope_bottom = (HEADING_Y − 3 × pitch) − 0.0207
+//   center          = (top + bottom) / 2 = 0.275 (mid-surface)
+// At pitch 0.13 ⇒ HEADING_Y = 0.44, TOP_Y = 0.31, bottom tab at 0.05.
+// Heading label top = 0.518 (32 mm clear of back edge); bottom-tab
+// sphere bottom = 0.029 (29 mm clear of front edge).
+//
+// Brackets (binary-search-visual-constants; one dial per round):
+//   • If heading label visually grazes back edge → HEADING_Y → 0.42
+//     (clearance 52 mm), bottom recomputes to 0.03 (clearance 9 mm).
+//   • If bottom tab visually too close to front edge → tighten
+//     PITCH from 0.13 to 0.12, HEADING_Y stays at 0.44, bottom
+//     becomes 0.08 (clearance 60 mm).
+//   • Documented invariants: HEADING_Y + 0.078 ≤ 0.55 − 0.01;
+//     BOTTOM_Y (= HEADING_Y − 3 × PITCH) − 0.0207 ≥ 0.01.
 const PLINTH_SECTION_TAB_X = -0.42;
 const PLINTH_SECTION_TAB_PITCH = 0.13;
-const PLINTH_SECTION_TAB_HEADING_Y = 0.55;
-const PLINTH_SECTION_TAB_TOP_Y = 0.42;
+const PLINTH_SECTION_TAB_HEADING_Y = 0.44;
+const PLINTH_SECTION_TAB_TOP_Y = 0.31;
 
 // Preset 2 × 4 grid placed ABOVE the working-surface back edge in
 // slot-local +Y space (the grid is hidden by default and only
