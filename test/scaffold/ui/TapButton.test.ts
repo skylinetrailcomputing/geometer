@@ -122,6 +122,29 @@ describe('TapButton labelOrientation', () => {
       expect(label.rotation.z).toBe(0);
     });
 
+    it("lifts label.position.z by the surface standoff when 'surface' (avoids slab z-fight)", () => {
+      const button = makeTapButton({
+        visuals: { ...BASE_VISUALS, labelOrientation: 'surface' },
+      });
+      const label = button.group.children[1]!;
+      // The label sits coplanar with the slab top face without the
+      // standoff (#255 PR2 smoke surfaced z-fight under camera rotation).
+      // Standoff is ~1 mm in label-local +Z; magnitude check (not
+      // exact-equality) keeps the test resilient to future bracket
+      // retunes — the contract is "non-zero and small," not the exact
+      // numeric.
+      expect(label.position.z).toBeGreaterThan(0);
+      expect(label.position.z).toBeLessThan(0.005);
+    });
+
+    it("does NOT lift label.position.z when 'face-camera' (no z-fight to avoid)", () => {
+      const button = makeTapButton({
+        visuals: { ...BASE_VISUALS, labelOrientation: 'face-camera' },
+      });
+      const label = button.group.children[1]!;
+      expect(label.position.z).toBe(0);
+    });
+
     it("preserves a non-identity rotation across faceCamera() when 'surface'", () => {
       const button = makeTapButton({
         visuals: { ...BASE_VISUALS, labelOrientation: 'surface' },

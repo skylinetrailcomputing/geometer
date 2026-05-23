@@ -101,6 +101,22 @@ const LABEL_COLOR = 0xffffff;
 const LABEL_OUTLINE_WIDTH = '8%';
 const LABEL_OUTLINE_COLOR = 0x000000;
 
+// Standoff (in label-local +Z, meters) applied to surface-oriented
+// labels (#255 PR2 smoke follow-up). Without this, the text quad sits
+// at z = 0 in button-local — and because the button group is rotated
+// by the plinth slot's `R_x(-tilt)`, that's coplanar with the slab
+// top face in slot-local Z. A static camera renders cleanly, but
+// per-pixel depth-buffer comparisons flip under camera rotation and
+// produce a z-fight aliasing / shimmer that reads as the label
+// "clipping into the plinth." Lifting 1 mm in button-local +Z
+// (= surface-normal direction in plinth-local after the parent
+// rotation) sits the label JUST in front of the slab and resolves the
+// z-fight. 1 mm is well below the pixel size of a Quest 3S panel at
+// arm's-length viewing distance (~0.7 m), so the gap is not visible.
+// Bracket [0.0005, 0.003] if further tuning is needed (one dial per
+// round, per `feedback_binary_search_visual_constants`).
+const SURFACE_LABEL_STANDOFF_M = 0.001;
+
 export class TapButton {
   readonly group: THREE.Group;
   readonly name: string;
@@ -160,8 +176,14 @@ export class TapButton {
     // default in TapButton.test.ts), and a future runtime switch from
     // 'face-camera' to 'surface' won't strand the label at a stale
     // yaw-billboard rotation.
+    //
+    // Also lift the label off the slab by SURFACE_LABEL_STANDOFF_M in
+    // label-local +Z (#255 PR2 smoke follow-up). The label is coplanar
+    // with the slab top face without this lift — see the constant's
+    // doc comment for the z-fight rationale.
     if (this.labelOrientation === 'surface') {
       this.label.rotation.set(0, 0, 0);
+      this.label.position.z = SURFACE_LABEL_STANDOFF_M;
     }
     this.label.sync();
     this.group.add(this.label);
