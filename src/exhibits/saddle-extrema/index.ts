@@ -42,7 +42,6 @@ import {
   type PlinthHandles,
   type PlinthSlot,
 } from '@/scaffold/staging/Plinth';
-import { FpsOverlay } from '@/scaffold/perf/FpsOverlay';
 import {
   createCriticalPointMarkers,
   type CriticalPointMarkersHandles,
@@ -115,12 +114,6 @@ const PLINTH_PRESET_ROW_START_X = -2 * PLINTH_PRESET_COL_PITCH;
 const PLINTH_READOUT_Y = 0.70;
 const PLINTH_AXIS_INDICATOR_X = 0.42;
 const PLINTH_AXIS_INDICATOR_Y = 0.275;
-
-// Debug-only FPS readout (#99), gated behind `?fps=1`. World-anchored
-// above the plinth, not slotted — dev tooling, not user-facing UI.
-// Stopgap per-scene wiring (#261); the proper shell-owned lift is a
-// future PR.
-const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.85, 0.05);
 
 // Stage floor cutout half-extent (#238 / E1.1) — derived from the
 // widest preset domain so a future preset with a wider (x, y) window
@@ -218,7 +211,6 @@ let contrastPit: ContrastPitHandles | undefined;
 let stageRailing: StageRailingHandles | undefined;
 let stageInnerRailing: StageInnerRailingHandles | undefined;
 let plinth: PlinthHandles | undefined;
-let fpsOverlay: FpsOverlay | undefined;
 let activePresetIndex = DEFAULT_PRESET_INDEX;
 let saddleExtremaReadout: SaddleExtremaReadout | undefined;
 let camera: THREE.Camera | undefined;
@@ -477,18 +469,9 @@ const saddleExtremaExhibit: Exhibit = {
       slots,
     });
     group.add(plinth.group);
-
-    // Optional in-VR FPS readout (#99), gated behind `?fps=1` on the
-    // URL. Stopgap per-scene wiring per #261; proper shell-owned lift
-    // is a future PR.
-    if (isFpsOverlayEnabled()) {
-      fpsOverlay = new FpsOverlay();
-      fpsOverlay.group.position.copy(FPS_OVERLAY_POSITION);
-      group.add(fpsOverlay.group);
-    }
   },
 
-  update({ delta }) {
+  update() {
     const activePreset = PRESETS[activePresetIndex];
 
     if (xSlider && ySlider) {
@@ -556,10 +539,6 @@ const saddleExtremaExhibit: Exhibit = {
     // Yaw-only billboard on the WorldAxes letter labels so they read at
     // any user yaw. Same per-frame contract as cluster siblings.
     if (worldAxes && camera) worldAxes.faceCamera(camera);
-    if (fpsOverlay) {
-      fpsOverlay.update(delta, performance.now());
-      if (camera) fpsOverlay.faceCamera(camera);
-    }
   },
 
   unmount() {
@@ -617,10 +596,6 @@ const saddleExtremaExhibit: Exhibit = {
     if (plinth) {
       plinth.dispose();
       plinth = undefined;
-    }
-    if (fpsOverlay) {
-      fpsOverlay.dispose();
-      fpsOverlay = undefined;
     }
 
     // 3. Drop external references so a re-mount starts clean.
@@ -734,11 +709,6 @@ function applyPreset(idx: number): void {
     xSlider?.value ?? 0,
     ySlider?.value ?? 0,
   );
-}
-
-function isFpsOverlayEnabled(): boolean {
-  if (typeof window === 'undefined') return false;
-  return new URLSearchParams(window.location.search).get('fps') === '1';
 }
 
 registerExhibit(saddleExtremaExhibit);

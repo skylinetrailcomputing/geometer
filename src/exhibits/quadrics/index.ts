@@ -13,7 +13,6 @@ import {
 import { classify, getPlanePose } from './classify';
 import { createDoublePlane, type DoublePlaneHandles } from './DoublePlane';
 import { EquationReadout } from './EquationReadout';
-import { FpsOverlay } from '@/scaffold/perf/FpsOverlay';
 import { Label } from '@/scaffold/ui/Label';
 import { Preset, type LinearPresetValues, type PresetValues } from '@/scaffold/ui/Preset';
 import { PresetTween } from '@/scaffold/anim/PresetTween';
@@ -200,15 +199,6 @@ const PLINTH_RACK_LABEL_Y = 0.74;
 // math-frame-aligned regardless of the working-surface tilt.
 const PLINTH_AXIS_INDICATOR_X = 0.42;
 const PLINTH_AXIS_INDICATOR_Y = 0.275;
-
-// Debug-only FPS readout (#99), gated behind `?fps=1`. Kept at its
-// world-frame position rather than going through the plinth slot
-// manifest — `?fps=1`-gated dev tooling, not user-facing UI (see §5
-// acceptance carve-out in `_private/plans/225-control-plinth.md`).
-// X / Y unchanged; Z tracks PLINTH_ANCHOR_WORLD_XYZ.z so the overlay
-// continues to sit above the slider rack rather than getting
-// stranded somewhere else in world-Z when the anchor shifts.
-const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.85, 0.05);
 
 // Smaller than Label's 0.16 default; matches the closer ~0.7 m viewing
 // distance from the user's spawn point.
@@ -866,7 +856,6 @@ let presetsExpanded = false;
 let pointers: readonly Pointer[] = [];
 let rackLabel: Label | undefined;
 let equationReadout: EquationReadout | undefined;
-let fpsOverlay: FpsOverlay | undefined;
 let rendererInfoProbe: RendererInfoProbe | undefined;
 let worldAxes: WorldAxes | undefined;
 let camera: THREE.Camera | undefined;
@@ -1349,15 +1338,14 @@ const quadricsExhibit: Exhibit = {
     });
     group.add(plinth.group);
 
-    // Optional in-VR FPS readout (#99) + console renderer.info dump
-    // (#102). Both off by default; opt-in via a `?fps=1` query string
-    // on the URL. The console probe pairs with the in-VR overlay: FPS
-    // says how fast we're rendering, renderer.info says what we're
-    // asking the GPU to render.
+    // Optional console renderer.info dump (#102), gated by `?fps=1`
+    // — same query flag as the shell-owned FPS overlay (#261). The
+    // in-VR FPS reading lives on the shell now; this console probe
+    // is the paired complement: FPS says how fast we're rendering,
+    // renderer.info says what we're asking the GPU to render. Stays
+    // quadrics-local because only this scene has the raymarcher
+    // fragment-cost question the probe was added to answer (#102).
     if (isFpsOverlayEnabled()) {
-      fpsOverlay = new FpsOverlay();
-      fpsOverlay.group.position.copy(FPS_OVERLAY_POSITION);
-      group.add(fpsOverlay.group);
       rendererInfoProbe = new RendererInfoProbe(renderer);
     }
 
@@ -1380,7 +1368,6 @@ const quadricsExhibit: Exhibit = {
     if (rackLabel) ownedDisposables.push(rackLabel);
     if (equationReadout) ownedDisposables.push(equationReadout);
     if (worldAxes) ownedDisposables.push(worldAxes);
-    if (fpsOverlay) ownedDisposables.push(fpsOverlay);
   },
 
   update({ delta }) {
@@ -1558,10 +1545,6 @@ const quadricsExhibit: Exhibit = {
       if (camera) equationReadout.faceCamera(camera);
     }
     if (worldAxes && camera) worldAxes.faceCamera(camera);
-    if (fpsOverlay) {
-      fpsOverlay.update(delta, performance.now());
-      if (camera) fpsOverlay.faceCamera(camera);
-    }
     if (rendererInfoProbe) rendererInfoProbe.update(performance.now());
   },
 
@@ -1650,7 +1633,6 @@ const quadricsExhibit: Exhibit = {
     pointers = [];
     rackLabel = undefined;
     equationReadout = undefined;
-    fpsOverlay = undefined;
     // RendererInfoProbe holds a renderer reference for read-only stats —
     // no GPU resources to dispose. Reset to undefined so re-mount's
     // `if (isFpsOverlayEnabled())` conditional allocates fresh.
