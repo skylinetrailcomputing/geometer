@@ -467,6 +467,18 @@ still binds them to the plinth's slot-Y axis above the rack; the
 yaw-billboarding keeps text legible across pancake and headset
 viewing distances rather than foreshortening with the surface tilt.
 
+**FPS-overlay carve-out: shell-owned (#261).** The `?fps=1`-gated
+dev `FpsOverlay` (#99) is intentionally NOT a plinth slot — it's
+debug-only readout, not user-facing UI. As of #261 the overlay is
+shell-owned (`src/shell/shell.ts` `FPS_OVERLAY_POSITION` at world
+`(0, 1.85, 0.05)`), allocated once at boot when the flag is set,
+ticked from the shell animation loop, and disposed via the shell's
+LIFO drain. The matching `RendererInfoProbe` console probe (#102)
+stays quadrics-local — only this scene has the raymarcher
+fragment-cost question that probe was added to answer — and still
+shares the same `?fps=1` gate via a per-scene `isFpsOverlayEnabled`
+helper. Plinth-mounted UI primitives are unaffected.
+
 **Section-tab + canonical-forms-heading anchoring (#255 PR1).** The
 4-element vertical rack at the left of the plinth (canonical-forms
 heading + 3 SectionTabs) is centered on the working-surface

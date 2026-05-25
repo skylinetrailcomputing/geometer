@@ -18,6 +18,7 @@ import { VRPointer } from './VRPointer';
 import { DesktopPointer } from './DesktopPointer';
 import { createCameraControls } from './cameraControls';
 import { createEnvironment } from '@/scaffold/staging/Environment';
+import { FpsOverlay } from '@/scaffold/perf/FpsOverlay';
 
 // Vite HMR can re-execute module-level code in dev. `bootShell` is
 // idempotent against double-invocation: subsequent calls early-return
@@ -65,6 +66,23 @@ const disposers: Array<() => void> = [];
  * (deriving from each scene's inner-railing geometry) is #263.
  */
 const VR_SPAWN_FORWARD_Z_M = 1.5;
+
+/**
+ * World-frame anchor for the `?fps=1`-gated dev FPS overlay (#261).
+ *
+ * Cluster-uniform: sits above the plinth front face, X-centered on
+ * the plinth midline. Z = 0.05 tracks `PLINTH_ANCHOR_WORLD_XYZ.z`
+ * so the overlay continues to sit above the slider rack rather than
+ * getting stranded in world-Z if the plinth anchor shifts. Y = 1.85
+ * keeps it ~25 cm above eye level for a 1.6 m spawn — high enough
+ * to not occlude the math object, low enough to read at a glance
+ * without breaking the user's neck.
+ *
+ * Per-scene-adaptive overlay anchor (#263 territory) is explicitly
+ * out of scope per the #261 issue body — debug-only readout is
+ * lower priority than user-facing UI.
+ */
+const FPS_OVERLAY_POSITION = new THREE.Vector3(0, 1.85, 0.05);
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
@@ -141,6 +159,28 @@ async function bootShellAsync(): Promise<void> {
     scene.background = null;
     environment.dispose();
   });
+
+  // Shell-owned `?fps=1`-gated dev FPS overlay (#261). Lifted from
+  // four near-identical per-scene `mount()` blocks (the #264
+  // stopgap) so future scenes get the readout for free without
+  // copy-paste. World-anchored at `FPS_OVERLAY_POSITION`; the
+  // shell drives `update()` + `faceCamera()` per render frame.
+  //
+  // Pre-mode-probe alloc on purpose: position is mode-independent,
+  // and the disposer (pushed AFTER the renderer disposer below to
+  // preserve LIFO ordering — releases troika Text GL resources
+  // BEFORE renderer.dispose() frees the GL context, mirroring the
+  // environment-disposer pattern above) drains cleanly on
+  // mid-probe HMR too.
+  const fpsOverlay = isFpsOverlayEnabled() ? new FpsOverlay() : null;
+  if (fpsOverlay) {
+    fpsOverlay.group.position.copy(FPS_OVERLAY_POSITION);
+    scene.add(fpsOverlay.group);
+    disposers.push(() => {
+      scene.remove(fpsOverlay.group);
+      fpsOverlay.dispose();
+    });
+  }
 
   const resizeHandler = (): void => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -673,6 +713,14 @@ async function bootShellAsync(): Promise<void> {
     rack.faceCamera(camera);
     rack.updateHover(pointers);
     rack.update();
+    // `?fps=1` dev overlay tick (#261). Reads this-frame `delta`
+    // and the post-exhibit-update camera matrices (faceCamera
+    // billboard); placed before `renderer.render` so the synced
+    // text reflects the frame about to be drawn.
+    if (fpsOverlay) {
+      fpsOverlay.update(delta, performance.now());
+      fpsOverlay.faceCamera(camera);
+    }
     renderer.render(scene, camera);
   });
   // Stop the loop FIRST on HMR dispose — pushed last so it pops first
@@ -716,4 +764,21 @@ async function resolveBootMode(): Promise<Mode> {
     // permissions, etc.). Treat any throw as "no immersive support."
     return 'desktop';
   }
+}
+
+/**
+ * `?fps=1`-gated dev overlay opt-in (#261). Lifted to shell scope
+ * from four near-identical per-scene copies (#264 stopgap). The
+ * `typeof window` guard makes the helper safe in environments
+ * without a DOM (e.g., a future SSR shell-test harness); for the
+ * browser path it's a one-line URL-param read.
+ *
+ * Quadrics still has its own copy of this helper for the
+ * `RendererInfoProbe` console probe (#102) which shares the same
+ * gate but isn't lifted — see issue #261 body for the
+ * "don't break the pairing" carve-out.
+ */
+function isFpsOverlayEnabled(): boolean {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('fps') === '1';
 }
