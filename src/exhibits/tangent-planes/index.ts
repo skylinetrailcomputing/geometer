@@ -44,6 +44,10 @@ import {
   type StageInnerRailingHandles,
 } from '@/scaffold/staging/StageInnerRailing';
 import {
+  createStageLighting,
+  type StageLightingHandles,
+} from '@/scaffold/staging/StageLighting';
+import {
   createPlinth,
   type PlinthHandles,
   type PlinthSlot,
@@ -247,6 +251,7 @@ let stageFloor: StageFloorHandles | undefined;
 let contrastPit: ContrastPitHandles | undefined;
 let stageRailing: StageRailingHandles | undefined;
 let stageInnerRailing: StageInnerRailingHandles | undefined;
+let stageLighting: StageLightingHandles | undefined;
 let plinth: PlinthHandles | undefined;
 let pointers: readonly Pointer[] = [];
 // Cached at mount; cleared at unmount. Used for the WorldAxes label
@@ -328,11 +333,8 @@ const tangentPlanesExhibit: Exhibit = {
     pointers = shellPointers;
     camera = cam;
 
-    // Ambient + directional lights matching quadrics' lighting setup.
-    group.add(new THREE.AmbientLight(0xffffff, 0.4));
-    const directional = new THREE.DirectionalLight(0xffffff, 0.8);
-    directional.position.copy(LIGHT_DIR).multiplyScalar(5);
-    group.add(directional);
+    stageLighting = createStageLighting({ direction: LIGHT_DIR });
+    group.add(stageLighting.group);
 
     // Stage floor with circular cutout (#238 / E1.1). Per-scene
     // outerHalfExtent: 6 (12 × 12 m floor) so the BOUND-radius disk fits
@@ -657,6 +659,10 @@ const tangentPlanesExhibit: Exhibit = {
     if (stageInnerRailing) {
       stageInnerRailing.dispose();
       stageInnerRailing = undefined;
+    }
+    if (stageLighting) {
+      stageLighting.dispose();
+      stageLighting = undefined;
     }
     if (plinth) {
       plinth.dispose();

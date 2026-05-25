@@ -38,6 +38,10 @@ import {
   type StageInnerRailingHandles,
 } from '@/scaffold/staging/StageInnerRailing';
 import {
+  createStageLighting,
+  type StageLightingHandles,
+} from '@/scaffold/staging/StageLighting';
+import {
   createPlinth,
   type PlinthHandles,
   type PlinthSlot,
@@ -210,6 +214,7 @@ let stageFloor: StageFloorHandles | undefined;
 let contrastPit: ContrastPitHandles | undefined;
 let stageRailing: StageRailingHandles | undefined;
 let stageInnerRailing: StageInnerRailingHandles | undefined;
+let stageLighting: StageLightingHandles | undefined;
 let plinth: PlinthHandles | undefined;
 let activePresetIndex = DEFAULT_PRESET_INDEX;
 let saddleExtremaReadout: SaddleExtremaReadout | undefined;
@@ -237,15 +242,12 @@ const saddleExtremaExhibit: Exhibit = {
     activePresetIndex = DEFAULT_PRESET_INDEX;
     const initialPreset = PRESETS[activePresetIndex];
 
-    // Ambient + directional lights match cluster siblings. The graph
-    // surface uses a custom ShaderMaterial reproducing the cluster's
-    // lambert formula; the DirectionalLight here is decorative for the
-    // surface (ShaderMaterial doesn't auto-bind scene lights) but lights
-    // accessory geometry (indicator).
-    group.add(new THREE.AmbientLight(0xffffff, 0.4));
-    const directional = new THREE.DirectionalLight(0xffffff, 0.8);
-    directional.position.copy(LIGHT_DIR).multiplyScalar(5);
-    group.add(directional);
+    // The graph surface uses a custom ShaderMaterial reproducing the
+    // cluster's lambert formula; the DirectionalLight here is
+    // decorative for the surface (ShaderMaterial doesn't auto-bind
+    // scene lights) but lights accessory geometry (indicator).
+    stageLighting = createStageLighting({ direction: LIGHT_DIR });
+    group.add(stageLighting.group);
 
     // Stage floor with rect cutout (#238 / E1.1), sized to the widest
     // preset domain (`STAGE_CUTOUT_HALF` derived from PRESETS — see
@@ -592,6 +594,10 @@ const saddleExtremaExhibit: Exhibit = {
     if (stageInnerRailing) {
       stageInnerRailing.dispose();
       stageInnerRailing = undefined;
+    }
+    if (stageLighting) {
+      stageLighting.dispose();
+      stageLighting = undefined;
     }
     if (plinth) {
       plinth.dispose();

@@ -32,6 +32,10 @@ import {
   type StageInnerRailingHandles,
 } from '@/scaffold/staging/StageInnerRailing';
 import {
+  createStageLighting,
+  type StageLightingHandles,
+} from '@/scaffold/staging/StageLighting';
+import {
   createPlinth,
   type PlinthHandles,
   type PlinthSlot,
@@ -888,6 +892,7 @@ let stageFloor: StageFloorHandles | undefined;
 let contrastPit: ContrastPitHandles | undefined;
 let stageRailing: StageRailingHandles | undefined;
 let stageInnerRailing: StageInnerRailingHandles | undefined;
+let stageLighting: StageLightingHandles | undefined;
 let plinth: PlinthHandles | undefined;
 
 const quadricsExhibit: Exhibit = {
@@ -959,10 +964,8 @@ const quadricsExhibit: Exhibit = {
     stageInnerRailing = createStageInnerRailing({ cutout: cutoutDescriptor });
     group.add(stageInnerRailing.group);
 
-    group.add(new THREE.AmbientLight(0xffffff, 0.4));
-    const directional = new THREE.DirectionalLight(0xffffff, 0.8);
-    directional.position.copy(LIGHT_DIR).multiplyScalar(5);
-    group.add(directional);
+    stageLighting = createStageLighting({ direction: LIGHT_DIR });
+    group.add(stageLighting.group);
 
     const surfaceHandles = createImplicitSurface({
       surfaceCenter: SURFACE_CENTER,
@@ -1588,6 +1591,10 @@ const quadricsExhibit: Exhibit = {
     if (stageInnerRailing) {
       stageInnerRailing.dispose();
       stageInnerRailing = undefined;
+    }
+    if (stageLighting) {
+      stageLighting.dispose();
+      stageLighting = undefined;
     }
     if (plinth) {
       plinth.dispose();
