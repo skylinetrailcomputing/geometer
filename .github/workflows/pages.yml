@@ -17,6 +17,11 @@ permissions:
   pages: write
   id-token: write
 
+# Opt JavaScript actions into Node 24 ahead of GitHub's 2026-06-02 default
+# flip and 2026-09-16 Node 20 removal. See #265.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 concurrency:
   group: pages
   cancel-in-progress: true
