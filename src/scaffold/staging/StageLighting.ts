@@ -10,10 +10,12 @@ import * as THREE from 'three';
 // StageFloor / StageRailing / StageInnerRailing / ContrastPit
 // (allocated in `mount`, disposed in `unmount`). The shell removes
 // `ctx.group` after `unmount` returns, so `dispose()` only releases
-// owned GPU resources. Lights inherit from `Object3D` and have no
-// GPU resources to release, so `dispose()` here is a marker for
-// lifecycle symmetry rather than a real release; the idempotency
-// guard matches the rest of the staging primitives.
+// owned GPU resources. `castShadow` is unset, so today
+// `DirectionalLight.shadow.map` is `null` and `Light.dispose()` is
+// effectively a no-op — but the factory still calls it for
+// forward-safety: a future consumer flipping `castShadow = true`
+// through the exposed handle would otherwise leak the shadow map
+// silently.
 //
 // Direction is REQUIRED (not defaulted): the scene's LIGHT_DIR also
 // flows into the math surface's shader as `uLightDir` so the
@@ -61,13 +63,13 @@ export interface StageLightingOptions {
 export interface StageLightingHandles {
   /** Add to the exhibit's group at mount time. */
   readonly group: THREE.Group;
-  /** Hemispheric ambient term. Exposed for tests + smoke debugging. */
+  /** Uniform ambient term. Exposed for tests + smoke debugging. */
   readonly ambient: THREE.AmbientLight;
   /** Math-frame directional term. Exposed for tests + smoke debugging. */
   readonly directional: THREE.DirectionalLight;
-  /** Idempotent. Exhibit calls in unmount() for lifecycle symmetry —
-   *  the underlying lights hold no GPU resources, but the guard +
-   *  call site stays consistent with sibling staging primitives. */
+  /** Idempotent. Exhibit calls in unmount(). Calls `directional.dispose()`
+   *  unconditionally for forward-safety (today a no-op since `castShadow`
+   *  is unset; non-trivial if anyone later flips it). */
   dispose(): void;
 }
 
@@ -98,6 +100,7 @@ export function createStageLighting(
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      directional.dispose();
     },
   };
 }
