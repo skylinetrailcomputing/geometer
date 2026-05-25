@@ -20,6 +20,11 @@ permissions:
   contents: read
   pull-requests: write
 
+# Opt JavaScript actions into Node 24 ahead of GitHub's 2026-06-02 default
+# flip and 2026-09-16 Node 20 removal. See #265.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 concurrency:
   group: pr-preview-${{ github.event.pull_request.number }}
   cancel-in-progress: true
