@@ -113,10 +113,13 @@ function mockPointer(
   };
 }
 
-// Ray aimed at world origin — the slider's thumb sits at the group
-// origin under makeSlider's [-1.5, 1.5] / initial=1 / snapDetent=0.05
-// config (snapped to 0 at the [0]-detent, syncThumbPosition writes
-// thumb.position.x = 0). Hit-test fires.
+// Ray aimed at world origin. Fires when the caller passes
+// `initial: 0` to makeSlider — that's outside the [0]-detent's
+// half-width (0.05) so currentValue stays at 0 and
+// syncThumbPosition writes thumb.position.x = 0. The default
+// makeSlider config (initial: 1.0) places the thumb at x ≈ +0.1,
+// where this ray would miss; tests using hittingRay() must
+// override initial: 0.
 const hittingRay = (): MockPointer => mockPointer([0, 0, 1], [0, 0, -1]);
 const missingRay = (): MockPointer => mockPointer([10, 0, 1], [0, 0, -1]);
 
@@ -442,9 +445,13 @@ describe('Slider thumb composition (#256)', () => {
       slider.updateHover([hittingRay()]);
       expect(outerMesh.material.opacity).toBeCloseTo(0.5);
 
-      // Grab — `tryGrab` clears the hover bit (updateHover short-
-      // circuits while grabbed) and sets grabbed-emissive; opacity
-      // bumps to the grab value.
+      // Grab — `tryGrab` sets grabbedBy and calls
+      // refreshThumbEmissive; the grabbed-branch fires (it's
+      // checked before the hovered-branch in the if/else), so
+      // emissive flips to grabbed and opacity bumps to the grab
+      // value. The `hovered` field stays true underneath —
+      // updateHover would short-circuit while grabbed, and only
+      // releaseFromPointer explicitly clears it.
       const grabber = hittingRay();
       expect(slider.tryGrab(grabber)).toBe(true);
       expect(outerMesh.material.opacity).toBeCloseTo(0.7);

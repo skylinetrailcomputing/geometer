@@ -606,13 +606,18 @@ function buildThumb(
     transparent: true,
     opacity: SLIDER_THUMB_OUTER_OPACITY,
     side: THREE.FrontSide,
-    // `depthWrite: false` prevents the outer sphere from occluding
-    // anything drawn after it in the transparent pass — including
-    // the interior arrow (drawn after the outer in the group's
-    // traversal) and any other transparent surface in the scene.
-    // `depthTest` stays at its default (true) so the outer still
-    // hides correctly behind nearer opaque objects (the plinth,
-    // the track, a controller mesh passing in front).
+    // `depthWrite: false` prevents this sphere's depth values from
+    // occluding LATER transparent surfaces drawn in the same pass
+    // (other slider thumbs, TangentPlane, TaylorOverlay — all
+    // share renderOrder = 1). The interior arrow's visibility
+    // through this sphere is INDEPENDENT of this flag: the arrow
+    // is opaque (no transparent flag) and so draws in the opaque
+    // pass, which completes before the transparent pass starts.
+    // Opaque-pass depth writes already populate the depth buffer
+    // before this sphere's fragments are tested.
+    // `depthTest` stays at its default (true) so this sphere
+    // still hides correctly behind nearer opaque objects (the
+    // plinth, the track, a controller mesh passing in front).
     depthWrite: false,
   });
   const outerMesh = new THREE.Mesh(outerGeometry, outerMaterial);
