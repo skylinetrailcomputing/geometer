@@ -3,13 +3,19 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { raySphereHit } from '@/scaffold/ui/rayHit';
 import type { Pointer } from '@/shell/Pointer';
 
-// `arrow-{x,y,z}` are bidirectional 3D arrows aligned with their respective
-// world axis. The slider group has no rotation, so slider-local frame =
-// world frame; pick the variant whose axis matches the math-frame axis the
-// slider drives (arrow-x for slider 'a' → math-X, arrow-y for slider 'b' →
-// math-Y, arrow-z for slider 'c' → math-Z). `sphere` is reserved for
-// slider 'd' (the constant term — no spatial direction, so a directionless
-// thumb reads as pedagogically truthful).
+// Per-shape composition (#256). All thumbs are now composite: a
+// `THREE.Group` containing an outer translucent axis-tinted sphere
+// (the grab-affordance envelope) and — for `arrow-*` shapes — an
+// interior opaque bidirectional axis-arrow that reads as the
+// slider's math-axis identity through the translucent body.
+// `sphere` produces an outer translucent sphere only (no interior),
+// reserved for sliders without axis identity (quadrics `d`, the
+// constant term) AND for sliders that are axis-tinted point-
+// selectors where the scene's pedagogy favors the empty-sphere
+// reading (saddle-extrema x/y per the 256 v3 plan §3.4 Q8 deferral).
+// Pick the `arrow-*` variant whose axis matches the math-frame axis
+// the slider drives (arrow-x for slider 'a' → math-X, arrow-y for
+// slider 'b' → math-Y, arrow-z for slider 'c' → math-Z).
 export type ThumbShape = 'sphere' | 'arrow-x' | 'arrow-y' | 'arrow-z';
 
 export interface SliderOptions {
@@ -75,6 +81,36 @@ const HAPTIC_DURATION_MS = 10;
 const THUMB_HOVER_SCALE = 0.4;
 const THUMB_GRAB_SCALE = 0.7;
 
+// Outer translucent sphere opacity (#256). Three values for the
+// `sphere`-shaped sliders' hover-state alpha bump: the translucent
+// material's emissive contribution is attenuated by opacity in
+// standard alpha blending, so bumping opacity on hover/grab keeps
+// the affordance cue visually strong even when the hover target is
+// the translucent outer (the only material on a sphere thumb).
+// `arrow-*` thumbs are unaffected — their hover target is the
+// opaque interior arrow, and their outer opacity stays at the
+// steady-state value regardless of state.
+//
+// First-pass per `feedback_staging_dimensions_first_pass`. Bracket
+// per `feedback_binary_search_visual_constants`:
+//   - If smoke shows the interior arrow gets lost behind the body,
+//     drop SLIDER_THUMB_OUTER_OPACITY to 0.20.
+//   - If the outer sphere reads as a haze with no clear shape,
+//     bump SLIDER_THUMB_OUTER_OPACITY to 0.40.
+//   - If hover cue is too weak on neutral-gray sphere sliders,
+//     bump SLIDER_THUMB_OUTER_OPACITY_HOVERED toward 0.65 / 0.70.
+//   - Same for the grabbed state. One dial per round.
+const SLIDER_THUMB_OUTER_OPACITY = 0.3;
+const SLIDER_THUMB_OUTER_OPACITY_HOVERED = 0.5;
+const SLIDER_THUMB_OUTER_OPACITY_GRABBED = 0.7;
+
+// Outer translucent sphere joins the cluster's transparent-pass
+// surfaces (SlicingPlane, TangentPlane, TaylorOverlay — all
+// `renderOrder = 1` per TranslucentRect convention) so depth-sort
+// among transparent surfaces is by camera distance, stable across
+// scenes.
+const SLIDER_THUMB_OUTER_RENDER_ORDER = 1;
+
 // Denominator floor for the skew-line projection in
 // `pointerAxisProjection`. When the pointer ray is nearly parallel to the
 // slider's local X axis (`aDotR ≈ ±1`), `denom = 1 - aDotR² → 0` and the
@@ -89,7 +125,37 @@ export class Slider {
 
   private readonly opts: Required<SliderOptions>;
   private readonly track: THREE.Mesh;
-  private readonly thumb: THREE.Mesh;
+  // Composite thumb (#256): a `THREE.Group` containing an outer
+  // translucent axis-tinted sphere and, for `arrow-*` shapes, an
+  // interior opaque axis-arrow. Position writes still target
+  // `thumb.position.x` like the pre-#256 Mesh; the group inherits
+  // `position` / `getWorldPosition` from Object3D so the hit-test
+  // and drag math are unchanged.
+  private readonly thumb: THREE.Group;
+  // Material(s) whose `.emissive` flips on hover/grab. For `arrow-*`
+  // this is the interior arrow's material; for `sphere` it's the
+  // outer translucent sphere's material. The single-entry list keeps
+  // the type uniform; future shapes that want multi-material glow are
+  // accommodated without re-plumbing the state machine.
+  private readonly hoverTargets: readonly THREE.MeshStandardMaterial[];
+  // Outer translucent sphere's material, exposed for the §3.5 hover-
+  // state opacity bump. May be `null` for future shapes that don't
+  // compose an outer translucent sphere; the four v3 shapes all do.
+  private readonly outerMaterial: THREE.MeshStandardMaterial | null;
+  // True iff the hover/grab handler should bump the outer material's
+  // opacity (#256 v3 §3.5). Set by `buildThumb` per shape: TRUE for
+  // `sphere` (hover target IS the translucent outer; emissive is
+  // alpha-attenuated, opacity bump compensates), FALSE for `arrow-*`
+  // (hover target is the opaque interior; outer stays at steady-
+  // state). Explicit field rather than a `hoverTargets[0] ===
+  // outerMaterial` identity check — keeps intent contractual.
+  private readonly applyOpacityBump: boolean;
+  // Single GPU-resource disposer for the composite thumb's geometry
+  // + material set. Slider.dispose() calls this; never calls
+  // `.geometry.dispose()` / `.material.dispose()` directly on the
+  // composite's children. The track's geometry/material disposal
+  // is independent and stays explicit in dispose().
+  private readonly disposeThumb: () => void;
   private readonly thumbWorld = new THREE.Vector3();
   // Skew-line projection scratches (allocated once per Slider). Shared
   // between `rayHitsThumb` (ray-sphere hit-test) and
@@ -166,10 +232,16 @@ export class Slider {
     this.hoverEmissive = baseColor.clone().multiplyScalar(THUMB_HOVER_SCALE);
     this.grabEmissive = baseColor.clone().multiplyScalar(THUMB_GRAB_SCALE);
 
-    this.thumb = new THREE.Mesh(
-      buildThumbGeometry(this.opts.thumbShape, this.opts.thumbRadius),
-      new THREE.MeshStandardMaterial({ color: baseColor }),
+    const build = buildThumb(
+      this.opts.thumbShape,
+      this.opts.thumbRadius,
+      baseColor,
     );
+    this.thumb = build.object;
+    this.hoverTargets = build.hoverTargets;
+    this.outerMaterial = build.outerMaterial;
+    this.applyOpacityBump = build.applyOpacityBump;
+    this.disposeThumb = build.dispose;
     this.group.add(this.thumb);
 
     this.syncThumbPosition();
@@ -199,10 +271,13 @@ export class Slider {
   }
 
   dispose(): void {
+    // Track owns its own geometry + material; preserved unchanged from
+    // pre-#256. The composite thumb's geometry/material set is owned by
+    // ThumbBuild — never call .dispose() on the composite's children
+    // directly from here.
     this.track.geometry.dispose();
     (this.track.material as THREE.Material).dispose();
-    this.thumb.geometry.dispose();
-    (this.thumb.material as THREE.Material).dispose();
+    this.disposeThumb();
   }
 
   /**
@@ -362,17 +437,40 @@ export class Slider {
     this.refreshThumbEmissive();
   }
 
-  // Thumb emissive is a deterministic function of {grabbed, hovered, idle}.
-  // Called from each transition point — `tryGrab`, `releaseFromPointer`,
-  // and `updateHover` — so the visual always matches state.
+  // Composite thumb visual is a deterministic function of
+  // {grabbed, hovered, idle}. Called from each transition point —
+  // `tryGrab`, `releaseFromPointer`, and `updateHover` — so the
+  // visual always matches state.
+  //
+  // Two surfaces flip:
+  //   1) Every material in `hoverTargets` gets the emissive copy.
+  //      For `arrow-*` thumbs that's the interior arrow (opaque,
+  //      emissive reads at full strength); for `sphere` thumbs
+  //      that's the outer translucent sphere (emissive attenuated
+  //      by alpha — see (2)).
+  //   2) For `sphere` thumbs (`applyOpacityBump === true`), the
+  //      outer material's `.opacity` bumps to the hover/grab value
+  //      so the alpha-attenuated emissive cue still reads as a
+  //      clear pop. `arrow-*` thumbs leave the outer at the
+  //      steady-state opacity regardless of state.
   private refreshThumbEmissive(): void {
-    const mat = this.thumb.material as THREE.MeshStandardMaterial;
-    if (this.grabbedBy) {
-      mat.emissive.copy(this.grabEmissive);
-    } else if (this.hovered) {
-      mat.emissive.copy(this.hoverEmissive);
-    } else {
-      mat.emissive.setHex(0x000000);
+    for (const mat of this.hoverTargets) {
+      if (this.grabbedBy) {
+        mat.emissive.copy(this.grabEmissive);
+      } else if (this.hovered) {
+        mat.emissive.copy(this.hoverEmissive);
+      } else {
+        mat.emissive.setHex(0x000000);
+      }
+    }
+    if (this.applyOpacityBump && this.outerMaterial !== null) {
+      if (this.grabbedBy) {
+        this.outerMaterial.opacity = SLIDER_THUMB_OUTER_OPACITY_GRABBED;
+      } else if (this.hovered) {
+        this.outerMaterial.opacity = SLIDER_THUMB_OUTER_OPACITY_HOVERED;
+      } else {
+        this.outerMaterial.opacity = SLIDER_THUMB_OUTER_OPACITY;
+      }
     }
   }
 
@@ -459,40 +557,132 @@ export class Slider {
   }
 }
 
-// `sphere` matches the hit-test radius exactly. The arrow variants extend
-// past `thumbRadius` along their axis (~1.475r at the cone tip); a
-// caller-supplied `grabRadiusMultiplier` (commonly 2.75) covers the full
-// visible arrow plus margin so the entire shape stays grabbable.
-function buildThumbGeometry(
-  shape: ThumbShape,
-  thumbRadius: number,
-): THREE.BufferGeometry {
-  if (shape === 'sphere') {
-    return new THREE.SphereGeometry(thumbRadius, 16, 12);
-  }
-  return buildArrowGeometry(thumbRadius, shape);
+// ThumbBuild — composite thumb construction result (#256). The
+// builder returns the assembled Group + handles the Slider class
+// uses to drive emissive / opacity-bump state and to dispose the
+// composite's GPU resources. Module-internal; no scene consumer
+// needs to construct this directly.
+interface ThumbBuild {
+  // The Group attached to `slider.group` as the thumb. Marked with
+  // `userData.role = 'slider-thumb'` for testable discovery.
+  // Children: outer translucent sphere (always), interior axis-
+  // arrow (only for `arrow-*` shapes).
+  readonly object: THREE.Group;
+  // Materials whose `.emissive` flips on hover/grab. For `arrow-*`
+  // this is the interior arrow's material; for `sphere` it's the
+  // outer translucent sphere's material.
+  readonly hoverTargets: readonly THREE.MeshStandardMaterial[];
+  // The outer translucent sphere's material. Always non-null in
+  // v3 (both `sphere` and `arrow-*` compose an outer sphere).
+  // Typed `| null` so future shapes that elide the outer envelope
+  // don't break the interface.
+  readonly outerMaterial: THREE.MeshStandardMaterial | null;
+  // True for `sphere` (alpha-attenuated emissive needs an opacity
+  // bump to read as a clear hover/grab cue), false for `arrow-*`
+  // (opaque interior carries the cue at full strength).
+  readonly applyOpacityBump: boolean;
+  // Single disposer for every GPU resource the composite owns.
+  // Slider.dispose() calls this; the slider track's own
+  // geometry/material disposal stays independent.
+  dispose(): void;
 }
 
-// Bidirectional 3D arrow (`<->`) for the axis-coefficient sliders. Built
-// along +Y as a merged geometry (shaft cylinder + two outward-pointing
-// cones), then rotated to the requested world axis. Single mesh + single
-// material via `mergeGeometries` keeps Slider's hover/grab emissive logic
-// untouched.
+// Compose a thumb. For `arrow-*`: outer translucent axis-tinted
+// sphere + interior opaque axis-arrow that reads through the
+// translucent body. For `sphere`: outer translucent sphere only,
+// tinted by the slider's baseColor (axis-tint or neutral gray or
+// yellow — set by the scene's SLIDER_CONFIG).
+function buildThumb(
+  shape: ThumbShape,
+  thumbRadius: number,
+  baseColor: THREE.Color,
+): ThumbBuild {
+  const group = new THREE.Group();
+  group.userData.role = 'slider-thumb';
+
+  const outerGeometry = new THREE.SphereGeometry(thumbRadius, 16, 12);
+  const outerMaterial = new THREE.MeshStandardMaterial({
+    color: baseColor,
+    transparent: true,
+    opacity: SLIDER_THUMB_OUTER_OPACITY,
+    side: THREE.FrontSide,
+    // `depthWrite: false` prevents the outer sphere from occluding
+    // anything drawn after it in the transparent pass — including
+    // the interior arrow (drawn after the outer in the group's
+    // traversal) and any other transparent surface in the scene.
+    // `depthTest` stays at its default (true) so the outer still
+    // hides correctly behind nearer opaque objects (the plinth,
+    // the track, a controller mesh passing in front).
+    depthWrite: false,
+  });
+  const outerMesh = new THREE.Mesh(outerGeometry, outerMaterial);
+  outerMesh.userData.role = 'slider-thumb-outer';
+  outerMesh.renderOrder = SLIDER_THUMB_OUTER_RENDER_ORDER;
+  group.add(outerMesh);
+
+  if (shape === 'sphere') {
+    return {
+      object: group,
+      hoverTargets: [outerMaterial],
+      outerMaterial,
+      applyOpacityBump: true,
+      dispose(): void {
+        outerGeometry.dispose();
+        outerMaterial.dispose();
+      },
+    };
+  }
+
+  const interiorGeometry = buildArrowGeometry(thumbRadius, shape);
+  const interiorMaterial = new THREE.MeshStandardMaterial({
+    color: baseColor,
+    // Interior is opaque — reads as a saturated axis-arrow
+    // through the translucent outer envelope. Emissive on this
+    // material lands at full strength (no alpha attenuation).
+  });
+  const interiorMesh = new THREE.Mesh(interiorGeometry, interiorMaterial);
+  group.add(interiorMesh);
+
+  return {
+    object: group,
+    hoverTargets: [interiorMaterial],
+    outerMaterial,
+    applyOpacityBump: false,
+    dispose(): void {
+      outerGeometry.dispose();
+      outerMaterial.dispose();
+      interiorGeometry.dispose();
+      interiorMaterial.dispose();
+    },
+  };
+}
+
+// Bidirectional 3D arrow (`<->`) for the axis-coefficient sliders'
+// interior content (#256). Built along +Y as a merged geometry
+// (shaft cylinder + two outward-pointing cones), then rotated to
+// the requested world axis. Single mesh + single material via
+// `mergeGeometries` keeps the per-shape hover/grab emissive logic
+// simple. Proportions shrunk vs the pre-#256 standalone arrow so
+// the tip extent (shaftLength/2 + coneHeight = 0.95r) fits inside
+// the outer translucent sphere of radius `thumbRadius` with a
+// small breathing margin (#256 v3 §3.3).
 function buildArrowGeometry(
   thumbRadius: number,
   axis: 'arrow-x' | 'arrow-y' | 'arrow-z',
 ): THREE.BufferGeometry {
   const r = thumbRadius;
-  // Arrow proportions retuned post-headset (#65 follow-up). Shaft thicker
-  // and longer, cones wider — arrows now read as substantive 3D objects
-  // rather than thin sticks at the ~0.7 m viewing distance from the
-  // user's spawn pose. coneRadius = 0.75r keeps the arrowheads
-  // recognizably pointy (h/r = 0.8) after a brief headset pass at 1.0r
-  // showed the cones reading too disc-like at full thumbRadius.
-  const shaftLength = 1.75 * r;
-  const shaftRadius = 0.35 * r;
-  const coneHeight = 0.7 * r;
-  const coneRadius = 0.5 * r;
+  // Composite-era arrow proportions (#256 v3 §3.3). The interior
+  // arrow lives inside an outer translucent sphere of radius r, so
+  // every vertex must be inside that sphere. Tip extent (0.95r)
+  // stays well inside; lateral 0.28r is also fully inside. Thinner
+  // shaft / cone than the pre-composite arrow reads cleaner behind
+  // the translucent envelope. §4.2 Test 6 asserts per-vertex radial
+  // containment so a future maintainer can't drift past the
+  // envelope by retuning a single dimension.
+  const shaftLength = 1.2 * r;
+  const shaftRadius = 0.18 * r;
+  const coneHeight = 0.35 * r;
+  const coneRadius = 0.28 * r;
   // Cone center sits at half-shaft + half-cone along Y so its base flushes
   // against the shaft's end.
   const coneCenter = shaftLength / 2 + coneHeight / 2;
