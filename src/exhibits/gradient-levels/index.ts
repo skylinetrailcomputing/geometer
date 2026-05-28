@@ -514,11 +514,6 @@ const gradientLevelsExhibit: Exhibit = {
     kSlider.update();
     thetaSlider.update();
     phiSlider.update();
-    if (camera) {
-      kSlider.faceCamera(camera);
-      thetaSlider.faceCamera(camera);
-      phiSlider.faceCamera(camera);
-    }
 
     // 2. Push k into the surface uniform (existing #163 path).
     if (surfaceMaterial) {

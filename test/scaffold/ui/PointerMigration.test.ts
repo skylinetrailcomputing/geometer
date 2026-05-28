@@ -1,14 +1,20 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 
 // `troika-three-text` reaches for `self`, a browser-only global, in its
 // UMD `now$1` helper. The default vitest environment is Node, so any
-// `new Text()` blows up at construction time. TapButton creates a
-// `Text` for its label; we stub the dep with a minimal mesh-like
-// surrogate that exposes the same surface (`text`, `fontSize`, …,
-// `sync`, `dispose`, `position`, `rotation`, `getWorldPosition`). The
-// ray-hit math we're validating doesn't touch text rendering, so the
-// stub is faithful enough for this test file.
+// `new Text()` blows up at construction time. TapButton + Preset +
+// SectionTab + SceneTab + AxisToggle each construct a `Text` for their
+// label; we stub the dep with a minimal mesh-like surrogate that
+// exposes the same surface (`text`, `fontSize`, …, `sync`, `dispose`,
+// `position`, `rotation`, `getWorldPosition`). The ray-hit math we're
+// validating doesn't touch text rendering, so the stub is faithful
+// enough for this test file.
+//
+// Slider no longer imports Troika directly post-#278 (it bakes a
+// `(symbol, baseColor)` canvas texture instead), so this mock isn't
+// load-bearing for Slider construction — but the other primitives
+// in this file still rely on it.
 vi.mock('troika-three-text', () => {
   class StubText extends THREE.Object3D {
     text = '';
@@ -24,6 +30,10 @@ vi.mock('troika-three-text', () => {
   return { Text: StubText };
 });
 
+import {
+  _clearCacheForTests,
+  _setCanvasFactoryForTests,
+} from '@/scaffold/ui/bakedSymbolTexture';
 import { Slider } from '@/scaffold/ui/Slider';
 import { TapButton } from '@/scaffold/ui/TapButton';
 import { Preset } from '@/scaffold/ui/Preset';
@@ -31,6 +41,42 @@ import { SectionTab } from '@/scaffold/ui/SectionTab';
 import { SceneTab } from '@/scaffold/ui/SceneTab';
 import { AxisToggle } from '@/exhibits/quadrics/AxisToggle';
 import type { Pointer } from '@/shell/Pointer';
+
+// Slider's #278 emblazon-texture path calls `document.createElement('canvas')`
+// in `bakedSymbolTexture.renderTexture`. The Node Vitest environment
+// has no `document`; inject a stub canvas factory so the rendering
+// path runs end-to-end without crashing. Drain the cache between
+// tests so existing `makeSlider()` callsites (none of which dispose)
+// don't pollute state across tests.
+function makeStubCanvas(): HTMLCanvasElement {
+  const ctx = {
+    fillRect: () => {},
+    fillText: () => {},
+    strokeText: () => {},
+    measureText: () => ({ width: 0 }),
+    set fillStyle(_v: string) {},
+    set strokeStyle(_v: string) {},
+    set font(_v: string) {},
+    set textAlign(_v: string) {},
+    set textBaseline(_v: string) {},
+    set lineWidth(_v: number) {},
+    set lineJoin(_v: string) {},
+  };
+  return {
+    width: 0,
+    height: 0,
+    getContext: () => ctx,
+  } as unknown as HTMLCanvasElement;
+}
+
+beforeEach(() => {
+  _setCanvasFactoryForTests(makeStubCanvas);
+});
+
+afterEach(() => {
+  _clearCacheForTests();
+  _setCanvasFactoryForTests(null);
+});
 
 // Vitest coverage for the #191 bundled migration: every UI primitive that
 // moved from `controller: THREE.Object3D` → `pointer: Pointer` exercises
