@@ -198,8 +198,20 @@ export class Slider {
       options.thumbLabel,
       this.opts.baseColor,
     );
+    // Rotate the sphere geometry so the texture's centered UV
+    // (U=0.5, V=0.5) maps to thumb-local +Z instead of +X. Three.js
+    // `SphereGeometry`'s default equirectangular UV places (0.5,
+    // 0.5) on the local +X surface point (per the source's
+    // `vertex.x = -radius * cos(phiStart + u * phiLength) * ...`);
+    // without this rotation, faceCamera's yaw math (which writes
+    // local +Z toward the camera) would point the bare +Z side at
+    // the user and the glyph would face world +X. Vertices rotate;
+    // UVs don't, so the glyph effectively moves 90° around the
+    // sphere to land where faceCamera expects it.
+    const sphereGeom = new THREE.SphereGeometry(this.opts.thumbRadius, 16, 12);
+    sphereGeom.rotateY(-Math.PI / 2);
     this.thumb = new THREE.Mesh(
-      new THREE.SphereGeometry(this.opts.thumbRadius, 16, 12),
+      sphereGeom,
       new THREE.MeshStandardMaterial({ color: 0xffffff, map: thumbTexture }),
     );
     this.thumb.userData.role = 'slider-thumb';
