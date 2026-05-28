@@ -180,13 +180,13 @@ export class Slider {
       options.thumbLabel,
       this.opts.baseColor,
     );
-    // Two-step orientation so the glyph centers along the
-    // drafting-board surface normal (#278). The user works the
-    // sliders by leaning over the plinth, so the natural reading
-    // pose is looking down the surface normal — the glyph stays
-    // fixed on the sphere, NOT yaw-tracking the camera.
+    // Static glyph orientation along the drafting-board surface
+    // normal (#278). The user works the sliders by leaning over
+    // the plinth, so the natural reading pose looks down the
+    // surface normal — the glyph stays fixed on the sphere, NOT
+    // yaw-tracking the camera.
     //
-    // Step 1: `SphereGeometry`'s default equirectangular UV places
+    // `SphereGeometry`'s default equirectangular UV places
     // (U=0.5, V=0.5) on the local +X surface point (per
     // three/src/geometries/SphereGeometry.js: `vertex.x = -radius
     // * cos(phiStart + u * phiLength) * sin(...)`); rotate the
@@ -194,21 +194,24 @@ export class Slider {
     // so the glyph effectively moves 90° around the sphere to
     // mesh-local +Z.
     //
-    // Step 2: rotate the THUMB MESH itself about local +X by −π/2
-    // so the mesh-local +Z direction (carrying the glyph) maps to
-    // slider-local +Y. Sliders mount on the plinth with
+    // The thumb mesh itself has identity rotation, so mesh-local
+    // +Z = slider-local +Z. Sliders mount on the plinth with
     // orientation='surface' (slot-frame rotation −tilt about
-    // world +X per `Plinth.computePlinthSlotTransform`), which
-    // makes slider-local +Y = surface normal in world. The glyph
-    // therefore faces along the drafting-board normal regardless
-    // of the cluster the slider lives in.
+    // world +X per `Plinth.computePlinthSlotTransform`); the slab
+    // is thin in slot-local Z with the outward face at z=0, so
+    // slot-local +Z IS the slab's surface normal. After the slot
+    // rotation, slider-local +Z maps to world (0, sin(tilt),
+    // cos(tilt)) — "up and toward the user" at the spawn pose.
+    // (Slot-local +Y is "up along the slab" from front edge to
+    // back edge, which under the slot rotation winds up "up and
+    // back" — visually centered there looked like eyes rolled
+    // upward, hence the +Z choice.)
     const sphereGeom = new THREE.SphereGeometry(this.opts.thumbRadius, 16, 12);
     sphereGeom.rotateY(-Math.PI / 2);
     this.thumb = new THREE.Mesh(
       sphereGeom,
       new THREE.MeshStandardMaterial({ color: 0xffffff, map: thumbTexture }),
     );
-    this.thumb.rotation.x = -Math.PI / 2;
     this.thumb.userData.role = 'slider-thumb';
     this.thumb.userData.thumbLabel = options.thumbLabel;
     this.group.add(this.thumb);

@@ -333,41 +333,43 @@ describe('Slider thumb texture (#278)', () => {
   });
 
   // Static-orientation invariant: the glyph faces slider-local
-  // +Y, which under the slot-frame rotation a cluster scene
+  // +Z, which under the slot-frame rotation a cluster scene
   // applies (`Plinth.computePlinthSlotTransform` with
   // orientation='surface' = −tilt about world +X) becomes the
-  // drafting-board surface normal in world. The thumb's own
-  // rotation is constant — no per-frame billboard — so the glyph
-  // stays fixed on the sphere as the camera moves.
-  it('thumb is statically oriented with the glyph at slider-local +Y', () => {
+  // drafting-board's outward surface normal in world. The slab
+  // is modelled thin in slot-local Z (front face at z=0) so
+  // slot-local +Z is perpendicular to the slab's flat face. The
+  // thumb's own rotation is identity — no per-frame billboard —
+  // so the glyph stays fixed on the sphere as the camera moves.
+  it('thumb is statically oriented with the glyph at slider-local +Z', () => {
     const slider = makeSlider({ thumbLabel: 'x' });
     const thumb = findThumbMesh(slider);
 
-    // The thumb's own rotation: about local +X by −π/2.
-    expect(thumb.rotation.x).toBeCloseTo(-Math.PI / 2, 8);
+    // No additional thumb rotation; the geometry's rotateY(−π/2)
+    // pre-orients the texture so mesh-local +Z carries the glyph.
+    expect(thumb.rotation.x).toBeCloseTo(0, 8);
     expect(thumb.rotation.y).toBeCloseTo(0, 8);
     expect(thumb.rotation.z).toBeCloseTo(0, 8);
 
-    // The geometry rotation (rotateY(−π/2)) moved the texture's
-    // UV (0.5, 0.5) point from sphere-local +X to sphere-local
-    // +Z. Applying the thumb's quaternion to sphere-local +Z
-    // should yield slider-local +Y.
+    // Applying the thumb's quaternion (identity) to mesh-local
+    // +Z yields slider-local +Z.
     const glyphDirSliderLocal = new THREE.Vector3(0, 0, 1).applyQuaternion(
       thumb.quaternion,
     );
     expect(glyphDirSliderLocal.x).toBeCloseTo(0, 5);
-    expect(glyphDirSliderLocal.y).toBeCloseTo(1, 5);
-    expect(glyphDirSliderLocal.z).toBeCloseTo(0, 5);
+    expect(glyphDirSliderLocal.y).toBeCloseTo(0, 5);
+    expect(glyphDirSliderLocal.z).toBeCloseTo(1, 5);
   });
 
   it('glyph faces the drafting-board surface normal under plinth tilt', () => {
     // Reproduce the cluster mounting: slider-group rotated by
     // −tilt about world +X (matches
     // Plinth.computePlinthSlotTransform with orientation='surface').
-    // The thumb's static orientation, composed with this parent
-    // rotation, should put the glyph direction at world
-    // (0, cos(tilt), −sin(tilt)) — the surface normal direction
-    // the Plinth comment documents.
+    // The slab is thin in slot-local Z with the outward face at
+    // z=0, so slot-local +Z is the surface normal. After the slot
+    // rotation, slider-local +Z maps to world (0, sin(tilt),
+    // cos(tilt)) — "up and toward the user" — the direction a
+    // user leaning over the drafting board would read along.
     const slider = makeSlider({ thumbLabel: 'θ' });
     const thumb = findThumbMesh(slider);
 
@@ -384,8 +386,8 @@ describe('Slider thumb texture (#278)', () => {
     glyphDirWorld.applyQuaternion(thumbWorldQuat);
 
     expect(glyphDirWorld.x).toBeCloseTo(0, 5);
-    expect(glyphDirWorld.y).toBeCloseTo(Math.cos(tilt), 5);
-    expect(glyphDirWorld.z).toBeCloseTo(-Math.sin(tilt), 5);
+    expect(glyphDirWorld.y).toBeCloseTo(Math.sin(tilt), 5);
+    expect(glyphDirWorld.z).toBeCloseTo(Math.cos(tilt), 5);
   });
 
   it('thumb orientation does NOT track camera movement', () => {
