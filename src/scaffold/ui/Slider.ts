@@ -1,5 +1,8 @@
 import * as THREE from 'three';
-import { Text } from 'troika-three-text';
+import {
+  acquireBakedSymbolTexture,
+  releaseBakedSymbolTexture,
+} from '@/scaffold/ui/bakedSymbolTexture';
 import { raySphereHit } from '@/scaffold/ui/rayHit';
 import type { Pointer } from '@/shell/Pointer';
 
@@ -43,14 +46,17 @@ export interface SliderOptions {
   // copies of this (see THUMB_HOVER_SCALE / THUMB_GRAB_SCALE), so a single
   // base color suffices to retune per-slider visuals (#58).
   baseColor?: number;
-  // Symbol emblazoned on the front of the thumb sphere via a Troika
-  // `Text` child that yaw-billboards toward the camera (#276). Required:
-  // every cluster slider gets a label per the #276 plan's §2.2 table;
-  // the explicit per-slider field declares the slider's role inline
-  // rather than spreading it across a per-scene mapping. Pass any
-  // Unicode string — the cluster's existing Troika consumers already
-  // render the full symbol set in source today (`x²` / `y²` / `z²` /
-  // `C` / `x` / `y` / `z` / `x₀` / `y₀` / `z₀` / `θ` / `φ` / `k`).
+  // Symbol emblazoned on the thumb sphere via a baked
+  // `(symbol, baseColor)` canvas texture wired into the sphere
+  // material's `map` slot (#278; #276 was the planar-billboard
+  // predecessor). Required: every cluster slider gets a label per
+  // the #276 plan's §2.2 table; the explicit per-slider field
+  // declares the slider's role inline rather than spreading it
+  // across a per-scene mapping. Pass any Unicode string the
+  // platform's `system-ui` font covers — the cluster's existing
+  // symbol set (`x²` / `y²` / `z²` / `C` / `x` / `y` / `z` /
+  // `x₀` / `y₀` / `z₀` / `θ` / `φ` / `k`) all render correctly on
+  // every targeted browser including Quest 3S.
   // Empty string is the structural opt-out for a future scene that
   // wants a bare sphere.
   thumbLabel: string;
@@ -60,42 +66,6 @@ const DEFAULT_TRACK_LENGTH = 0.3;
 const DEFAULT_THUMB_RADIUS = 0.025;
 const DEFAULT_DRAG_GAIN = 1.75;
 const DEFAULT_BASE_COLOR = 0xeeaa33;
-
-// Thumb-label visual constants (#276). First-pass per
-// `feedback_staging_dimensions_first_pass`; bracket + next-step doc
-// comments per `feedback_binary_search_visual_constants`.
-//
-// thumbRadius default = 0.025 m. Cluster readouts use 0.028 m fontSize
-// at ~0.7 m viewing distance. The thumb label sits at ~1.0 m viewing
-// distance (plinth + user spawn arm's-length-forward), so a slightly
-// smaller fontSize reads at the same angular size. Target label width
-// ≈ thumbRadius for the widest single-char symbol (`x²`, ~1.4 em);
-// narrower symbols (`x`, `θ`, `C`) come in at ~0.7 × thumbRadius.
-// Bracket [0.014, 0.024]: if labels read too small at 1.0 m, bump
-// toward 0.022 / 0.024; if a symbol clips outside the sphere
-// silhouette, drop toward 0.014. One dial per round.
-const SLIDER_THUMB_LABEL_FONT_SIZE = 0.018;
-
-// Standoff from the sphere surface. Without lift, the text quad
-// intersects the sphere at the placement point and produces z-fight
-// shimmer on Quest 3S panels (same regression class as
-// `SURFACE_LABEL_STANDOFF_M` in TapButton.ts). 1.5 mm is below the
-// pixel size of a Quest 3S panel at 1.0 m, so the gap isn't visible
-// as a floating glyph. Bracket [0.0005, 0.003]: bump up if z-fight
-// appears at oblique angles; drop down if the label reads as a decal
-// hovering off the surface.
-const SLIDER_THUMB_LABEL_STANDOFF_M = 0.0015;
-
-// Label color + outline. Matches the established TapButton precedent
-// (`LABEL_COLOR = 0xffffff`, `LABEL_OUTLINE_WIDTH = '8%'`,
-// `LABEL_OUTLINE_COLOR = 0x000000`). White-on-tint with a black
-// outline reads cleanly against every cluster body color: vermillion,
-// bluish-green, sky-blue, yellow, neutral gray. The 8% outline is
-// the same constant `READOUT_OUTLINE_WIDTH` uses across cluster
-// readouts.
-const SLIDER_THUMB_LABEL_COLOR = 0xffffff;
-const SLIDER_THUMB_LABEL_OUTLINE_WIDTH = '8%';
-const SLIDER_THUMB_LABEL_OUTLINE_COLOR = 0x000000;
 
 const HAPTIC_AMPLITUDE = 0.5;
 const HAPTIC_DURATION_MS = 10;
@@ -123,7 +93,6 @@ export class Slider {
   private readonly opts: Required<SliderOptions>;
   private readonly track: THREE.Mesh;
   private readonly thumb: THREE.Mesh;
-  private readonly thumbLabelText: Text;
   private readonly thumbWorld = new THREE.Vector3();
   // Skew-line projection scratches (allocated once per Slider). Shared
   // between `rayHitsThumb` (ray-sphere hit-test) and
@@ -135,21 +104,18 @@ export class Slider {
   private readonly sliderOrigin = new THREE.Vector3();
   private readonly axisDir = new THREE.Vector3();
   private readonly v = new THREE.Vector3();
-  // faceCamera scratches (#276 §3.3.1). `thumbCenterWorld` is read
-  // once per faceCamera tick (step 1, thumb's world position) and
-  // not re-used inside the call. The plan's S3 finding warned
-  // against the v1 algorithm's double-aliasing of this field for
-  // two semantically different reads; the v2 algorithm doesn't read
-  // a label-world position at all (the label's world placement is
-  // implied by the local-frame `position = camFacingLocal * offset`
-  // through the parent transform), so a separate `labelWorld`
-  // scratch isn't needed.
+  // faceCamera scratches (#278). The thumb yaw-billboards the
+  // baked texture toward the camera; the parent-inverse uses the
+  // SLIDER GROUP's world quaternion (not the thumb's own), since
+  // `thumb.quaternion` is interpreted in slider-group-local frame.
+  // The slider group inherits the plinth's ~20° X-tilt; without
+  // the inverse, a naive write to `thumb.rotation.y` would tilt
+  // the texture instead of yawing it.
   private readonly thumbCenterWorld = new THREE.Vector3();
   private readonly camWorld = new THREE.Vector3();
   private readonly camFacingWorld = new THREE.Vector3();
-  private readonly camFacingLocal = new THREE.Vector3();
-  private readonly thumbWorldQuat = new THREE.Quaternion();
-  private readonly thumbWorldQuatInv = new THREE.Quaternion();
+  private readonly sliderGroupWorldQuat = new THREE.Quaternion();
+  private readonly sliderGroupWorldQuatInv = new THREE.Quaternion();
   private readonly desiredWorldQuat = new THREE.Quaternion();
   // World-Y unit vector for `setFromAxisAngle`. Per-instance readonly
   // (not module-scope export) avoids the `feedback_threejs_token_exports_immutable`
@@ -158,6 +124,7 @@ export class Slider {
   private readonly worldY = new THREE.Vector3(0, 1, 0);
   private readonly hoverEmissive: THREE.Color;
   private readonly grabEmissive: THREE.Color;
+  private _disposed = false;
 
   // `rawValue` integrates hand motion every frame, untouched by detents.
   // `currentValue` is the emitted value — snapped to the nearest
@@ -220,37 +187,24 @@ export class Slider {
     this.hoverEmissive = baseColor.clone().multiplyScalar(THUMB_HOVER_SCALE);
     this.grabEmissive = baseColor.clone().multiplyScalar(THUMB_GRAB_SCALE);
 
+    // Per-slider baked emblazon texture (#278). One refcounted
+    // entry per unique `(thumbLabel, baseColor)` pair; the
+    // texture carries body color + centered white glyph, and the
+    // material's `color: 0xffffff` lets the texture supply the
+    // entire diffuse pass. `thumb.userData.thumbLabel` exposes
+    // the symbol assignment for test discovery (Slider tests read
+    // this instead of traversing for a Text child as in #276).
+    const thumbTexture = acquireBakedSymbolTexture(
+      options.thumbLabel,
+      this.opts.baseColor,
+    );
     this.thumb = new THREE.Mesh(
       new THREE.SphereGeometry(this.opts.thumbRadius, 16, 12),
-      new THREE.MeshStandardMaterial({ color: baseColor }),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, map: thumbTexture }),
     );
     this.thumb.userData.role = 'slider-thumb';
+    this.thumb.userData.thumbLabel = options.thumbLabel;
     this.group.add(this.thumb);
-
-    // Per-slider thumb label (#276). Troika `Text` child of the thumb
-    // mesh — the label rides with the thumb as the user drags. Position
-    // and rotation are rewritten every frame by `faceCamera`; the
-    // values below are the at-construction defaults so the label sits
-    // outside the sphere envelope even before any faceCamera dispatch
-    // (e.g. on the first render). `userData.role` marker is the test-
-    // discovery hook (Slider.test.ts traverses the scene graph by
-    // role, not by child-index).
-    this.thumbLabelText = new Text();
-    this.thumbLabelText.userData.role = 'slider-thumb-label';
-    this.thumbLabelText.text = options.thumbLabel;
-    this.thumbLabelText.fontSize = SLIDER_THUMB_LABEL_FONT_SIZE;
-    this.thumbLabelText.color = SLIDER_THUMB_LABEL_COLOR;
-    this.thumbLabelText.anchorX = 'center';
-    this.thumbLabelText.anchorY = 'middle';
-    this.thumbLabelText.outlineWidth = SLIDER_THUMB_LABEL_OUTLINE_WIDTH;
-    this.thumbLabelText.outlineColor = SLIDER_THUMB_LABEL_OUTLINE_COLOR;
-    this.thumbLabelText.position.set(
-      0,
-      0,
-      this.opts.thumbRadius + SLIDER_THUMB_LABEL_STANDOFF_M,
-    );
-    this.thumbLabelText.sync();
-    this.thumb.add(this.thumbLabelText);
 
     this.syncThumbPosition();
     // Initial emissive via the centralized state machine, not by relying on
@@ -279,46 +233,57 @@ export class Slider {
   }
 
   dispose(): void {
+    // Idempotent guard (#278). Calling dispose() twice is a clean
+    // no-op; matches Three.js's own dispose conventions and lets
+    // scene-teardown / HMR / error-recovery paths be sloppy
+    // without surfacing spurious warnings from
+    // `releaseBakedSymbolTexture`.
+    if (this._disposed) return;
+    this._disposed = true;
     this.track.geometry.dispose();
     (this.track.material as THREE.Material).dispose();
     this.thumb.geometry.dispose();
     (this.thumb.material as THREE.Material).dispose();
-    this.thumbLabelText.dispose();
+    releaseBakedSymbolTexture(this.opts.thumbLabel, this.opts.baseColor);
   }
 
   /**
-   * Yaw-billboard the thumb's emblazon label (#276) to face the camera
-   * in the world-XZ plane. Position uses the same XZ-projected camera
-   * direction as the orientation, so the label rides the sphere
-   * equator regardless of camera elevation — pancake crouched/tall
-   * poses and VR head pitch don't move the label onto the upper or
-   * lower hemisphere where the vertical glyph plane would non-tangent
-   * the sphere.
+   * Yaw-billboard the thumb sphere (#278) so the baked emblazon
+   * texture's centered glyph (sphere +Z surface point) faces the
+   * camera in the world-XZ plane. The sphere body is uniform-
+   * colored away from the glyph, so the rotation is visually
+   * invisible apart from the glyph region; the user always sees
+   * the glyph from any camera azimuth.
    *
-   * Each cluster scene dispatches this on every visible slider per
-   * frame (`for (const s of allSliders) s.faceCamera(camera)`),
-   * matching the established `TapButton.faceCamera(camera)` pattern.
+   * Yaw-only convention (#29): camera elevation is ignored so the
+   * texture stays world-upright and a head tilt in VR doesn't
+   * roll the glyph. The parent-inverse uses the SLIDER GROUP's
+   * world quaternion (not the thumb's own) because
+   * `thumb.quaternion` is interpreted in slider-group-local
+   * frame; the slider group inherits the plinth's ~20° X-tilt,
+   * so a naive `thumb.rotation.set(0, yaw, 0)` would tilt the
+   * texture instead of yawing it about world-Y.
    *
-   * `getWorldPosition` / `getWorldQuaternion` call `updateWorldMatrix(
-   * true, false)` internally (three.js r152+), so we don't need an
-   * explicit `scene.updateMatrixWorld(true)` here even though
-   * `Slider.update()` writes `thumb.position` earlier in the same
-   * frame. Three.js's auto-update walks the parent chain and
-   * recomputes `matrixWorld` lazily.
+   * Each cluster scene dispatches this on every visible slider
+   * per frame (`for (const s of allSliders) s.faceCamera(camera)`),
+   * matching the established `TapButton.faceCamera(camera)`
+   * pattern.
+   *
+   * `getWorldPosition` / `getWorldQuaternion` call
+   * `updateWorldMatrix(true, false)` internally (three.js r152+),
+   * so we don't need an explicit `scene.updateMatrixWorld(true)`
+   * here even though `Slider.update()` writes `thumb.position`
+   * earlier in the same frame.
    */
   faceCamera(camera: THREE.Camera): void {
     // 1. World vector from thumb to camera, projected onto world-XZ.
-    //    Yaw-only convention (#29): ignore camera elevation so the
-    //    glyph plane stays world-vertical and a head tilt in VR
-    //    doesn't roll the label.
     this.thumb.getWorldPosition(this.thumbCenterWorld);
     camera.getWorldPosition(this.camWorld);
     this.camFacingWorld.subVectors(this.camWorld, this.thumbCenterWorld);
     this.camFacingWorld.y = 0;
     // Near-degenerate guard: camera ~directly above / below the
     // thumb. No defined yaw; fall back to world +Z so the rotation
-    // is well-defined and a pancake camera move past the thumb's
-    // vertical line doesn't NaN out.
+    // stays well-defined.
     const xzLen = this.camFacingWorld.length();
     if (xzLen < 1e-6) {
       this.camFacingWorld.set(0, 0, 1);
@@ -327,37 +292,26 @@ export class Slider {
     }
 
     // 2. Desired world-space quaternion: yaw about world-Y so the
-    //    label glyph plane (Troika local +Z normal) faces the camera.
-    //    `setFromAxisAngle` is read-only on `worldY`.
+    //    sphere's local +Z surface point (where the glyph centers
+    //    at U=0.5, V=0.5 under SphereGeometry's default
+    //    equirectangular UVs) points at the camera.
     const yaw = Math.atan2(this.camFacingWorld.x, this.camFacingWorld.z);
     this.desiredWorldQuat.setFromAxisAngle(this.worldY, yaw);
 
-    // 3. Convert the desired world quaternion to label-local space
-    //    via the parent's (= thumb's) inverse world quaternion. The
-    //    thumb has no rotation in its slider group, but the slider
-    //    group inherits the plinth's ~20° X-tilt — so the thumb's
-    //    world quaternion captures the full parent chain. Writing
-    //    a world yaw directly into local rotation Y would be wrong
-    //    under a tilted parent (the local-Y axis is tilted forward).
-    this.thumb.getWorldQuaternion(this.thumbWorldQuat);
-    this.thumbWorldQuatInv.copy(this.thumbWorldQuat).invert();
-    this.thumbLabelText.quaternion
-      .copy(this.thumbWorldQuatInv)
+    // 3. Convert the desired world quaternion to slider-group-local
+    //    space via the slider group's inverse world quaternion, then
+    //    write to `thumb.quaternion`.
+    this.group.getWorldQuaternion(this.sliderGroupWorldQuat);
+    this.sliderGroupWorldQuatInv.copy(this.sliderGroupWorldQuat).invert();
+    this.thumb.quaternion
+      .copy(this.sliderGroupWorldQuatInv)
       .multiply(this.desiredWorldQuat);
 
-    // 4. Label position: in world frame the label sits at
-    //    `thumbWorld + camFacingWorld * (R + standoff)`. Express
-    //    the offset as a thumb-local position by rotating the
-    //    XZ-projected unit direction through the inverse parent
-    //    quaternion. The world-frame result is then identical to
-    //    the world-space placement.
-    this.camFacingLocal
-      .copy(this.camFacingWorld)
-      .applyQuaternion(this.thumbWorldQuatInv);
-    const offset = this.opts.thumbRadius + SLIDER_THUMB_LABEL_STANDOFF_M;
-    this.thumbLabelText.position
-      .copy(this.camFacingLocal)
-      .multiplyScalar(offset);
+    // 4. No position write — the glyph is baked into the sphere
+    //    surface; rotating the sphere moves the glyph. The thumb's
+    //    `thumb.position.x` track-tracking write in
+    //    `syncThumbPosition` is the only position write the thumb
+    //    mesh receives.
   }
 
   /**
