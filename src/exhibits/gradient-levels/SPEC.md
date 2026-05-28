@@ -197,8 +197,11 @@ reads top→bottom as "where on this surface (θ, φ) ← which surface
 sits underneath.
 
 All three sliders share `SLIDER_BASE_COLOR = 0xaaaaaa` (neutral
-gray) and `thumbShape: 'sphere'`. None of θ/φ/k carries axis
-meaning — distinct from quadrics' axis-tinted coefficient sliders.
+gray) — none of θ/φ/k carries axis meaning, distinct from quadrics'
+axis-tinted coefficient sliders. Each thumb is a solid sphere
+emblazoned with its symbol via `thumbLabel: 'θ'` / `'φ'` / `'k'`
+(#276); the textual emblazon replaced the pre-#276 axis-arrow vs
+sphere visual distinction across the cluster.
 
 ## Gradient arrow (#165)
 

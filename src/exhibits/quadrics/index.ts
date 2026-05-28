@@ -42,7 +42,7 @@ import {
 } from '@/scaffold/staging/Plinth';
 import { Section } from '@/scaffold/ui/Section';
 import { SectionTab } from '@/scaffold/ui/SectionTab';
-import { Slider, type ThumbShape } from '@/scaffold/ui/Slider';
+import { Slider } from '@/scaffold/ui/Slider';
 import {
   GRAB_RADIUS_MULTIPLIER_PLINTH,
   SLIDER_SNAP_DETENT,
@@ -397,23 +397,25 @@ function easeInOutCubic(t: number): number {
 // Per-slider config: name + base color + thumb shape. Color is the
 // at-a-glance identification; shape additionally maps each axis-coefficient
 // slider's thumb to its spatial direction — bidirectional 3D arrows
-// aligned with the corresponding world axis (slider 'a' = math-X arrow
-// along the track; slider 'b' = math-Y arrow forward/back from the
-// viewer; slider 'c' = math-Z arrow up/down). Slider 'd' is the constant
-// term and has no spatial direction, so a directionless sphere reads
-// pedagogically truthful. Replaces the original sphere/cube/octahedron/
-// cylinder set from #58 (Q4 redundancy cue) — those were visually
-// distinct but didn't carry meaning; the arrows do.
+// each axis-tinted (vermillion / bluish-green / sky-blue for math-X /
+// Y / Z) and emblazoned with the textual symbol the slider drives —
+// `x²` / `y²` / `z²` for the squared-coefficient sliders, `C` for the
+// constant-term `d` (the latter shared across the Squared and Linear
+// lenses via #140's single-instance mounting; see `dSlider` below).
+// The textual emblazon replaces the pre-#276 bidirectional 3D
+// axis-arrow vocabulary, which read as stale next to the plinth-era
+// staging and (in #256) couldn't survive a translucent-bubble
+// alternative either (see memory `feedback_translucent_at_thumb_scale_fails`).
 type CoeffName = 'a' | 'b' | 'c' | 'd';
 const SLIDER_CONFIG: readonly {
   readonly name: CoeffName;
   readonly color: number;
-  readonly shape: ThumbShape;
+  readonly label: string;
 }[] = [
-  { name: 'a', color: VERMILLION,   shape: 'arrow-x' },
-  { name: 'b', color: BLUISH_GREEN, shape: 'arrow-y' },
-  { name: 'c', color: SKY_BLUE,     shape: 'arrow-z' },
-  { name: 'd', color: YELLOW,       shape: 'sphere' },
+  { name: 'a', color: VERMILLION,   label: 'x²' },
+  { name: 'b', color: BLUISH_GREEN, label: 'y²' },
+  { name: 'c', color: SKY_BLUE,     label: 'z²' },
+  { name: 'd', color: YELLOW,       label: 'C'  },
 ];
 
 // Linear-terms section (#88, scoped by #85). Each slider drives the linear
@@ -429,11 +431,11 @@ type LinearName = 'u' | 'v' | 'w';
 const LINEAR_SLIDER_CONFIG: readonly {
   readonly name: LinearName;
   readonly color: number;
-  readonly shape: ThumbShape;
+  readonly label: string;
 }[] = [
-  { name: 'u', color: VERMILLION,   shape: 'arrow-x' },
-  { name: 'v', color: BLUISH_GREEN, shape: 'arrow-y' },
-  { name: 'w', color: SKY_BLUE,     shape: 'arrow-z' },
+  { name: 'u', color: VERMILLION,   label: 'x' },
+  { name: 'v', color: BLUISH_GREEN, label: 'y' },
+  { name: 'w', color: SKY_BLUE,     label: 'z' },
 ];
 
 // Cross-sections section (#84, expanded #112, toggles #134). Three sliders
@@ -487,11 +489,11 @@ type CrossSectionName = 'x₀' | 'y₀' | 'z₀';
 const CROSS_SECTION_SLIDER_CONFIG: readonly {
   readonly name: CrossSectionName;
   readonly color: number;
-  readonly shape: ThumbShape;
+  readonly label: string;
 }[] = [
-  { name: 'x₀', color: VERMILLION,   shape: 'arrow-x' },
-  { name: 'y₀', color: BLUISH_GREEN, shape: 'arrow-y' },
-  { name: 'z₀', color: SKY_BLUE,     shape: 'arrow-z' },
+  { name: 'x₀', color: VERMILLION,   label: 'x₀' },
+  { name: 'y₀', color: BLUISH_GREEN, label: 'y₀' },
+  { name: 'z₀', color: SKY_BLUE,     label: 'z₀' },
 ];
 // Section names are also the labels rendered on each tab. The cross-
 // section name doubles as the active-section identifier driving
@@ -1039,7 +1041,7 @@ const quadricsExhibit: Exhibit = {
         snapPoints: SLIDER_SNAP_POINTS_CANONICAL,
         grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
         baseColor: cfg.color,
-        thumbShape: cfg.shape,
+        thumbLabel: cfg.label,
       });
     });
     // `sliders` is the math-routing array [a, b, c, d] and feeds the
@@ -1089,7 +1091,7 @@ const quadricsExhibit: Exhibit = {
         snapPoints: SLIDER_SNAP_POINTS_CANONICAL,
         grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
         baseColor: cfg.color,
-        thumbShape: cfg.shape,
+        thumbLabel: cfg.label,
       });
     });
     linearSliders = linearTermSliders;
@@ -1113,7 +1115,7 @@ const quadricsExhibit: Exhibit = {
         snapPoints: SLIDER_SNAP_POINTS_ZERO_ONLY,
         grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
         baseColor: cfg.color,
-        thumbShape: cfg.shape,
+        thumbLabel: cfg.label,
       });
     });
     crossSectionSliders = crossSectionTermSliders;
@@ -1419,6 +1421,19 @@ const quadricsExhibit: Exhibit = {
       activeSection.name !== CROSS_SECTION_SECTION_NAME
     ) {
       dSlider.updateHover(pointers);
+    }
+    // Per-frame yaw-billboard the thumb labels (#276). Same
+    // visibility-gating as updateHover: only the active section's
+    // sliders + dSlider (when not Cross-sections) chase the camera,
+    // so hidden controls don't thrash their label transforms.
+    if (camera) {
+      for (const s of activeSection.sliders) s.faceCamera(camera);
+      if (
+        dSlider !== undefined &&
+        activeSection.name !== CROSS_SECTION_SECTION_NAME
+      ) {
+        dSlider.faceCamera(camera);
+      }
     }
     // Cross-section toggles tick / hover only while their section is
     // focused. Their groups inherit visibility from the slider groups
