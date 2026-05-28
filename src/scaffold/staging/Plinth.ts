@@ -51,14 +51,23 @@ import * as THREE from 'three';
 //     `localRotation` in slot-local frame; composed onto the surface
 //     base).
 //
-// Billboarded-primitive carve-out: Label and the four readout classes
-// overwrite `group.rotation` every frame via `faceCamera`. For their
-// slots, `orientation` is documentation-only — they yaw-billboard
-// regardless. The slot position still binds them to the plinth
-// surface; the rotation just gets overwritten next frame. At normal
-// headset / pancake distances this reads as "the surface is tilted
-// but the text on it stays facing you," which is desired behavior
-// for legibility, not a compromise.
+// Slot orientation is mechanically applied at construction; callers
+// that later write `group.rotation` / `group.quaternion` override it.
+// The four readout classes do this every frame via `faceCamera`,
+// which yaw-billboards them toward the camera. Per-slider value
+// `Label`s in the cluster scenes intentionally do NOT call
+// `Label.faceCamera` as of #280 — they remain surface-locked through
+// the slot's default `'surface'` orientation, matching the
+// `SectionTab` vocabulary landed in #255. `rackLabel` in quadrics is
+// the one remaining `Label.faceCamera` in-tree caller; consolidating
+// its rendering is deferred to #270 (which should be scoped to
+// include it alongside the readout family).
+//
+// Plinth-mounted per-slider value labels also receive a 1 mm
+// `slot.localXYZ[2]` standoff applied at the consumer site to
+// resolve coplanar z-fighting against the slab top face. This
+// mirrors `SectionTab`'s `SURFACE_LABEL_STANDOFF_M`
+// (`TapButton.ts:104–118`).
 //
 // Surface-tilted tap-affordance opt-out (#255 PR2). TapButton-based
 // primitives (Preset / SectionTab / SceneTab) also use `faceCamera`
@@ -155,11 +164,15 @@ const PLINTH_SLAB_THICKNESS = 0.025;
  * - `'custom'` — caller supplies `localRotation` (in slot-local
  *   frame); composed onto the surface-tilt base.
  *
- * Note: Label and the four readout classes overwrite
- * `group.rotation` every frame via `faceCamera`. For their slots,
- * `orientation` is documentation-only — they yaw-billboard
- * regardless of the slot rotation contract. See file-top
- * "Billboarded-primitive carve-out" comment.
+ * Note: slot orientation is mechanically applied at construction;
+ * callers that later write `group.rotation` / `group.quaternion`
+ * override it. The four readout classes do this every frame via
+ * `faceCamera`. Per-slider value `Label`s in the cluster scenes
+ * intentionally do NOT call `Label.faceCamera` as of #280 and remain
+ * surface-locked through this slot orientation. `rackLabel` in
+ * quadrics is the one remaining `Label.faceCamera` in-tree caller
+ * (deferred to #270). See file-top comment for the consumer-side
+ * z-standoff convention applied to surface-locked labels.
  *
  * Note: TapButton-based primitives (Preset / SectionTab / SceneTab)
  * inherit the slot rotation on their button bodies cleanly, but
