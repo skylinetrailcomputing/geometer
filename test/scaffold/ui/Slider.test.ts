@@ -1,5 +1,33 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as THREE from 'three';
+
+// `troika-three-text` reaches for `self`, a browser-only global, in
+// its UMD `now$1` helper. The default vitest environment is Node,
+// so any `new Text()` would blow up at construction time. Stub the
+// module with an Object3D-backed surrogate; matches the pattern in
+// `TapButton.test.ts` / `Preset.test.ts` / `PointerMigration.test.ts`.
+// None of this file's assertions touch text rendering — `Object3D`
+// gives the position/rotation/quaternion machinery the faceCamera
+// algorithm needs, plus a `text` string property the label-text
+// assertions read.
+vi.mock('troika-three-text', () => {
+  class StubText extends THREE.Object3D {
+    text = '';
+    fontSize = 0;
+    color = 0xffffff;
+    anchorX: string | undefined;
+    anchorY: string | undefined;
+    outlineWidth: string | undefined;
+    outlineColor: number | undefined;
+    sync() {}
+    dispose() {}
+  }
+  return { Text: StubText };
+});
+
+import { Text } from 'troika-three-text';
 import { Slider } from '@/scaffold/ui/Slider';
+import type { Pointer } from '@/shell/Pointer';
 
 // Vitest coverage for `Slider.setRange` (#178), the constructor's
 // snap-point validation pass (#200), and `Slider.setSnapPoints` (#200).
@@ -20,6 +48,8 @@ function makeSlider(overrides: Partial<{
   initial: number;
   snapDetent: number;
   snapPoints: readonly number[];
+  thumbLabel: string;
+  baseColor: number;
 }> = {}) {
   return new Slider({
     label: 'test',
@@ -29,6 +59,7 @@ function makeSlider(overrides: Partial<{
     snapDetent: 0.05,
     snapPoints: [0],
     grabRadiusMultiplier: 2.75,
+    thumbLabel: 'test',
     ...overrides,
   });
 }
@@ -190,5 +221,242 @@ describe('Slider.setSnapPoints (#200)', () => {
     expect(() => slider.setSnapPoints([1.02])).toThrow(/outside range/);
     // Exact-max remains valid (inclusive bounds).
     expect(() => slider.setSnapPoints([1])).not.toThrow();
+  });
+});
+
+// Thumb-label test scaffolding (#276 plan §4.2). Tests locate scene-
+// graph nodes by `userData.role` traversal, not by positional indexing.
+
+function findThumbMesh(slider: Slider): THREE.Mesh {
+  let found: THREE.Mesh | null = null;
+  slider.group.traverse((obj) => {
+    if (obj.userData?.role === 'slider-thumb') {
+      found = obj as THREE.Mesh;
+    }
+  });
+  if (!found) throw new Error('slider-thumb role not found');
+  return found;
+}
+
+function findThumbLabel(slider: Slider): Text {
+  let found: Text | null = null;
+  slider.group.traverse((obj) => {
+    if (obj.userData?.role === 'slider-thumb-label') {
+      found = obj as Text;
+    }
+  });
+  if (!found) throw new Error('slider-thumb-label role not found');
+  return found;
+}
+
+// Stub Pointer aimed at a given world position along world −Z; thumb
+// at world origin → ray hits the thumb's grab sphere.
+interface StubPointer extends Pointer {
+  origin: THREE.Vector3;
+  direction: THREE.Vector3;
+}
+function stubPointer(
+  origin: [number, number, number],
+  direction: [number, number, number],
+): StubPointer {
+  return {
+    id: 'test',
+    origin: new THREE.Vector3(...origin),
+    direction: new THREE.Vector3(...direction).normalize(),
+    pulse: vi.fn(),
+    getRayOrigin(target) {
+      return target.copy(this.origin);
+    },
+    getRayDirection(target) {
+      return target.copy(this.direction);
+    },
+  };
+}
+const HIT_RAY = (): StubPointer => stubPointer([0, 0, 1], [0, 0, -1]);
+
+describe('Slider thumb label (#276)', () => {
+  it('thumb is a single opaque sphere with a Text label child', () => {
+    const slider = makeSlider({ thumbLabel: 'x²', baseColor: 0xff0000 });
+    const thumb = findThumbMesh(slider);
+    expect(thumb).toBeInstanceOf(THREE.Mesh);
+    expect(thumb.geometry).toBeInstanceOf(THREE.SphereGeometry);
+    expect((thumb.geometry as THREE.SphereGeometry).parameters.radius).toBe(
+      0.025,
+    );
+    const mat = thumb.material as THREE.MeshStandardMaterial;
+    expect(mat.transparent).toBe(false);
+    expect(mat.color.getHex()).toBe(0xff0000);
+    // Exactly one child of the thumb mesh — the Text label.
+    expect(thumb.children).toHaveLength(1);
+    expect(thumb.children[0].userData?.role).toBe('slider-thumb-label');
+  });
+
+  it('label text matches thumbLabel; persists through hover', () => {
+    // `initial: 0` parks the thumb at slider-local origin so HIT_RAY
+    // (aimed at world (0,0,0) along −Z) reliably hits the grab sphere.
+    const slider = makeSlider({ thumbLabel: 'θ', initial: 0 });
+    const thumb = findThumbMesh(slider);
+    const label = findThumbLabel(slider);
+    expect(label.text).toBe('θ');
+
+    slider.updateHover([HIT_RAY()]);
+    expect(slider.isHovered).toBe(true);
+    expect(label.text).toBe('θ');
+    expect(label.parent).toBe(thumb);
+
+    slider.updateHover([]);
+    expect(slider.isHovered).toBe(false);
+    expect(label.text).toBe('θ');
+    expect(label.parent).toBe(thumb);
+  });
+
+  it('label persists through tryGrab / releaseFromPointer', () => {
+    const slider = makeSlider({ thumbLabel: 'C', initial: 0 });
+    const thumb = findThumbMesh(slider);
+    const label = findThumbLabel(slider);
+    const pointer = HIT_RAY();
+
+    expect(slider.tryGrab(pointer)).toBe(true);
+    expect(label.text).toBe('C');
+    expect(label.parent).toBe(thumb);
+
+    slider.releaseFromPointer(pointer);
+    expect(label.text).toBe('C');
+    expect(label.parent).toBe(thumb);
+  });
+
+  it('dispose() cleans up label, track, and thumb resources', () => {
+    const slider = makeSlider({ thumbLabel: 'x' });
+    const thumb = findThumbMesh(slider);
+    const label = findThumbLabel(slider);
+    // The track is the first child of the slider group (constructed
+    // before the thumb in Slider's ctor).
+    const track = slider.group.children.find(
+      (c) => c instanceof THREE.Mesh && c !== thumb,
+    ) as THREE.Mesh;
+    expect(track).toBeDefined();
+
+    const labelSpy = vi.spyOn(label, 'dispose');
+    const thumbGeomSpy = vi.spyOn(thumb.geometry, 'dispose');
+    const thumbMatSpy = vi.spyOn(thumb.material as THREE.Material, 'dispose');
+    const trackGeomSpy = vi.spyOn(track.geometry, 'dispose');
+    const trackMatSpy = vi.spyOn(track.material as THREE.Material, 'dispose');
+
+    slider.dispose();
+
+    expect(labelSpy).toHaveBeenCalledTimes(1);
+    expect(thumbGeomSpy).toHaveBeenCalledTimes(1);
+    expect(thumbMatSpy).toHaveBeenCalledTimes(1);
+    expect(trackGeomSpy).toHaveBeenCalledTimes(1);
+    expect(trackMatSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // Test 5: world-frame billboard correctness under a plinth-tilt
+  // parent. Replaces the v1-plan local-Euler assertion; world-frame
+  // assertions are the only way to detect the v1 algorithmic bug
+  // where local-Y rotation under a tilted parent diverges from
+  // world-Y yaw (#276 roundtable convergent HIGH).
+  it('faceCamera writes correct world-space billboard under plinth tilt', () => {
+    const slider = makeSlider({ thumbLabel: 'x' });
+    const thumb = findThumbMesh(slider);
+    const label = findThumbLabel(slider);
+
+    // Tilt parent: rotate the slider group 20° about world-X to
+    // mimic the plinth's surface tilt.
+    const scene = new THREE.Scene();
+    const tiltParent = new THREE.Object3D();
+    tiltParent.rotation.x = Math.PI / 9; // ≈ 20°
+    scene.add(tiltParent);
+    tiltParent.add(slider.group);
+
+    const camera = new THREE.PerspectiveCamera();
+
+    const labelWorld = new THREE.Vector3();
+    const thumbWorld = new THREE.Vector3();
+    const labelWorldQuat = new THREE.Quaternion();
+    const labelUp = new THREE.Vector3();
+    const labelForward = new THREE.Vector3();
+
+    const assertWorldFrameBillboard = (
+      camPos: [number, number, number],
+      label0: Text,
+    ): void => {
+      camera.position.set(...camPos);
+      scene.updateMatrixWorld(true);
+      slider.faceCamera(camera);
+      // updateMatrixWorld AFTER faceCamera so the label's transform
+      // writes (rotation + position in thumb-local frame) propagate
+      // to label.matrixWorld for the getWorldPosition / world-axis
+      // reads below.
+      scene.updateMatrixWorld(true);
+
+      // Use getWorldPosition for both thumb and label — NOT local
+      // `.position`. The plinth tilt makes the label's local frame
+      // distinct from world frame, and the world-frame equator check
+      // is what proves the algorithm correctly compensates the
+      // parent rotation.
+      label0.getWorldPosition(labelWorld);
+      thumb.getWorldPosition(thumbWorld);
+      label0.getWorldQuaternion(labelWorldQuat);
+
+      // Label world-up = local +Y transformed by world quaternion.
+      labelUp.set(0, 1, 0).applyQuaternion(labelWorldQuat);
+      // Yaw-only convention: label-up stays world-Y within float
+      // tolerance regardless of parent tilt.
+      expect(labelUp.x).toBeCloseTo(0, 5);
+      expect(labelUp.y).toBeCloseTo(1, 5);
+      expect(labelUp.z).toBeCloseTo(0, 5);
+
+      // Label world-forward = local +Z transformed by world
+      // quaternion. Projected onto world-XZ, it should align with
+      // the camera-to-thumb XZ direction.
+      labelForward.set(0, 0, 1).applyQuaternion(labelWorldQuat);
+      labelForward.y = 0;
+      labelForward.normalize();
+      const camFacing = new THREE.Vector3(
+        camPos[0] - thumbWorld.x,
+        0,
+        camPos[2] - thumbWorld.z,
+      ).normalize();
+      expect(labelForward.dot(camFacing)).toBeGreaterThan(0.999);
+
+      // Label rides the sphere equator: world Y-offset from thumb
+      // is near zero. This is the GPT-roundtable position-vs-
+      // orientation conflict gate.
+      expect(labelWorld.y - thumbWorld.y).toBeCloseTo(0, 5);
+
+      // Magnitude of world offset = thumbRadius + standoff.
+      const offsetWorld = new THREE.Vector3().subVectors(labelWorld, thumbWorld);
+      expect(offsetWorld.length()).toBeCloseTo(0.025 + 0.0015, 4);
+    };
+
+    // Standing eye-level pose.
+    assertWorldFrameBillboard([0, 1.5, 1.0], label);
+    // Tall pose — vertical camera move; label still rides the equator.
+    assertWorldFrameBillboard([0, 1.8, 1.0], label);
+    // Crouched pose.
+    assertWorldFrameBillboard([0, 1.3, 1.0], label);
+    // Yaw-change pose — camera rotated in XZ around the thumb.
+    assertWorldFrameBillboard([1.0, 1.5, 1.0], label);
+  });
+
+  it('empty-string label is a structurally valid opt-out', () => {
+    const slider = makeSlider({ thumbLabel: '' });
+    const label = findThumbLabel(slider);
+    expect(label.text).toBe('');
+  });
+
+  it('ctor places label outside sphere envelope before faceCamera', () => {
+    const slider = makeSlider({ thumbLabel: 'x²' });
+    const label = findThumbLabel(slider);
+    // Neutral local +Z placement set in ctor; faceCamera will refine
+    // it once the scene is mounted + a camera available, but the
+    // constructor-time default sits OUTSIDE the sphere envelope so
+    // the first render lands cleanly even without a faceCamera
+    // dispatch.
+    expect(label.position.x).toBe(0);
+    expect(label.position.y).toBe(0);
+    expect(label.position.z).toBeCloseTo(0.025 + 0.0015, 6);
+    expect(label.position.length()).toBeGreaterThan(0.025);
   });
 });

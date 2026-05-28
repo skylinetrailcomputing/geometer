@@ -350,7 +350,7 @@ const saddleExtremaExhibit: Exhibit = {
       snapPoints: buildAxisSnapPoints(initialPreset.criticalPoints, 0),
       grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
       baseColor: VERMILLION,
-      thumbShape: 'sphere',
+      thumbLabel: 'x',
     });
 
     // y slider — bluish-green (math-Y axis tint).
@@ -363,7 +363,7 @@ const saddleExtremaExhibit: Exhibit = {
       snapPoints: buildAxisSnapPoints(initialPreset.criticalPoints, 1),
       grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
       baseColor: BLUISH_GREEN,
-      thumbShape: 'sphere',
+      thumbLabel: 'y',
     });
 
     // Per-slider labels — primary = variable name (set once at mount),
@@ -483,6 +483,10 @@ const saddleExtremaExhibit: Exhibit = {
       ySlider.updateHover(pointers);
       xSlider.update();
       ySlider.update();
+      if (camera) {
+        xSlider.faceCamera(camera);
+        ySlider.faceCamera(camera);
+      }
 
       const x = xSlider.value;
       const y = ySlider.value;

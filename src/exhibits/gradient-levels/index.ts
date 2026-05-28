@@ -377,7 +377,7 @@ const gradientLevelsExhibit: Exhibit = {
       snapPoints: THETA_SNAP_POINTS,
       grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
       baseColor: SLIDER_BASE_COLOR,
-      thumbShape: 'sphere',
+      thumbLabel: 'θ',
     });
 
     phiSlider = new Slider({
@@ -389,7 +389,7 @@ const gradientLevelsExhibit: Exhibit = {
       snapPoints: PHI_SNAP_POINTS,
       grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
       baseColor: SLIDER_BASE_COLOR,
-      thumbShape: 'sphere',
+      thumbLabel: 'φ',
     });
 
     // k slider — `initial` matches the extraUniforms.uK seed above so
@@ -404,7 +404,7 @@ const gradientLevelsExhibit: Exhibit = {
       snapPoints: K_SNAP_POINTS,
       grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
       baseColor: SLIDER_BASE_COLOR,
-      thumbShape: 'sphere',
+      thumbLabel: 'k',
     });
 
     // Point indicator — math-object affordance at world frame.
@@ -514,6 +514,11 @@ const gradientLevelsExhibit: Exhibit = {
     kSlider.update();
     thetaSlider.update();
     phiSlider.update();
+    if (camera) {
+      kSlider.faceCamera(camera);
+      thetaSlider.faceCamera(camera);
+      phiSlider.faceCamera(camera);
+    }
 
     // 2. Push k into the surface uniform (existing #163 path).
     if (surfaceMaterial) {

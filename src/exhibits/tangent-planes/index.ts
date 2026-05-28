@@ -406,7 +406,7 @@ const tangentPlanesExhibit: Exhibit = {
       snapPoints: THETA_SNAP_POINTS,
       grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
       baseColor: SLIDER_BASE_COLOR,
-      thumbShape: 'sphere',
+      thumbLabel: 'θ',
     });
 
     phiSlider = new Slider({
@@ -418,7 +418,7 @@ const tangentPlanesExhibit: Exhibit = {
       snapPoints: PHI_SNAP_POINTS,
       grabRadiusMultiplier: GRAB_RADIUS_MULTIPLIER_PLINTH,
       baseColor: SLIDER_BASE_COLOR,
-      thumbShape: 'sphere',
+      thumbLabel: 'φ',
     });
 
     // Per-slider variable + value labels (#170). Right-anchored so
@@ -529,6 +529,10 @@ const tangentPlanesExhibit: Exhibit = {
     phiSlider.updateHover(pointers);
     thetaSlider.update();
     phiSlider.update();
+    if (camera) {
+      thetaSlider.faceCamera(camera);
+      phiSlider.faceCamera(camera);
+    }
 
     // Controller-aim picking refresh (#197). Re-raycast each frame while
     // the trigger is held so picking reads as a continuous drag rather

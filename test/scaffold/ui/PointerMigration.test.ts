@@ -86,6 +86,7 @@ describe('Slider — Pointer contract', () => {
       snapDetent: 0,
       snapPoints: [],
       grabRadiusMultiplier: 2.75,
+      thumbLabel: 'test',
     });
   }
 
