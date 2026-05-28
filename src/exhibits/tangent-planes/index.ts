@@ -490,15 +490,18 @@ const tangentPlanesExhibit: Exhibit = {
         target: phiSlider.group,
         localXYZ: [0, PLINTH_SLIDER_TOP_Y - SLIDER_ROW_PITCH, 0],
       },
+      // Per-slider value labels: 1 mm slot-Z standoff resolves
+      // coplanar z-fighting against the slab top face. Mirrors
+      // `SectionTab`'s `SURFACE_LABEL_STANDOFF_M` (`TapButton.ts:104–118`).
       {
         id: 'label-theta',
         target: thetaLabel.group,
-        localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_SLIDER_TOP_Y, 0],
+        localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_SLIDER_TOP_Y, 0.001],
       },
       {
         id: 'label-phi',
         target: phiLabel.group,
-        localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_SLIDER_TOP_Y - SLIDER_ROW_PITCH, 0],
+        localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_SLIDER_TOP_Y - SLIDER_ROW_PITCH, 0.001],
       },
       {
         id: 'readout',
@@ -544,19 +547,21 @@ const tangentPlanesExhibit: Exhibit = {
     // Per-slider value labels (#170). `formatAnglePiFraction` is
     // snap-aware: with PHI_INITIAL = π/4 and PHI_SNAP_POINTS not
     // including π/4, the boot pose renders as "0.25π" not the false-snap
-    // "π/4" glyph. faceCamera runs unconditionally so the label stays
-    // billboarded even on frames where the slider value didn't change.
-    if (thetaLabel && camera) {
+    // "π/4" glyph. Labels are surface-locked via the plinth slot's
+    // default `'surface'` orientation (#280) — no per-frame
+    // `faceCamera`; the slot's `R_x(−tilt)` rotation written at
+    // construction holds, and slot z-standoff resolves coplanar
+    // z-fighting against the slab (mirrors `SectionTab`'s
+    // `SURFACE_LABEL_STANDOFF_M`, `TapButton.ts:104–118`).
+    if (thetaLabel) {
       thetaLabel.setSecondary(
         formatAnglePiFraction(thetaSlider.value, THETA_SNAP_POINTS),
       );
-      thetaLabel.faceCamera(camera);
     }
-    if (phiLabel && camera) {
+    if (phiLabel) {
       phiLabel.setSecondary(
         formatAnglePiFraction(phiSlider.value, PHI_SNAP_POINTS),
       );
-      phiLabel.faceCamera(camera);
     }
 
     // Math-frame direction from θ/φ — mutates `dirMath` in place; no

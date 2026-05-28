@@ -441,8 +441,11 @@ const saddleExtremaExhibit: Exhibit = {
     const slots: PlinthSlot[] = [
       { id: 'slider-x', target: xSlider.group, localXYZ: [0, PLINTH_X_SLIDER_Y, 0] },
       { id: 'slider-y', target: ySlider.group, localXYZ: [0, PLINTH_Y_SLIDER_Y, 0] },
-      { id: 'label-x', target: xLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_X_SLIDER_Y, 0] },
-      { id: 'label-y', target: yLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_Y_SLIDER_Y, 0] },
+      // Per-slider value labels: 1 mm slot-Z standoff resolves coplanar
+      // z-fighting against the slab top face. Mirrors `SectionTab`'s
+      // `SURFACE_LABEL_STANDOFF_M` (`TapButton.ts:104–118`).
+      { id: 'label-x', target: xLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_X_SLIDER_Y, 0.001] },
+      { id: 'label-y', target: yLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_Y_SLIDER_Y, 0.001] },
     ];
     presetButtons.forEach((btn, i) => {
       slots.push({
@@ -505,14 +508,14 @@ const saddleExtremaExhibit: Exhibit = {
       }
 
       // 3. Per-slider value labels — linear-decimal format (Cartesian
-      //    coords, not angles).
-      if (xLabel && camera) {
+      //    coords, not angles). Surface-locked via plinth slot's
+      //    default `'surface'` orientation (#280) — no per-frame
+      //    `faceCamera`.
+      if (xLabel) {
         xLabel.setSecondary(formatLinearDecimal(x));
-        xLabel.faceCamera(camera);
       }
-      if (yLabel && camera) {
+      if (yLabel) {
         yLabel.setSecondary(formatLinearDecimal(y));
-        yLabel.faceCamera(camera);
       }
 
       // 4. Classification readout (#181). Hessian evaluated at the

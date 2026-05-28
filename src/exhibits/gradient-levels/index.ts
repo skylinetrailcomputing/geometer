@@ -475,9 +475,12 @@ const gradientLevelsExhibit: Exhibit = {
       { id: 'slider-theta', target: thetaSlider.group, localXYZ: [0, PLINTH_THETA_Y, 0] },
       { id: 'slider-phi', target: phiSlider.group, localXYZ: [0, PLINTH_PHI_Y, 0] },
       { id: 'slider-k', target: kSlider.group, localXYZ: [0, PLINTH_K_Y, 0] },
-      { id: 'label-theta', target: thetaLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_THETA_Y, 0] },
-      { id: 'label-phi', target: phiLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_PHI_Y, 0] },
-      { id: 'label-k', target: kLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_K_Y, 0] },
+      // Per-slider value labels: 1 mm slot-Z standoff resolves coplanar
+      // z-fighting against the slab top face. Mirrors `SectionTab`'s
+      // `SURFACE_LABEL_STANDOFF_M` (`TapButton.ts:104–118`).
+      { id: 'label-theta', target: thetaLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_THETA_Y, 0.001] },
+      { id: 'label-phi', target: phiLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_PHI_Y, 0.001] },
+      { id: 'label-k', target: kLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_K_Y, 0.001] },
       { id: 'readout', target: gradientLevelsReadout.group, localXYZ: [0, PLINTH_READOUT_Y, 0] },
       {
         id: 'world-axes',
@@ -526,22 +529,21 @@ const gradientLevelsExhibit: Exhibit = {
     //     "π/4" glyph. `formatLinearDecimal` is the local helper above;
     //     extract-on-third-use deferred (only call site).
     //     `k` is preserved here for the raycast closure in step 4.
+    //     Labels surface-locked via plinth slot's default `'surface'`
+    //     orientation (#280) — no per-frame `faceCamera`.
     const k = kSlider.value;
-    if (thetaLabel && camera) {
+    if (thetaLabel) {
       thetaLabel.setSecondary(
         formatAnglePiFraction(thetaSlider.value, THETA_SNAP_POINTS),
       );
-      thetaLabel.faceCamera(camera);
     }
-    if (phiLabel && camera) {
+    if (phiLabel) {
       phiLabel.setSecondary(
         formatAnglePiFraction(phiSlider.value, PHI_SNAP_POINTS),
       );
-      phiLabel.faceCamera(camera);
     }
-    if (kLabel && camera) {
+    if (kLabel) {
       kLabel.setSecondary(formatLinearDecimal(k));
-      kLabel.faceCamera(camera);
     }
 
     // 3. Math-frame direction from θ/φ — mutates `dirMath` in place;

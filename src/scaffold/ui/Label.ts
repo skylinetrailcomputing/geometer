@@ -29,9 +29,18 @@ const OUTLINE_WIDTH = '6%';
 const OUTLINE_COLOR = 0x000000;
 
 /**
- * Two-line billboarded text label. Primary line on top (large), secondary
- * line below (small). Owns a single `THREE.Group` you can position on the
- * scene; call `faceCamera(camera)` per-frame to billboard.
+ * Two-line text label. Primary line on top (large), secondary line below
+ * (small). Owns a single `THREE.Group` you can position on the scene.
+ *
+ * Orientation: callers choose. `faceCamera(camera)` per-frame yaw-
+ * billboards the group toward the camera (used by mid-air, non-plinth
+ * consumers and by `rackLabel` in quadrics). Plinth-slotted callers in
+ * the cluster scenes' per-slider value labels (#170, surface-locked per
+ * #280) do NOT call `faceCamera` — they rely on the plinth slot's default
+ * `'surface'` orientation to inherit `R_x(−tilt)` at construction, and
+ * apply a 1 mm `slot.localXYZ[2]` standoff to resolve coplanar
+ * z-fighting against the slab. See `src/scaffold/staging/Plinth.ts`
+ * file-top comment.
  *
  * Reuse target: this primitive is shared with the per-slider labels in #22 —
  * keep the surface narrow and orientation-agnostic.
