@@ -104,24 +104,6 @@ export class Slider {
   private readonly sliderOrigin = new THREE.Vector3();
   private readonly axisDir = new THREE.Vector3();
   private readonly v = new THREE.Vector3();
-  // faceCamera scratches (#278). The thumb yaw-billboards the
-  // baked texture toward the camera; the parent-inverse uses the
-  // SLIDER GROUP's world quaternion (not the thumb's own), since
-  // `thumb.quaternion` is interpreted in slider-group-local frame.
-  // The slider group inherits the plinth's ~20° X-tilt; without
-  // the inverse, a naive write to `thumb.rotation.y` would tilt
-  // the texture instead of yawing it.
-  private readonly thumbCenterWorld = new THREE.Vector3();
-  private readonly camWorld = new THREE.Vector3();
-  private readonly camFacingWorld = new THREE.Vector3();
-  private readonly sliderGroupWorldQuat = new THREE.Quaternion();
-  private readonly sliderGroupWorldQuatInv = new THREE.Quaternion();
-  private readonly desiredWorldQuat = new THREE.Quaternion();
-  // World-Y unit vector for `setFromAxisAngle`. Per-instance readonly
-  // (not module-scope export) avoids the `feedback_threejs_token_exports_immutable`
-  // hazard; `setFromAxisAngle` is read-only on its axis arg, so this
-  // is never mutated.
-  private readonly worldY = new THREE.Vector3(0, 1, 0);
   private readonly hoverEmissive: THREE.Color;
   private readonly grabEmissive: THREE.Color;
   private _disposed = false;
@@ -198,22 +180,35 @@ export class Slider {
       options.thumbLabel,
       this.opts.baseColor,
     );
-    // Rotate the sphere geometry so the texture's centered UV
-    // (U=0.5, V=0.5) maps to thumb-local +Z instead of +X. Three.js
-    // `SphereGeometry`'s default equirectangular UV places (0.5,
-    // 0.5) on the local +X surface point (per the source's
-    // `vertex.x = -radius * cos(phiStart + u * phiLength) * ...`);
-    // without this rotation, faceCamera's yaw math (which writes
-    // local +Z toward the camera) would point the bare +Z side at
-    // the user and the glyph would face world +X. Vertices rotate;
-    // UVs don't, so the glyph effectively moves 90° around the
-    // sphere to land where faceCamera expects it.
+    // Two-step orientation so the glyph centers along the
+    // drafting-board surface normal (#278). The user works the
+    // sliders by leaning over the plinth, so the natural reading
+    // pose is looking down the surface normal — the glyph stays
+    // fixed on the sphere, NOT yaw-tracking the camera.
+    //
+    // Step 1: `SphereGeometry`'s default equirectangular UV places
+    // (U=0.5, V=0.5) on the local +X surface point (per
+    // three/src/geometries/SphereGeometry.js: `vertex.x = -radius
+    // * cos(phiStart + u * phiLength) * sin(...)`); rotate the
+    // VERTICES (UVs don't rotate, only positions) about local +Y
+    // so the glyph effectively moves 90° around the sphere to
+    // mesh-local +Z.
+    //
+    // Step 2: rotate the THUMB MESH itself about local +X by −π/2
+    // so the mesh-local +Z direction (carrying the glyph) maps to
+    // slider-local +Y. Sliders mount on the plinth with
+    // orientation='surface' (slot-frame rotation −tilt about
+    // world +X per `Plinth.computePlinthSlotTransform`), which
+    // makes slider-local +Y = surface normal in world. The glyph
+    // therefore faces along the drafting-board normal regardless
+    // of the cluster the slider lives in.
     const sphereGeom = new THREE.SphereGeometry(this.opts.thumbRadius, 16, 12);
     sphereGeom.rotateY(-Math.PI / 2);
     this.thumb = new THREE.Mesh(
       sphereGeom,
       new THREE.MeshStandardMaterial({ color: 0xffffff, map: thumbTexture }),
     );
+    this.thumb.rotation.x = -Math.PI / 2;
     this.thumb.userData.role = 'slider-thumb';
     this.thumb.userData.thumbLabel = options.thumbLabel;
     this.group.add(this.thumb);
@@ -257,73 +252,6 @@ export class Slider {
     this.thumb.geometry.dispose();
     (this.thumb.material as THREE.Material).dispose();
     releaseBakedSymbolTexture(this.opts.thumbLabel, this.opts.baseColor);
-  }
-
-  /**
-   * Yaw-billboard the thumb sphere (#278) so the baked emblazon
-   * texture's centered glyph (sphere +Z surface point) faces the
-   * camera in the world-XZ plane. The sphere body is uniform-
-   * colored away from the glyph, so the rotation is visually
-   * invisible apart from the glyph region; the user always sees
-   * the glyph from any camera azimuth.
-   *
-   * Yaw-only convention (#29): camera elevation is ignored so the
-   * texture stays world-upright and a head tilt in VR doesn't
-   * roll the glyph. The parent-inverse uses the SLIDER GROUP's
-   * world quaternion (not the thumb's own) because
-   * `thumb.quaternion` is interpreted in slider-group-local
-   * frame; the slider group inherits the plinth's ~20° X-tilt,
-   * so a naive `thumb.rotation.set(0, yaw, 0)` would tilt the
-   * texture instead of yawing it about world-Y.
-   *
-   * Each cluster scene dispatches this on every visible slider
-   * per frame (`for (const s of allSliders) s.faceCamera(camera)`),
-   * matching the established `TapButton.faceCamera(camera)`
-   * pattern.
-   *
-   * `getWorldPosition` / `getWorldQuaternion` call
-   * `updateWorldMatrix(true, false)` internally (three.js r152+),
-   * so we don't need an explicit `scene.updateMatrixWorld(true)`
-   * here even though `Slider.update()` writes `thumb.position`
-   * earlier in the same frame.
-   */
-  faceCamera(camera: THREE.Camera): void {
-    // 1. World vector from thumb to camera, projected onto world-XZ.
-    this.thumb.getWorldPosition(this.thumbCenterWorld);
-    camera.getWorldPosition(this.camWorld);
-    this.camFacingWorld.subVectors(this.camWorld, this.thumbCenterWorld);
-    this.camFacingWorld.y = 0;
-    // Near-degenerate guard: camera ~directly above / below the
-    // thumb. No defined yaw; fall back to world +Z so the rotation
-    // stays well-defined.
-    const xzLen = this.camFacingWorld.length();
-    if (xzLen < 1e-6) {
-      this.camFacingWorld.set(0, 0, 1);
-    } else {
-      this.camFacingWorld.divideScalar(xzLen);
-    }
-
-    // 2. Desired world-space quaternion: yaw about world-Y so the
-    //    sphere's local +Z surface point (where the glyph centers
-    //    at U=0.5, V=0.5 under SphereGeometry's default
-    //    equirectangular UVs) points at the camera.
-    const yaw = Math.atan2(this.camFacingWorld.x, this.camFacingWorld.z);
-    this.desiredWorldQuat.setFromAxisAngle(this.worldY, yaw);
-
-    // 3. Convert the desired world quaternion to slider-group-local
-    //    space via the slider group's inverse world quaternion, then
-    //    write to `thumb.quaternion`.
-    this.group.getWorldQuaternion(this.sliderGroupWorldQuat);
-    this.sliderGroupWorldQuatInv.copy(this.sliderGroupWorldQuat).invert();
-    this.thumb.quaternion
-      .copy(this.sliderGroupWorldQuatInv)
-      .multiply(this.desiredWorldQuat);
-
-    // 4. No position write — the glyph is baked into the sphere
-    //    surface; rotating the sphere moves the glyph. The thumb's
-    //    `thumb.position.x` track-tracking write in
-    //    `syncThumbPosition` is the only position write the thumb
-    //    mesh receives.
   }
 
   /**

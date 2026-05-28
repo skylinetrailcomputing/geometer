@@ -483,10 +483,6 @@ const saddleExtremaExhibit: Exhibit = {
       ySlider.updateHover(pointers);
       xSlider.update();
       ySlider.update();
-      if (camera) {
-        xSlider.faceCamera(camera);
-        ySlider.faceCamera(camera);
-      }
 
       const x = xSlider.value;
       const y = ySlider.value;

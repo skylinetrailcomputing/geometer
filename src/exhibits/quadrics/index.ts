@@ -1422,19 +1422,10 @@ const quadricsExhibit: Exhibit = {
     ) {
       dSlider.updateHover(pointers);
     }
-    // Per-frame yaw-billboard the thumb labels (#276). Same
-    // visibility-gating as updateHover: only the active section's
-    // sliders + dSlider (when not Cross-sections) chase the camera,
-    // so hidden controls don't thrash their label transforms.
-    if (camera) {
-      for (const s of activeSection.sliders) s.faceCamera(camera);
-      if (
-        dSlider !== undefined &&
-        activeSection.name !== CROSS_SECTION_SECTION_NAME
-      ) {
-        dSlider.faceCamera(camera);
-      }
-    }
+    // Thumb labels are statically oriented along the plinth's
+    // surface normal (#278) — no per-frame billboard. The glyph
+    // stays fixed on the sphere surface; the user reads it from
+    // the natural lean-over working pose.
     // Cross-section toggles tick / hover only while their section is
     // focused. Their groups inherit visibility from the slider groups
     // (Section.setActive flips slider.group.visible), so a hidden

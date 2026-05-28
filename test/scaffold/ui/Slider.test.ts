@@ -332,93 +332,86 @@ describe('Slider thumb texture (#278)', () => {
     expect(_cacheStateForTests().size).toBe(0);
   });
 
-  // World-frame billboard correctness under a plinth-tilt parent.
-  // Same algorithm as #276 §3.3.1 but retargeted from
-  // `thumbLabelText.quaternion` to `thumb.quaternion`. The
-  // parent-inverse uses the slider GROUP's world quaternion (not
-  // the thumb's own) since `thumb.quaternion` is interpreted in
-  // slider-group-local frame.
-  it('faceCamera yaws thumb.quaternion correctly under plinth tilt', () => {
+  // Static-orientation invariant: the glyph faces slider-local
+  // +Y, which under the slot-frame rotation a cluster scene
+  // applies (`Plinth.computePlinthSlotTransform` with
+  // orientation='surface' = −tilt about world +X) becomes the
+  // drafting-board surface normal in world. The thumb's own
+  // rotation is constant — no per-frame billboard — so the glyph
+  // stays fixed on the sphere as the camera moves.
+  it('thumb is statically oriented with the glyph at slider-local +Y', () => {
     const slider = makeSlider({ thumbLabel: 'x' });
     const thumb = findThumbMesh(slider);
 
-    // Tilt parent: rotate the slider group 20° about world-X to
-    // mimic the plinth's surface tilt.
-    const scene = new THREE.Scene();
-    const tiltParent = new THREE.Object3D();
-    tiltParent.rotation.x = Math.PI / 9; // ≈ 20°
-    scene.add(tiltParent);
-    tiltParent.add(slider.group);
+    // The thumb's own rotation: about local +X by −π/2.
+    expect(thumb.rotation.x).toBeCloseTo(-Math.PI / 2, 8);
+    expect(thumb.rotation.y).toBeCloseTo(0, 8);
+    expect(thumb.rotation.z).toBeCloseTo(0, 8);
 
-    const camera = new THREE.PerspectiveCamera();
-
-    const thumbWorld = new THREE.Vector3();
-    const thumbWorldQuat = new THREE.Quaternion();
-    const thumbUp = new THREE.Vector3();
-    const thumbForward = new THREE.Vector3();
-
-    const assertThumbBillboard = (camPos: [number, number, number]): void => {
-      camera.position.set(...camPos);
-      scene.updateMatrixWorld(true);
-      slider.faceCamera(camera);
-      scene.updateMatrixWorld(true);
-
-      thumb.getWorldPosition(thumbWorld);
-      thumb.getWorldQuaternion(thumbWorldQuat);
-
-      // Thumb world-up = local +Y transformed by world quaternion.
-      // Yaw-only convention: thumb-up stays world-Y within float
-      // tolerance regardless of parent tilt.
-      thumbUp.set(0, 1, 0).applyQuaternion(thumbWorldQuat);
-      expect(thumbUp.x).toBeCloseTo(0, 5);
-      expect(thumbUp.y).toBeCloseTo(1, 5);
-      expect(thumbUp.z).toBeCloseTo(0, 5);
-
-      // Thumb world-forward = local +Z transformed by world
-      // quaternion. The texture's centered glyph sits at the
-      // sphere's +Z surface point (U=0.5, V=0.5 in equirectangular
-      // UVs); world-forward projected onto world-XZ should align
-      // with the camera-to-thumb XZ direction.
-      thumbForward.set(0, 0, 1).applyQuaternion(thumbWorldQuat);
-      thumbForward.y = 0;
-      thumbForward.normalize();
-      const camFacing = new THREE.Vector3(
-        camPos[0] - thumbWorld.x,
-        0,
-        camPos[2] - thumbWorld.z,
-      ).normalize();
-      expect(thumbForward.dot(camFacing)).toBeGreaterThan(0.999);
-    };
-
-    // Standing eye-level, tall, crouched, yaw-change.
-    assertThumbBillboard([0, 1.5, 1.0]);
-    assertThumbBillboard([0, 1.8, 1.0]);
-    assertThumbBillboard([0, 1.3, 1.0]);
-    assertThumbBillboard([1.0, 1.5, 1.0]);
+    // The geometry rotation (rotateY(−π/2)) moved the texture's
+    // UV (0.5, 0.5) point from sphere-local +X to sphere-local
+    // +Z. Applying the thumb's quaternion to sphere-local +Z
+    // should yield slider-local +Y.
+    const glyphDirSliderLocal = new THREE.Vector3(0, 0, 1).applyQuaternion(
+      thumb.quaternion,
+    );
+    expect(glyphDirSliderLocal.x).toBeCloseTo(0, 5);
+    expect(glyphDirSliderLocal.y).toBeCloseTo(1, 5);
+    expect(glyphDirSliderLocal.z).toBeCloseTo(0, 5);
   });
 
-  it('faceCamera is idempotent for camera-unchanged calls', () => {
+  it('glyph faces the drafting-board surface normal under plinth tilt', () => {
+    // Reproduce the cluster mounting: slider-group rotated by
+    // −tilt about world +X (matches
+    // Plinth.computePlinthSlotTransform with orientation='surface').
+    // The thumb's static orientation, composed with this parent
+    // rotation, should put the glyph direction at world
+    // (0, cos(tilt), −sin(tilt)) — the surface normal direction
+    // the Plinth comment documents.
+    const slider = makeSlider({ thumbLabel: 'θ' });
+    const thumb = findThumbMesh(slider);
+
+    const tilt = (20 * Math.PI) / 180; // PLINTH_TILT_DEFAULT
+    const scene = new THREE.Scene();
+    scene.add(slider.group);
+    slider.group.rotation.x = -tilt;
+    scene.updateMatrixWorld(true);
+
+    // Walk the glyph direction from mesh-local +Z to world.
+    const glyphDirWorld = new THREE.Vector3(0, 0, 1);
+    const thumbWorldQuat = new THREE.Quaternion();
+    thumb.getWorldQuaternion(thumbWorldQuat);
+    glyphDirWorld.applyQuaternion(thumbWorldQuat);
+
+    expect(glyphDirWorld.x).toBeCloseTo(0, 5);
+    expect(glyphDirWorld.y).toBeCloseTo(Math.cos(tilt), 5);
+    expect(glyphDirWorld.z).toBeCloseTo(-Math.sin(tilt), 5);
+  });
+
+  it('thumb orientation does NOT track camera movement', () => {
+    // Static-orientation contract: there is no faceCamera method;
+    // the thumb's quaternion never changes after construction (the
+    // only writes touching the thumb mesh during update() are
+    // syncThumbPosition's position.x writes).
     const slider = makeSlider({ thumbLabel: 'y' });
     const thumb = findThumbMesh(slider);
 
-    const scene = new THREE.Scene();
-    scene.add(slider.group);
-    const camera = new THREE.PerspectiveCamera();
-    camera.position.set(0, 1.5, 1.0);
-    scene.updateMatrixWorld(true);
+    const q0 = thumb.quaternion.clone();
 
-    slider.faceCamera(camera);
-    const q1 = thumb.quaternion.clone();
-    slider.faceCamera(camera);
-    const q2 = thumb.quaternion.clone();
+    // Drive the slider's update path; quaternion must stay put.
+    slider.setValue(1.0);
+    slider.setValue(-1.0);
+    slider.update();
 
-    // No accumulation — second call produces same quaternion as
-    // first. Catches the class of mistake where the algorithm
-    // composes onto the existing quaternion instead of overwriting.
-    expect(q2.x).toBeCloseTo(q1.x, 8);
-    expect(q2.y).toBeCloseTo(q1.y, 8);
-    expect(q2.z).toBeCloseTo(q1.z, 8);
-    expect(q2.w).toBeCloseTo(q1.w, 8);
+    expect(thumb.quaternion.x).toBeCloseTo(q0.x, 8);
+    expect(thumb.quaternion.y).toBeCloseTo(q0.y, 8);
+    expect(thumb.quaternion.z).toBeCloseTo(q0.z, 8);
+    expect(thumb.quaternion.w).toBeCloseTo(q0.w, 8);
+
+    // The Slider class no longer exposes a `faceCamera` method.
+    expect(
+      (slider as unknown as { faceCamera?: unknown }).faceCamera,
+    ).toBeUndefined();
   });
 
   it('empty-string label is a structurally valid opt-out', () => {

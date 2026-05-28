@@ -529,10 +529,6 @@ const tangentPlanesExhibit: Exhibit = {
     phiSlider.updateHover(pointers);
     thetaSlider.update();
     phiSlider.update();
-    if (camera) {
-      thetaSlider.faceCamera(camera);
-      phiSlider.faceCamera(camera);
-    }
 
     // Controller-aim picking refresh (#197). Re-raycast each frame while
     // the trigger is held so picking reads as a continuous drag rather
