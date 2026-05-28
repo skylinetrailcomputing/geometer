@@ -21,16 +21,16 @@ import * as THREE from 'three';
 // `feedback_binary_search_visual_constants`.
 const TEXTURE_SIZE_PX = 256;
 
-// Glyph height in texture pixels. Round 2 of binary search per
-// `feedback_binary_search_visual_constants`: round 1 (160) read
-// in Brad's pancake smoke as "wraps a full hemisphere of the
-// slider" — too distorted on the sphere. Dropping to 112 (=
-// 0.7 × 160) shrinks the glyph footprint so it drifts over less
-// of the sphere surface. Bracket [80, 144]: if 112 still reads
-// as wrapping too much, drop toward 96 / 80; if it's now too
-// small for the narrower glyphs (e.g., `θ`), bump back toward
-// 128 / 144. One dial per round.
-const GLYPH_FONT_SIZE_PX = 112;
+// Glyph height in texture pixels. Round 3 of binary search per
+// `feedback_binary_search_visual_constants`. Round 1 (160) read
+// as a full-hemisphere wrap; round 2 (112) was tighter but still
+// drifting over more of the sphere than wanted. Round 3 = 90 (≈
+// 0.56 × original; Brad asked for "0.5× original" while specifying
+// 90, so the rounded number wins). Tight bracket [78, 108] now
+// that we're converging: drop toward 78 if 90 still feels too
+// wrappy; bump toward 108 if the narrower glyphs (`θ`) read
+// undersized.
+const GLYPH_FONT_SIZE_PX = 90;
 
 // `system-ui` resolves to the OS default UI font: San Francisco on
 // macOS, Segoe UI on Windows, Roboto / Noto Sans on Android (incl.
