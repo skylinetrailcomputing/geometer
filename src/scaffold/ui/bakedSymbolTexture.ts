@@ -21,15 +21,16 @@ import * as THREE from 'three';
 // `feedback_binary_search_visual_constants`.
 const TEXTURE_SIZE_PX = 256;
 
-// Glyph height in texture pixels. The font occupies ~60% of the
-// canvas height; the surrounding 20% top + 20% bottom is body
-// color. On an equirectangular sphere UV the glyph at V=0.5 reads
-// at the equator; horizontal scale ≈ vertical scale at the
-// equator's center, so the glyph stays roughly square. Bracket
-// [120, 200]: drop if smoke shows the glyph overhanging the sphere
-// silhouette; bump if it reads as too small for narrower glyphs
-// like `θ`.
-const GLYPH_FONT_SIZE_PX = 160;
+// Glyph height in texture pixels. Round 2 of binary search per
+// `feedback_binary_search_visual_constants`: round 1 (160) read
+// in Brad's pancake smoke as "wraps a full hemisphere of the
+// slider" — too distorted on the sphere. Dropping to 112 (=
+// 0.7 × 160) shrinks the glyph footprint so it drifts over less
+// of the sphere surface. Bracket [80, 144]: if 112 still reads
+// as wrapping too much, drop toward 96 / 80; if it's now too
+// small for the narrower glyphs (e.g., `θ`), bump back toward
+// 128 / 144. One dial per round.
+const GLYPH_FONT_SIZE_PX = 112;
 
 // `system-ui` resolves to the OS default UI font: San Francisco on
 // macOS, Segoe UI on Windows, Roboto / Noto Sans on Android (incl.
