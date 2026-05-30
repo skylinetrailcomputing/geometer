@@ -21,19 +21,20 @@ const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
  * `OrbitControls` wrapper configured for the cluster's spatial
  * envelope (pancake plan v3 §3.3, parent #105, this issue #192).
  *
- * Leaf module — not yet consumed. #193 wires this into `bootShell()`
- * behind the desktop boot path. Until then, this module is
- * purely additive.
+ * Per-scene spawn pose as of #263. `spawnWorldXYZ` is the initial
+ * camera position — derived per-scene from the cluster stage-pose
+ * helper (`scaffold/staging/clusterStagePose.ts`), or the cluster-
+ * uniform fallback `(0, 1.6, 3.7)` for non-cluster exhibits.
  *
  * Mutations applied at construction time:
  *
  * 1. `controls.target` set to `SURFACE_CENTER` so user-driven orbit
- *    rotates around the cluster anchor.
- * 2. `camera.position` overrides the unused-in-XR pre-session
- *    `(0, 1.6, 3)` set at `shell.ts:94`. Desktop mode is the first
- *    time the `PerspectiveCamera`'s position matters at render time
- *    — XR renders via an `ArrayCamera` driven by HMD pose, not this
- *    `PerspectiveCamera` (pancake plan v3 §3.3, S5 / G10).
+ *    rotates around the cluster anchor (cluster-uniform; the math
+ *    object stays put across scene-hops per #263 §1).
+ * 2. `camera.position` set to the boot exhibit's `spawnWorldXYZ`.
+ *    XR renders via an `ArrayCamera` driven by HMD pose, not this
+ *    `PerspectiveCamera` (pancake plan v3 §3.3, S5 / G10) — the
+ *    `spawnWorldXYZ` parameter is pancake-mode only.
  * 3. `camera.lookAt(SURFACE_CENTER)` runs **after** the OrbitControls
  *    constructor (which itself calls `update()` against the default
  *    `target = (0,0,0)` and would re-orient + reposition the camera).
@@ -53,7 +54,8 @@ const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
  */
 export function createCameraControls(
   camera: THREE.PerspectiveCamera,
-  domElement: HTMLElement | null = null,
+  domElement: HTMLElement | null,
+  spawnWorldXYZ: readonly [number, number, number],
 ): OrbitControls {
   const controls = new OrbitControls(camera, domElement);
 
@@ -70,21 +72,7 @@ export function createCameraControls(
   // configuration, not whatever spherical the constructor derived
   // against the default `target = (0, 0, 0)`.
   controls.target.copy(SURFACE_CENTER);
-  // Pancake spawn pose (#240; v2 #225 PR1). Z = 3.7 places the
-  // camera ~7.7 m from `SURFACE_CENTER`, leaving ~2.2 m of foreground
-  // floor visible between the user and quadrics' cutout near-edge
-  // (the tightest of the four cluster scenes' StageFloor cutouts at
-  // z = -0.5). Original #240 pose was Z = 3 (~1.5 m foreground);
-  // shifted +0.7 m in +world-Z alongside the plinth lift (#225 PR1
-  // first-smoke maintainer feedback) so the user spawns on the same
-  // side of the inner railing as the plinth's interactables rather
-  // than orbiting in from "behind" the controls. Earlier #240 pose
-  // `(0, 1.6, 0)` placed the camera right at the front of every
-  // cutout — no foreground floor on first paint. Z values that
-  // expose foreground depend on the shell's vertical FOV = 75°
-  // (`shell.ts:86`); the math derivation is in
-  // `_private/plans/240-pancake-default-camera.md` §3.
-  camera.position.set(0, 1.6, 3.7);
+  camera.position.set(spawnWorldXYZ[0], spawnWorldXYZ[1], spawnWorldXYZ[2]);
   camera.lookAt(SURFACE_CENTER);
 
   // Re-seed OrbitControls' internal `_lastPosition` from the corrected
@@ -100,9 +88,34 @@ export function createCameraControls(
   // this, `position0` / `target0` carry the constructor-time pre-
   // overwrite values (default target = origin, pre-init camera
   // position) and `controls.reset()` would teleport to the wrong pose.
+  // `applyPancakeSpawnForExhibit` re-snapshots after every scene-hop
+  // so reset goes back to the current scene's pose, not the boot pose.
   controls.saveState();
 
   return controls;
+}
+
+/**
+ * Reposition the pancake camera + refresh OrbitControls reset
+ * baseline for a newly-mounted exhibit (#263 §3.3). Called from
+ * `switchExhibitNow` in `shell.ts` after `target.mount(ctx)` when
+ * `cameraControls !== null` (pancake-mode guard).
+ *
+ * Keeps `target` at `SURFACE_CENTER` defensively — the math object
+ * stays put across scene-hops, so the orbit pivot is invariant.
+ * `controls.saveState()` snapshots the new pose so `reset()` goes
+ * back to the current scene's spawn, not the boot scene's.
+ */
+export function applyPancakeSpawnForExhibit(
+  camera: THREE.PerspectiveCamera,
+  controls: OrbitControls,
+  spawnWorldXYZ: readonly [number, number, number],
+): void {
+  camera.position.set(spawnWorldXYZ[0], spawnWorldXYZ[1], spawnWorldXYZ[2]);
+  camera.lookAt(SURFACE_CENTER);
+  controls.target.copy(SURFACE_CENTER);
+  controls.update();
+  controls.saveState();
 }
 
 export { SURFACE_CENTER };

@@ -31,6 +31,7 @@ import {
   createStageFloor,
   type StageFloorHandles,
 } from '@/scaffold/staging/StageFloor';
+import { composeClusterStagePose } from '@/scaffold/staging/clusterStagePose';
 import {
   createContrastPit,
   type ContrastPitHandles,
@@ -83,11 +84,22 @@ import { BOUND, fJsRaw, gradJs } from './surfaceModel';
 // relocate the surface across sibling scenes.
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
 
-// Plinth (#225 / E1.4 PR2). Cluster-uniform anchor matches quadrics'
-// PR1 ship — railing/floor geometry is shared. Working-surface depth
-// default 0.5 m fits the 3-row slider rack at SLIDER_ROW_PITCH = 0.14 m
-// (slot-Y ∈ [0.135, 0.415]) with breathing room above and below.
-const PLINTH_ANCHOR_WORLD_XYZ = [0, 0, 0.05] as const;
+// Plinth (#225 / E1.4 PR2). Working-surface depth default 0.5 m fits
+// the 3-row slider rack at SLIDER_ROW_PITCH = 0.14 m (slot-Y ∈
+// [0.135, 0.415]) with breathing room above and below. Anchor is
+// derived per-scene from `composeClusterStagePose` (#263); see
+// `STAGE_POSE` declaration below. Gradient-levels' mid envelope
+// (BOUND = 3.0, no CUTOUT_VISUAL_MARGIN) means the derived anchor is
+// `[0, 0, -0.625]` — ~0.68 m closer to the math object than the pre-
+// #263 cluster-uniform `0.05`.
+const CUTOUT_DESCRIPTOR = {
+  kind: 'rect' as const,
+  centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z] as const,
+  halfExtentX: BOUND,
+  halfExtentZ: BOUND,
+};
+const STAGE_POSE = composeClusterStagePose({ cutout: CUTOUT_DESCRIPTOR });
+const PLINTH_ANCHOR_WORLD_XYZ = STAGE_POSE.plinthAnchorWorldXYZ;
 
 // Slot-local layout (slot-local +X right, +Y up the tilted face toward
 // the back, +Z out from the surface normal). Three-row rack centered
@@ -297,6 +309,10 @@ const gradientLevelsExhibit: Exhibit = {
   id: 'gradient-levels',
   title: 'Level surfaces',
   cluster: CLUSTER_CALCULUS3,
+  stage: {
+    pancakeSpawnWorldXYZ: STAGE_POSE.pancakeSpawnWorldXYZ,
+    vrSpawnOffsetWorldXYZ: STAGE_POSE.vrSpawnOffsetWorldXYZ,
+  },
 
   mount({ group, camera: cam, pointers: shellPointers }: ExhibitContext) {
     pointers = shellPointers;
@@ -315,12 +331,9 @@ const gradientLevelsExhibit: Exhibit = {
     // tongues reach world Z = -7 at extreme k; cluster-uniform back-
     // extension pushes the floor + railing back edge to Z = -8 with
     // 1 m clearance. See `_private/plans/223-illusory-railing.md` §3.5.
-    const cutoutDescriptor = {
-      kind: 'rect' as const,
-      centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z] as const,
-      halfExtentX: BOUND,
-      halfExtentZ: BOUND,
-    };
+    // Module-scope `CUTOUT_DESCRIPTOR` (#263) — same value drives
+    // both staging mounts and `STAGE_POSE` derivation.
+    const cutoutDescriptor = CUTOUT_DESCRIPTOR;
     stageFloor = createStageFloor({
       cutout: cutoutDescriptor,
       backExtension: 3,

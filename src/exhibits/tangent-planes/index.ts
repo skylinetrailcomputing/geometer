@@ -28,6 +28,9 @@ import { anglesFromDirection } from '@/scaffold/math/anglesFromDirection';
 import { directionFromAngles } from '@/scaffold/math/directionFromAngles';
 import { raycastImplicit } from '@/scaffold/render/raycastImplicit';
 import {
+  composeClusterStagePose,
+} from '@/scaffold/staging/clusterStagePose';
+import {
   createStageFloor,
   type StageFloorHandles,
 } from '@/scaffold/staging/StageFloor';
@@ -79,14 +82,13 @@ import { TangentPlaneReadout } from './TangentPlaneReadout';
 // relocate the surface across sibling scenes.
 const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
 
-// Plinth (#225 / E1.4 PR2). Anchor + working-surface depth match
-// quadrics' PR1 ship — the railing/floor geometry is cluster-uniform
-// (backExtension: 3, inner-railing perimeter at the cutout) so the
-// anchor that cleared quadrics' inner railing tube clears the same
-// geometry here. Working-surface depth default 0.5 m fits the 2-row
-// slider rack at SLIDER_ROW_PITCH = 0.14 m with breathing room above
-// and below.
-const PLINTH_ANCHOR_WORLD_XYZ = [0, 0, 0.05] as const;
+// Plinth (#225 / E1.4 PR2). Working-surface depth default 0.5 m fits
+// the 2-row slider rack at SLIDER_ROW_PITCH = 0.14 m with breathing
+// room above and below. Anchor is now derived per-scene from
+// `composeClusterStagePose` (#263); see `STAGE_POSE` declaration
+// below (after `BOUND`). Tangent-planes' smaller envelope means the
+// derived anchor is `[0, 0, -2.125]` — ~2.2 m closer to the math
+// object than quadrics' cluster-uniform `0.05` placement.
 
 // Slot-local layout (slot-local +X right, +Y up the tilted face toward
 // the back, +Z out from the surface normal). Two-row rack centered on
@@ -108,6 +110,23 @@ const PLINTH_AXIS_INDICATOR_Y = 0.275;
 // Tighter than quadrics' BOUND=3.5: the unit sphere fits in [-1, 1]³ with
 // room to spare; no coefficient-driven expansion to budget for.
 const BOUND = 1.5;
+
+// Cutout descriptor hoisted to module scope (#263) so the same
+// descriptor drives both the staging mounts AND the per-scene
+// `composeClusterStagePose` derivation. Tangent-planes is the only
+// cluster scene with a circle cutout (#238 Path A1).
+const CUTOUT_DESCRIPTOR = {
+  kind: 'circle' as const,
+  centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z] as const,
+  radius: BOUND,
+};
+// Per-scene stage pose (#263). With railing front at world Z =
+// SURFACE_CENTER.z + BOUND = -2.5, the derived anchor is
+// `[0, 0, -2.125]` — the plinth slides ~2.18 m toward the math
+// object vs the cluster-uniform `0.05`. Pancake spawn `[0, 1.6,
+// 1.525]`; VR spawn offset `[0, 0, -0.675]`.
+const STAGE_POSE = composeClusterStagePose({ cutout: CUTOUT_DESCRIPTOR });
+const PLINTH_ANCHOR_WORLD_XYZ = STAGE_POSE.plinthAnchorWorldXYZ;
 
 // Same lighting + base color as quadrics so the surface reads as a sibling.
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
@@ -328,6 +347,10 @@ const tangentPlanesExhibit: Exhibit = {
   id: 'tangent-planes',
   title: 'Tangent planes',
   cluster: CLUSTER_CALCULUS3,
+  stage: {
+    pancakeSpawnWorldXYZ: STAGE_POSE.pancakeSpawnWorldXYZ,
+    vrSpawnOffsetWorldXYZ: STAGE_POSE.vrSpawnOffsetWorldXYZ,
+  },
 
   mount({ group, camera: cam, pointers: shellPointers }: ExhibitContext) {
     pointers = shellPointers;
@@ -346,11 +369,9 @@ const tangentPlanesExhibit: Exhibit = {
     // sphere envelope is strictly inside the railing perimeter already
     // (plan §3.5). The per-scene `outerHalfExtent: 6` (vs cluster
     // default 5) remains the per-scene variation under Path A1.
-    const cutoutDescriptor = {
-      kind: 'circle' as const,
-      centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z] as const,
-      radius: BOUND,
-    };
+    // Module-scope `CUTOUT_DESCRIPTOR` (#263) — same value drives
+    // both staging mounts and `STAGE_POSE` derivation.
+    const cutoutDescriptor = CUTOUT_DESCRIPTOR;
     stageFloor = createStageFloor({
       cutout: cutoutDescriptor,
       outerHalfExtent: 6,

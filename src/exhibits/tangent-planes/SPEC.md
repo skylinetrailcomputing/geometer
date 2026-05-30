@@ -327,11 +327,18 @@ readout + math-frame axis indicator) lifts onto the cluster-shared
 matching quadrics' PR1 ship and the master plan
 (`_private/plans/225-control-plinth.md` §4.2 PR2 / `251-cluster-on-
 plinth.md` §3.1). Drafting-table-console silhouette anchored at world
-`(0, 0, 0.05)` — cluster-uniform anchor; the railing/floor clearance
-checked for quadrics' v2 smoke applies here too (shared backExtension
-+ inner-railing geometry). Working-surface depth = `Plinth.ts`
-default 0.5 m: the 2-slider rack at `SLIDER_ROW_PITCH = 0.14 m` fits
-comfortably in slot-Y ∈ [0.205, 0.345], well inside [0, 0.5].
+`(0, 0, -2.125)` as of #263 — derived per-scene by
+`composeClusterStagePose(cutoutDescriptor)`. Tangent-planes' smaller
+math envelope (BOUND = 1.5, circle cutout) puts the railing-front
+edge ~2.18 m closer to the user than quadrics' (railing-front =
+-2.5 vs -0.325), so the plinth slides forward by the same amount
+to keep the body-back / railing-tube clearance at the cluster-uniform
+0.045 m. Working-surface depth = `Plinth.ts` default 0.5 m: the 2-
+slider rack at `SLIDER_ROW_PITCH = 0.14 m` fits comfortably in
+slot-Y ∈ [0.205, 0.345], well inside [0, 0.5]. The per-scene
+pancake spawn `(0, 1.6, 1.525)` and VR offset `(0, 0, -0.675)` ride
+on the registered `Exhibit.stage` metadata; shell consumes via
+`shell/stagePose.ts`'s `resolveStagePose`.
 
 Every UI primitive's `group` is reparented under `plinth.group` via
 the slot manifest in `mount()`; positions are slot-local (origin at

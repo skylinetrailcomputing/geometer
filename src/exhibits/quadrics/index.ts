@@ -19,6 +19,7 @@ import { PresetTween } from '@/scaffold/anim/PresetTween';
 import { createImplicitSurface } from '@/scaffold/render/ImplicitSurface';
 import { RendererInfoProbe } from '@/scaffold/perf/RendererInfoProbe';
 import { createStageFloor, type StageFloorHandles } from '@/scaffold/staging/StageFloor';
+import { composeClusterStagePose } from '@/scaffold/staging/clusterStagePose';
 import {
   createContrastPit,
   type ContrastPitHandles,
@@ -76,19 +77,12 @@ const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
 // slot-local coordinates and how they relate to the previous world-
 // frame layout (#110 / #93 follow-up).
 //
-// Anchor: floor-footprint center at world (0, 0, 0.05). v1 of #225
-// PR1 placed the anchor at (0, 0, 0) so the plinth body (z ∈ [-0.3,
-// 0]) sat 0.025 m clear of the inner railing front edge at world
-// z = SURFACE_CENTER.z + BOUND * CUTOUT_VISUAL_MARGIN = -4 + 3.675 =
-// -0.325 (tube radius 0.03 gives a tube +Z edge at z = -0.295). v1
-// smoke (Brad, 2026-05-22) found the body back at z = -0.3 still
-// visually penetrating the railing tube's volumetric envelope. v2
-// nudges the anchor 0.05 m further in +world-Z (= -math-Y, toward
-// the user) so the body back lands at z = -0.25 — 0.045 m clear of
-// the tube +Z edge at z = -0.295, an order of magnitude more visual
-// margin than v1 had. First-pass smoke-tunable; PR4 (E1.4e) is the
-// pancake-vs-VR calibration sweep.
-const PLINTH_ANCHOR_WORLD_XYZ = [0, 0, 0.05] as const;
+// Anchor is now derived per-scene from the cutout descriptor via
+// `composeClusterStagePose` (#263); see `STAGE_POSE` declaration
+// below (after `BOUND`) for the actual computation. Quadrics'
+// derived anchor is `[0, 0, 0.05]` — bit-identical (within ±0.5 mm)
+// to the pre-#263 cluster-uniform literal because the helper's
+// defaults match quadrics' #225-PR1-v2 smoke calibration.
 
 // Slightly deeper than the Plinth default (0.5) to fit the 4-slider
 // rack at 0.14 m pitch with breathing room above and below. Back-
@@ -332,6 +326,28 @@ const CANONICAL_FORMS_LABEL_EXPANDED = 'Canonical forms ▾';
 // queued as knob 3 if more headroom is needed).
 const BOUND = 3.5;
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
+
+// CUTOUT_VISUAL_MARGIN: 1.05× outward expansion of the cutout (and
+// inner-railing perimeter) so the rendered surface doesn't kiss the
+// cutout edge at extreme parameters — PR #244 follow-up smoke. Hoisted
+// to module scope (#263) so the same descriptor drives both the
+// floor + railing + contrast-pit mounts AND the per-scene
+// `composeClusterStagePose` derivation.
+const CUTOUT_VISUAL_MARGIN = 1.05;
+const CUTOUT_DESCRIPTOR = {
+  kind: 'rect' as const,
+  centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z] as const,
+  halfExtentX: BOUND * CUTOUT_VISUAL_MARGIN,
+  halfExtentZ: BOUND * CUTOUT_VISUAL_MARGIN,
+};
+// Per-scene stage pose (#263). Plinth anchor, pancake spawn, VR
+// spawn offset all derive from the cutout descriptor via the cluster
+// staging helper. Quadrics calibrates the helper's defaults:
+//   anchor      = [0, 0, 0.05]
+//   pancake     = [0, 1.6, 3.7]  (= [0, 1.6, 3.7] pre-#263 literal)
+//   VR offset   = [0, 0, 1.5]    (= +1.5 m pre-#263 #262 stopgap)
+const STAGE_POSE = composeClusterStagePose({ cutout: CUTOUT_DESCRIPTOR });
+const PLINTH_ANCHOR_WORLD_XYZ = STAGE_POSE.plinthAnchorWorldXYZ;
 
 // Slider detent half-width, per SPEC.md "Slider model". Lets the user
 // park exactly on a snap point (degeneracy boundary or canonical-form
@@ -901,6 +917,10 @@ const quadricsExhibit: Exhibit = {
   id: 'quadrics',
   title: 'Quadric surfaces',
   cluster: CLUSTER_CALCULUS3,
+  stage: {
+    pancakeSpawnWorldXYZ: STAGE_POSE.pancakeSpawnWorldXYZ,
+    vrSpawnOffsetWorldXYZ: STAGE_POSE.vrSpawnOffsetWorldXYZ,
+  },
 
   mount({ group, renderer, camera: cam, pointers: shellPointers }: ExhibitContext) {
     camera = cam;
@@ -922,19 +942,10 @@ const quadricsExhibit: Exhibit = {
     // reaches world Z = -7.5; cluster-uniform back-extension pushes
     // the floor + railing back edge to Z = -8. See plan §3.5.
     //
-    // CUTOUT_VISUAL_MARGIN: 1.05× outward expansion of the cutout
-    // (and consequently the inner railing) so the rendered surface
-    // doesn't kiss the cutout/railing edge at extreme parameters —
-    // PR #244 follow-up smoke. The 1.05× scaling preserves the
-    // "math envelope projected onto floor" framing while adding a
-    // small annular breathing margin.
-    const CUTOUT_VISUAL_MARGIN = 1.05;
-    const cutoutDescriptor = {
-      kind: 'rect' as const,
-      centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z] as const,
-      halfExtentX: BOUND * CUTOUT_VISUAL_MARGIN,
-      halfExtentZ: BOUND * CUTOUT_VISUAL_MARGIN,
-    };
+    // Cutout descriptor is module-scope `CUTOUT_DESCRIPTOR` (#263)
+    // so the same value drives both the staging mounts (here) and
+    // the per-scene `STAGE_POSE` derivation above.
+    const cutoutDescriptor = CUTOUT_DESCRIPTOR;
     stageFloor = createStageFloor({
       cutout: cutoutDescriptor,
       backExtension: 3,

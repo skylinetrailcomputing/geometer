@@ -421,20 +421,32 @@ Quadrics' free-floating UI (sliders, presets, section tabs, equation
 shared `createPlinth` primitive from `src/scaffold/staging/Plinth.ts`
 as the densest cluster member — the API stress test for the slot
 model. Drafting-table-console silhouette anchored at world `(0, 0,
-0.05)` (#225 PR1 v2 smoke). v1 of PR1 anchored at z = 0 so the
-plinth body (z ∈ [-0.3, 0]) sat 0.025 m clear of the inner railing
-front edge at z = -0.325; v2 nudged the anchor 0.05 m further in
-+world-Z so the body back lands at z = -0.25, 0.045 m clear of the
-railing tube's +Z visual edge at z = -0.295 (tube radius 0.03 m).
+0.05)`. As of #263 the anchor is derived per-scene by
+`composeClusterStagePose(cutoutDescriptor)` from
+`scaffold/staging/clusterStagePose.ts`; quadrics is the helper's
+**calibration case** so the derived value matches the pre-#263
+literal to within ±0.5 mm under `roundToMm`. The derivation:
+railing-front-Z (`SURFACE_CENTER.z + halfExtentZ = -4 + 3.675 =
+-0.325`) + tube radius (`0.03`) + body-back clearance (`0.045`) +
+body depth (`0.3`) = `0.05`. v1 of #225 PR1 anchored at z = 0 so
+the body sat 0.025 m clear of the railing-front edge; v2 nudged
+the anchor 0.05 m further in +world-Z so the body back lands at
+z = -0.25, 0.045 m clear of the tube's +Z visual edge at z =
+-0.295 — those values are now the helper's defaults.
+
 `~20°` working-surface tilt, 0.9 m wide × `PLINTH_WORKING_HEIGHT_
 QUADRICS = 0.55` m deep working surface — slightly deeper than the
 Plinth default so the 4-slider rack fits at the cluster's standard
 0.14 m pitch without needing a per-scene pitch override.
 
-The pancake spawn camera is paired-shifted to `(0, 1.6, 3.7)`
-(`shell/cameraControls.ts`) so the user spawns on the same side of
-the inner railing as the plinth's interactables. Foreground floor
-at this pose is ~2.2 m (was ~1.5 m pre-#225 PR1). The SceneRack
+The pancake spawn pose `(0, 1.6, 3.7)` and VR offset `(0, 0, 1.5)`
+both come from the same `composeClusterStagePose(...)` call and
+ride on the registered `Exhibit.stage` metadata (per #263 §3.2).
+Shell wiring: `cameraControls.createCameraControls` consumes the
+pancake spawn at boot; `applyPancakeSpawnForExhibit` refreshes on
+each scene-hop; `shell.onXrSessionStart` applies the VR offset
+once per VR session. Foreground floor at the pancake pose is
+~2.2 m (was ~1.5 m pre-#225 PR1). The SceneRack
 (`shell/SceneRack.ts`) sets `SCENE_RACK_Z = 0.05` to match the
 plinth anchor so the navigation bulbs sit directly above the
 plinth front edge instead of being stranded over the math-object

@@ -16,7 +16,8 @@ import {
 import type { Pointer } from './Pointer';
 import { VRPointer } from './VRPointer';
 import { DesktopPointer } from './DesktopPointer';
-import { createCameraControls } from './cameraControls';
+import { applyPancakeSpawnForExhibit, createCameraControls } from './cameraControls';
+import { resolveStagePose } from './stagePose';
 import { createEnvironment } from '@/scaffold/staging/Environment';
 import { FpsOverlay } from '@/scaffold/perf/FpsOverlay';
 
@@ -49,23 +50,6 @@ import { FpsOverlay } from '@/scaffold/perf/FpsOverlay';
 let booted = false;
 let bootGeneration = 0;
 const disposers: Array<() => void> = [];
-
-/**
- * VR-spawn forward distance, world meters. The XR session-start
- * handler in `bootShellAsync` translates the reference space so the
- * user spawns at world `(0, ~head-height, +VR_SPAWN_FORWARD_Z_M)`.
- *
- * Chosen against the plinth front face at world `z = 0.05` (anchor =
- * `PLINTH_ANCHOR_WORLD_XYZ.z = 0.05`, depth extends back to
- * `-PLINTH_BODY_DEPTH = -0.25` per `scaffold/staging/Plinth.ts`).
- * `1.5` puts the user ~1.45 m forward of the plinth's user-facing
- * face — clear of the plinth volume with arm's-length reach to the
- * working surface.
- *
- * Cluster-uniform stopgap for #262. Per-scene-adaptive offset
- * (deriving from each scene's inner-railing geometry) is #263.
- */
-const VR_SPAWN_FORWARD_Z_M = 1.5;
 
 /**
  * World-frame anchor for the `?fps=1`-gated dev FPS overlay (#261).
@@ -134,12 +118,14 @@ async function bootShellAsync(): Promise<void> {
     0.1,
     100,
   );
-  // Pre-mode camera position; overwritten by `createCameraControls` in
-  // desktop mode and unused-in-XR (HMD pose drives an `ArrayCamera`)
-  // in VR mode. Z = 3.7 (was 3 pre-#225 PR1 smoke) — shifted +0.7 m
-  // in +world-Z alongside the plinth so the user spawns on the same
-  // side of the inner railing as the plinth's interactables.
-  camera.position.set(0, 1.6, 3.7);
+  // Pre-mode camera position is left at the `PerspectiveCamera`
+  // constructor default `(0, 0, 0)`. Pancake mode overwrites via
+  // `createCameraControls(..., spawnWorldXYZ)` below; VR mode renders
+  // through an `ArrayCamera` driven by HMD pose, so the
+  // `PerspectiveCamera`'s pre-mode position never matters there.
+  // Pre-#263 this line was `camera.position.set(0, 1.6, 3.7)` — the
+  // cluster-uniform spawn — but per-scene spawn lives in the boot
+  // exhibit's stage metadata now.
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -206,6 +192,31 @@ async function bootShellAsync(): Promise<void> {
   }
   const defaultId = clusterExhibits[0].id;
 
+  // Boot-exhibit resolution hoisted before mode branch (#263). The
+  // pancake `createCameraControls` call needs the boot exhibit's
+  // `pancakeSpawnWorldXYZ` for its initial pose, and the VR
+  // `applyVRSpawnOffsetForExhibit` closure needs an initial fallback
+  // for sessionstart before `currentExhibit` is assigned. The same
+  // `bootRequestedParam` rides through to `scheduler.requestSwitch` below
+  // so the initial mount path stays unchanged.
+  const bootRequestedParam = new URLSearchParams(window.location.search).get(
+    'exhibit',
+  );
+  const { id: bootInitialId } = resolveExhibitId(
+    bootRequestedParam,
+    clusterExhibits,
+  );
+  const initialBootExhibit = clusterExhibits.find((e) => e.id === bootInitialId)!;
+
+  // VR base reference-space snapshot (#263 §3.3). Stored on
+  // `sessionstart`, cleared on `sessionend`. The base is the
+  // UNOFFSET `local-floor` space; offsets ALWAYS derive from this
+  // snapshot rather than from `renderer.xr.getReferenceSpace()`,
+  // which returns the currently-offset space after the first call
+  // and would stack on re-application. VR branch only writes; VR
+  // closures + (deferred) follow-up reads.
+  let baseXRReferenceSpace: XRReferenceSpace | null = null;
+
   // Mode resolution (#189 + #193, pancake plan v3 §3.2). Explicit
   // `?mode=` always wins; otherwise the async `isSessionSupported`
   // probe distinguishes a real headset from a desktop browser that
@@ -252,42 +263,64 @@ async function bootShellAsync(): Promise<void> {
     // in motion at the Quest 3S panel's pixel density. SPEC.md `## Frame-pacing
     // knobs` named this as the next deferred knob; this is its first land.
     renderer.xr.setFramebufferScaleFactor(0.85);
-    // VR spawn offset (#262). The default `local-floor` reference space
-    // origin sits at world (0, 0, 0), which after #225 PR1 + PR2 is
-    // *inside* the plinth body (world x ∈ ±0.45, y ∈ [0, 0.95],
-    // z ∈ [-0.25, +0.05] for `PLINTH_ANCHOR_WORLD_XYZ = [0, 0, 0.05]`
-    // and `PLINTH_BODY_DEPTH = 0.3`). On session start, translate the
-    // reference space so the user spawns at world (0, ~1.6, +1.5) —
-    // ~1.45 m forward of the plinth's user-facing front face at
-    // z = 0.05, with clear sightlines onto the math object beyond the
-    // inner railing.
+    // VR spawn offset (#262 → #263). The default `local-floor`
+    // reference space origin sits at world (0, 0, 0), which is
+    // *inside* every cluster scene's plinth body (anchor at
+    // floor-footprint center, body Z range
+    // `[anchor.z - PLINTH_BODY_DEPTH, anchor.z]`). On session start,
+    // snapshot the unoffset reference space and translate by the
+    // currently-mounted exhibit's per-scene `vrSpawnOffsetWorldXYZ`
+    // so the user spawns ~1.45 m forward of that scene's plinth
+    // front face.
     //
     // Sign convention: `XRReferenceSpace.getOffsetReferenceSpace(origin)`
     // returns a new space whose origin, *expressed in the base space*,
     // sits at `origin.position`. HMD pose is then reported in the new
-    // space's coordinates, so to make the HMD report `+1.5` in z we
-    // place the new space's origin at `-1.5` in the base. The HMD's
-    // y component stays floor-relative (head height) regardless of
-    // this offset.
+    // space's coordinates — to make the HMD report `+offsetZ`, place
+    // the new space's origin at `-offsetZ` in the base. The HMD's y
+    // component stays floor-relative (head height) regardless.
     //
-    // Cluster-uniform stopgap. Per-scene-adaptive spawn is #263; this
-    // bare offset just gets the user out of the plinth volume for the
-    // current four-scene cluster.
-    const onXrSessionStart = (): void => {
-      const baseReferenceSpace = renderer.xr.getReferenceSpace();
-      if (!baseReferenceSpace) return;
+    // PR1 applies the offset on `sessionstart` only; in-session
+    // scene-rack hops in VR keep the prior offset. The receding-
+    // plinth UX on cross-envelope hops is the accepted PR1 trade-off
+    // (#263 §3.4 + §7 follow-up: the helper is wire-up-ready, the
+    // §6 smoke verdict on quadrics→tangent-planes hops decides
+    // priority).
+    const applyVRSpawnOffsetForExhibit = (exhibit: Exhibit | null): void => {
+      if (!renderer.xr.isPresenting) return;
+      if (!baseXRReferenceSpace) return;
+      const { vrSpawnOffsetWorldXYZ } = resolveStagePose(
+        exhibit ?? initialBootExhibit,
+      );
       const originOffset = new XRRigidTransform(
-        { x: 0, y: 0, z: -VR_SPAWN_FORWARD_Z_M },
+        {
+          x: -vrSpawnOffsetWorldXYZ[0],
+          y: -vrSpawnOffsetWorldXYZ[1],
+          z: -vrSpawnOffsetWorldXYZ[2],
+        },
         { x: 0, y: 0, z: 0, w: 1 },
       );
+      // ALWAYS derive from the stored base, never from
+      // `renderer.xr.getReferenceSpace()` (which returns the
+      // currently-offset space after the first call → stacking).
       const offsetSpace =
-        baseReferenceSpace.getOffsetReferenceSpace(originOffset);
+        baseXRReferenceSpace.getOffsetReferenceSpace(originOffset);
       renderer.xr.setReferenceSpace(offsetSpace);
     };
+    const onXrSessionStart = (): void => {
+      baseXRReferenceSpace = renderer.xr.getReferenceSpace();
+      if (!baseXRReferenceSpace) return;
+      applyVRSpawnOffsetForExhibit(currentExhibit);
+    };
+    const onXrSessionEnd = (): void => {
+      baseXRReferenceSpace = null;
+    };
     renderer.xr.addEventListener('sessionstart', onXrSessionStart);
-    disposers.push(() =>
-      renderer.xr.removeEventListener('sessionstart', onXrSessionStart),
-    );
+    renderer.xr.addEventListener('sessionend', onXrSessionEnd);
+    disposers.push(() => {
+      renderer.xr.removeEventListener('sessionstart', onXrSessionStart);
+      renderer.xr.removeEventListener('sessionend', onXrSessionEnd);
+    });
     const vrButton = VRButton.createButton(renderer);
     document.body.appendChild(vrButton);
     disposers.push(() => vrButton.remove());
@@ -365,7 +398,11 @@ async function bootShellAsync(): Promise<void> {
     // pointer's diagnostic `id`; plan v3 §3.4's "Pointer abstraction
     // tolerates the divergence" cashes out as a single shell branch
     // here.
-    cameraControls = createCameraControls(camera, renderer.domElement);
+    cameraControls = createCameraControls(
+      camera,
+      renderer.domElement,
+      resolveStagePose(initialBootExhibit).pancakeSpawnWorldXYZ,
+    );
     const cameraControlsRef = cameraControls;
     disposers.push(() => cameraControlsRef.dispose());
     // `DesktopPointer` is the camera-NDC `Pointer` adapter; the `id`
@@ -621,6 +658,21 @@ async function bootShellAsync(): Promise<void> {
     target.mount(ctx);
     currentExhibit = target;
     currentCtx = ctx;
+
+    // Per-scene pancake spawn (#263 §3.3 + §4.1 step 5). Reposition
+    // the camera + refresh OrbitControls reset baseline for the
+    // newly-mounted exhibit. Pancake-mode guard via `cameraControls !==
+    // null` (VR mode leaves `cameraControls` null). For VR mode this
+    // mount may have hopped between scenes, but the VR offset stays
+    // at the prior `sessionstart` value per the #263 §3.4 PR1
+    // decision; in-session re-offset is the §7 follow-up.
+    if (cameraControls !== null) {
+      applyPancakeSpawnForExhibit(
+        camera,
+        cameraControls,
+        resolveStagePose(target).pancakeSpawnWorldXYZ,
+      );
+    }
   }
 
   const scheduler = createSwitchScheduler({ commit: switchExhibitNow });
@@ -652,12 +704,11 @@ async function bootShellAsync(): Promise<void> {
   // small (handful of allocations at boot); efficacy is measured
   // in headset smoke (§7) and we file a follow-up if first-switch
   // visibly stalls.
-  const requestedParam = new URLSearchParams(window.location.search).get(
-    'exhibit',
-  );
-  const { id: initialId } = resolveExhibitId(requestedParam, clusterExhibits);
+  // `bootRequestedParam` + `bootInitialId` were resolved up-front
+  // (above the mode branch) for the per-scene boot spawn; reuse them
+  // here for the warm-up filter.
   for (const e of clusterExhibits) {
-    if (e.id === initialId) continue;
+    if (e.id === bootInitialId) continue;
     const warmGroup = new THREE.Group();
     warmGroup.name = `warm:${e.id}`;
     scene.add(warmGroup);
@@ -676,10 +727,10 @@ async function bootShellAsync(): Promise<void> {
   // Initial-boot mount: route through the same scheduler so the
   // `'replace'` history mode normalizes a bogus / non-cluster /
   // empty `?exhibit=` without leaving a forward history entry the
-  // user has to back through. The raw `requestedParam` (which may
+  // user has to back through. The raw `bootRequestedParam` (which may
   // be null for a bare URL) rides through unchanged so the
   // resolver can keep the bare-URL boot silent.
-  scheduler.requestSwitch(requestedParam, 'replace');
+  scheduler.requestSwitch(bootRequestedParam, 'replace');
 
   const timer = new THREE.Timer();
   // Page Visibility integration: prevents huge delta spikes after the tab

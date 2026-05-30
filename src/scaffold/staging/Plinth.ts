@@ -142,9 +142,9 @@ export const PLINTH_WORKING_HEIGHT_FROM_FLOOR_DEFAULT = 0.95;
  *  z = 0; the body extends back to z = −PLINTH_BODY_DEPTH). Body is
  *  centered on the working-surface horizontal projection (about
  *  workingSurfaceHeight * sin(tilt) ≈ 0.17 m at defaults) plus visual
- *  breathing room. Kept as a module-local constant (not exported)
- *  because no consumer currently parameterizes it. */
-const PLINTH_BODY_DEPTH = 0.3;
+ *  breathing room. Exported as of #263 so `clusterStagePose` can derive
+ *  each scene's plinth-anchor Z from the cutout's railing-front face. */
+export const PLINTH_BODY_DEPTH = 0.3;
 
 /** Working-surface slab thickness in slot-local +Z (slab extends
  *  from z = 0 down to z = −PLINTH_SLAB_THICKNESS in slot-local).
