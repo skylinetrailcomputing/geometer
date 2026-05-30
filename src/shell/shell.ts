@@ -241,6 +241,16 @@ async function bootShellAsync(): Promise<void> {
   // (with `id` `'desktop'` or `'mobile'`) covers both pancake modes.
   let cameraControls: OrbitControls | null = null;
   let pancakePointerRef: DesktopPointer | null = null;
+  // VR-mode hook published from the VR branch closure (#283 follow-up
+  // to #263 §3.4). Null in pancake mode; populated in the VR branch
+  // alongside `baseXRReferenceSpace` so `switchExhibitNow` can re-
+  // apply the per-scene reference-space offset on every in-session
+  // SceneRack hop. The helper internally no-ops when not presenting
+  // or when the base snapshot is null, so the call site only needs
+  // a non-null check on the hook itself.
+  let applyVRSpawnOffsetForExhibit:
+    | ((exhibit: Exhibit | null) => void)
+    | null = null;
 
   if (mode === 'vr') {
     // ── VR mode ─────────────────────────────────────────────────
@@ -263,15 +273,15 @@ async function bootShellAsync(): Promise<void> {
     // in motion at the Quest 3S panel's pixel density. SPEC.md `## Frame-pacing
     // knobs` named this as the next deferred knob; this is its first land.
     renderer.xr.setFramebufferScaleFactor(0.85);
-    // VR spawn offset (#262 → #263). The default `local-floor`
+    // VR spawn offset (#262 → #263 → #283). The default `local-floor`
     // reference space origin sits at world (0, 0, 0), which is
     // *inside* every cluster scene's plinth body (anchor at
     // floor-footprint center, body Z range
-    // `[anchor.z - PLINTH_BODY_DEPTH, anchor.z]`). On session start,
-    // snapshot the unoffset reference space and translate by the
-    // currently-mounted exhibit's per-scene `vrSpawnOffsetWorldXYZ`
-    // so the user spawns ~1.45 m forward of that scene's plinth
-    // front face.
+    // `[anchor.z - PLINTH_BODY_DEPTH, anchor.z]`). On session start
+    // AND on every in-session SceneRack hop, snapshot the unoffset
+    // reference space and translate by the target exhibit's per-
+    // scene `vrSpawnOffsetWorldXYZ` so the user lands ~1.45 m forward
+    // of that scene's plinth front face.
     //
     // Sign convention: `XRReferenceSpace.getOffsetReferenceSpace(origin)`
     // returns a new space whose origin, *expressed in the base space*,
@@ -280,13 +290,13 @@ async function bootShellAsync(): Promise<void> {
     // the new space's origin at `-offsetZ` in the base. The HMD's y
     // component stays floor-relative (head height) regardless.
     //
-    // PR1 applies the offset on `sessionstart` only; in-session
-    // scene-rack hops in VR keep the prior offset. The receding-
-    // plinth UX on cross-envelope hops is the accepted PR1 trade-off
-    // (#263 §3.4 + §7 follow-up: the helper is wire-up-ready, the
-    // §6 smoke verdict on quadrics→tangent-planes hops decides
-    // priority).
-    const applyVRSpawnOffsetForExhibit = (exhibit: Exhibit | null): void => {
+    // Stacking-safe by construction: the helper ALWAYS derives from
+    // `baseXRReferenceSpace` (the unoffset snapshot), never from
+    // `renderer.xr.getReferenceSpace()` (which returns the
+    // currently-offset space after the first call). N consecutive
+    // hops collapse to a single per-scene offset against the same
+    // base, not a sum of N offsets.
+    applyVRSpawnOffsetForExhibit = (exhibit: Exhibit | null): void => {
       if (!renderer.xr.isPresenting) return;
       if (!baseXRReferenceSpace) return;
       const { vrSpawnOffsetWorldXYZ } = resolveStagePose(
@@ -300,9 +310,6 @@ async function bootShellAsync(): Promise<void> {
         },
         { x: 0, y: 0, z: 0, w: 1 },
       );
-      // ALWAYS derive from the stored base, never from
-      // `renderer.xr.getReferenceSpace()` (which returns the
-      // currently-offset space after the first call → stacking).
       const offsetSpace =
         baseXRReferenceSpace.getOffsetReferenceSpace(originOffset);
       renderer.xr.setReferenceSpace(offsetSpace);
@@ -310,7 +317,7 @@ async function bootShellAsync(): Promise<void> {
     const onXrSessionStart = (): void => {
       baseXRReferenceSpace = renderer.xr.getReferenceSpace();
       if (!baseXRReferenceSpace) return;
-      applyVRSpawnOffsetForExhibit(currentExhibit);
+      applyVRSpawnOffsetForExhibit?.(currentExhibit);
     };
     const onXrSessionEnd = (): void => {
       baseXRReferenceSpace = null;
@@ -673,10 +680,7 @@ async function bootShellAsync(): Promise<void> {
     // Per-scene pancake spawn (#263 §3.3 + §4.1 step 5). Reposition
     // the camera + refresh OrbitControls reset baseline for the
     // newly-mounted exhibit. Pancake-mode guard via `cameraControls !==
-    // null` (VR mode leaves `cameraControls` null). For VR mode this
-    // mount may have hopped between scenes, but the VR offset stays
-    // at the prior `sessionstart` value per the #263 §3.4 PR1
-    // decision; in-session re-offset is the §7 follow-up.
+    // null` (VR mode leaves `cameraControls` null).
     const targetStage = resolveStagePose(target);
     if (cameraControls !== null) {
       applyPancakeSpawnForExhibit(
@@ -697,6 +701,18 @@ async function bootShellAsync(): Promise<void> {
       targetStage.rackAnchorWorldXYZ[1],
       targetStage.rackAnchorWorldXYZ[2],
     );
+    // Per-scene VR reference-space re-offset on in-session SceneRack
+    // hops (#283, closing the §3.4 PR1 deferral). The hook is null in
+    // pancake mode and a no-op pre-session in VR mode (its internal
+    // `isPresenting` guard fires for the boot mount); during an
+    // active VR session it re-derives the offset for `target` from
+    // the stored `baseXRReferenceSpace`, so consecutive hops collapse
+    // to a single per-scene offset rather than stacking. Teleporting
+    // the user mid-session is the accepted UX trade — the hop is
+    // user-initiated via the rack, and the rack + plinth already
+    // reposition under the user on every hop, so bringing the user
+    // along keeps the rearrangement consistent.
+    applyVRSpawnOffsetForExhibit?.(target);
   }
 
   const scheduler = createSwitchScheduler({ commit: switchExhibitNow });
