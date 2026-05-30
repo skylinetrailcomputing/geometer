@@ -37,6 +37,11 @@ describe('quadrics', () => {
       expected.vrSpawnOffsetWorldXYZ,
     );
   });
+  it('registers the rack anchor = plinth anchor', () => {
+    expect(quadrics.stage?.rackAnchorWorldXYZ).toStrictEqual(
+      expected.plinthAnchorWorldXYZ,
+    );
+  });
 });
 
 describe('tangent-planes', () => {
@@ -55,6 +60,11 @@ describe('tangent-planes', () => {
   it('registers the cutout-derived VR spawn offset', () => {
     expect(tangentPlanes.stage?.vrSpawnOffsetWorldXYZ).toStrictEqual(
       expected.vrSpawnOffsetWorldXYZ,
+    );
+  });
+  it('registers the rack anchor = plinth anchor', () => {
+    expect(tangentPlanes.stage?.rackAnchorWorldXYZ).toStrictEqual(
+      expected.plinthAnchorWorldXYZ,
     );
   });
 });
@@ -78,6 +88,11 @@ describe('gradient-levels', () => {
       expected.vrSpawnOffsetWorldXYZ,
     );
   });
+  it('registers the rack anchor = plinth anchor', () => {
+    expect(gradientLevels.stage?.rackAnchorWorldXYZ).toStrictEqual(
+      expected.plinthAnchorWorldXYZ,
+    );
+  });
 });
 
 describe('saddle-extrema', () => {
@@ -97,6 +112,11 @@ describe('saddle-extrema', () => {
   it('registers the cutout-derived VR spawn offset', () => {
     expect(saddleExtrema.stage?.vrSpawnOffsetWorldXYZ).toStrictEqual(
       expected.vrSpawnOffsetWorldXYZ,
+    );
+  });
+  it('registers the rack anchor = plinth anchor', () => {
+    expect(saddleExtrema.stage?.rackAnchorWorldXYZ).toStrictEqual(
+      expected.plinthAnchorWorldXYZ,
     );
   });
 });

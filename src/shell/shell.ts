@@ -581,6 +581,17 @@ async function bootShellAsync(): Promise<void> {
     grabRadiusMultiplier: 2.75,
     onSelect: (id) => scheduler.requestSwitch(id, 'push'),
   });
+  // Position the rack at the boot exhibit's per-scene anchor (#263
+  // follow-up). Refreshed in `switchExhibitNow` on every mount swap
+  // so the rack tracks the per-scene plinth across SceneRack hops.
+  // SceneRack's tab-local Z is 0 (zeroed-out in `SceneRack.ts` as
+  // part of the same follow-up), so writing `rack.group.position`
+  // here drives the tabs' world Z directly.
+  {
+    const rackAnchor =
+      resolveStagePose(initialBootExhibit).rackAnchorWorldXYZ;
+    rack.group.position.set(rackAnchor[0], rackAnchor[1], rackAnchor[2]);
+  }
   scene.add(rack.group);
   // scene.fog material audit (#224 plan §3.5, amended at impl). The
   // fogNear≥14 linear-fog invariant provably un-fogs all near-field
@@ -666,13 +677,26 @@ async function bootShellAsync(): Promise<void> {
     // mount may have hopped between scenes, but the VR offset stays
     // at the prior `sessionstart` value per the #263 §3.4 PR1
     // decision; in-session re-offset is the §7 follow-up.
+    const targetStage = resolveStagePose(target);
     if (cameraControls !== null) {
       applyPancakeSpawnForExhibit(
         camera,
         cameraControls,
-        resolveStagePose(target).pancakeSpawnWorldXYZ,
+        targetStage.pancakeSpawnWorldXYZ,
       );
     }
+    // Per-scene rack position (#263 follow-up — fixes the plan §1
+    // gap that the v3 sanity check missed). The rack follows the
+    // per-scene plinth anchor so the bulbs sit above the plinth
+    // front face in every cluster scene, not floating ahead of it
+    // in the smaller-envelope scenes. Mode-agnostic — VR also needs
+    // the rack at the new scene's anchor since the rack is shell-
+    // owned, not plinth-owned.
+    rack.group.position.set(
+      targetStage.rackAnchorWorldXYZ[0],
+      targetStage.rackAnchorWorldXYZ[1],
+      targetStage.rackAnchorWorldXYZ[2],
+    );
   }
 
   const scheduler = createSwitchScheduler({ commit: switchExhibitNow });

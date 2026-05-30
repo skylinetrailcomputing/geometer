@@ -350,6 +350,7 @@ const tangentPlanesExhibit: Exhibit = {
   stage: {
     pancakeSpawnWorldXYZ: STAGE_POSE.pancakeSpawnWorldXYZ,
     vrSpawnOffsetWorldXYZ: STAGE_POSE.vrSpawnOffsetWorldXYZ,
+    rackAnchorWorldXYZ: STAGE_POSE.plinthAnchorWorldXYZ,
   },
 
   mount({ group, camera: cam, pointers: shellPointers }: ExhibitContext) {

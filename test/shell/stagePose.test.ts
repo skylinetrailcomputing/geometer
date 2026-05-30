@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Exhibit } from '@/shell/Exhibit';
 import {
   CLUSTER_FALLBACK_PANCAKE_SPAWN_WORLD_XYZ,
+  CLUSTER_FALLBACK_RACK_ANCHOR_WORLD_XYZ,
   CLUSTER_FALLBACK_VR_SPAWN_OFFSET_WORLD_XYZ,
   resolveStagePose,
 } from '@/shell/stagePose';
@@ -36,19 +37,25 @@ describe('resolveStagePose', () => {
     expect(pose.vrSpawnOffsetWorldXYZ).toBe(
       CLUSTER_FALLBACK_VR_SPAWN_OFFSET_WORLD_XYZ,
     );
+    expect(pose.rackAnchorWorldXYZ).toBe(
+      CLUSTER_FALLBACK_RACK_ANCHOR_WORLD_XYZ,
+    );
   });
 
   it('returns the exhibit-provided poses when stage is present', () => {
     const pancake = [0, 1.6, 1.525] as const;
     const vrOffset = [0, 0, -0.675] as const;
+    const rackAnchor = [0, 0, -2.125] as const;
     const pose = resolveStagePose(
       stubExhibit({
         pancakeSpawnWorldXYZ: pancake,
         vrSpawnOffsetWorldXYZ: vrOffset,
+        rackAnchorWorldXYZ: rackAnchor,
       }),
     );
     expect(pose.pancakeSpawnWorldXYZ).toBe(pancake);
     expect(pose.vrSpawnOffsetWorldXYZ).toBe(vrOffset);
+    expect(pose.rackAnchorWorldXYZ).toBe(rackAnchor);
   });
 });
 
@@ -63,5 +70,9 @@ describe('cluster-uniform fallback constants', () => {
 
   it('VR fallback matches the #262 cluster-uniform offset', () => {
     expect(CLUSTER_FALLBACK_VR_SPAWN_OFFSET_WORLD_XYZ).toStrictEqual([0, 0, 1.5]);
+  });
+
+  it('rack-anchor fallback matches the pre-#263 SCENE_RACK_Z baseline', () => {
+    expect(CLUSTER_FALLBACK_RACK_ANCHOR_WORLD_XYZ).toStrictEqual([0, 0, 0.05]);
   });
 });

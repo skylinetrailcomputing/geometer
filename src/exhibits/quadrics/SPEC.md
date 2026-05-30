@@ -447,7 +447,11 @@ pancake spawn at boot; `applyPancakeSpawnForExhibit` refreshes on
 each scene-hop; `shell.onXrSessionStart` applies the VR offset
 once per VR session. Foreground floor at the pancake pose is
 ~2.2 m (was ~1.5 m pre-#225 PR1). The SceneRack
-(`shell/SceneRack.ts`) sets `SCENE_RACK_Z = 0.05` to match the
+(`shell/SceneRack.ts`) is positioned per-scene via the shell's
+`rack.group.position` write from each exhibit's `rackAnchorWorldXYZ`
+(= plinth anchor for cluster scenes; cluster-uniform fallback
+`(0, 0, 0.05)` for non-cluster exhibits). For quadrics this lands
+the rack at world `(0, ~1.73, 0.05)` to match the
 plinth anchor so the navigation bulbs sit directly above the
 plinth front edge instead of being stranded over the math-object
 rendering box at the cluster's pre-plinth z = -0.7. The 0.75 m

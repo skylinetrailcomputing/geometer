@@ -31,9 +31,23 @@ export const CLUSTER_FALLBACK_VR_SPAWN_OFFSET_WORLD_XYZ = [
   0, 0, 1.5,
 ] as const;
 
+/**
+ * Cluster-uniform fallback for the SceneRack world-space anchor.
+ * Matches the pre-#263 quadrics plinth anchor `(0, 0, 0.05)` —
+ * `SceneRack` originally baked `SCENE_RACK_Z = 0.05` into tab-local
+ * positions; the per-scene wire-up moved that knob to the
+ * `rack.group.position` so the rack tracks the per-scene plinth
+ * anchor. Non-cluster exhibits land here so direct dev imports of
+ * e.g. `hello` render the rack at the original world Z.
+ */
+export const CLUSTER_FALLBACK_RACK_ANCHOR_WORLD_XYZ = [
+  0, 0, 0.05,
+] as const;
+
 export interface ResolvedStagePose {
   readonly pancakeSpawnWorldXYZ: readonly [number, number, number];
   readonly vrSpawnOffsetWorldXYZ: readonly [number, number, number];
+  readonly rackAnchorWorldXYZ: readonly [number, number, number];
 }
 
 export function resolveStagePose(exhibit: Exhibit): ResolvedStagePose {
@@ -44,5 +58,8 @@ export function resolveStagePose(exhibit: Exhibit): ResolvedStagePose {
     vrSpawnOffsetWorldXYZ:
       exhibit.stage?.vrSpawnOffsetWorldXYZ
       ?? CLUSTER_FALLBACK_VR_SPAWN_OFFSET_WORLD_XYZ,
+    rackAnchorWorldXYZ:
+      exhibit.stage?.rackAnchorWorldXYZ
+      ?? CLUSTER_FALLBACK_RACK_ANCHOR_WORLD_XYZ,
   };
 }

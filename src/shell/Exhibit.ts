@@ -27,6 +27,20 @@ export interface ExhibitStageMetadata {
    * hops in VR keep the prior offset. Follow-up: §7 of the #263 plan.
    */
   readonly vrSpawnOffsetWorldXYZ: readonly [number, number, number];
+  /**
+   * World-space anchor the shell-owned `SceneRack` should track per
+   * scene (#263 follow-up). Cluster scenes pass their plinth anchor
+   * so the rack bulbs sit directly above the plinth front face
+   * regardless of math-envelope size; non-cluster exhibits get the
+   * cluster-uniform fallback `(0, 0, 0.05)` so direct dev imports
+   * render the rack where it sat pre-#263.
+   *
+   * The shell writes `rack.group.position` to this value on boot +
+   * on every mount swap; the rack's tab-local Z (formerly baked at
+   * 0.05) is now 0 so the world Z of each tab equals
+   * `rackAnchorWorldXYZ[2]` directly.
+   */
+  readonly rackAnchorWorldXYZ: readonly [number, number, number];
 }
 
 export interface ExhibitContext {
