@@ -11,18 +11,37 @@ import {
 // envelope's bounds + damping. `domElement` is passed as null so the
 // test exercises the wrapper without a real DOM — sufficient for
 // config-validation, which is the issue's stated bar.
+//
+// Per-scene spawn pose as of #263: callers pass the boot exhibit's
+// `pancakeSpawnWorldXYZ` as the third arg. Tests below use the
+// quadrics-calibrated `[0, 1.6, 3.7]` (= today's cluster-uniform
+// fallback in `shell/stagePose.ts`) so the assertions stay bit-
+// identical to the pre-#263 fixed spawn.
+
+const QUADRICS_SPAWN_WORLD_XYZ = [0, 1.6, 3.7] as const;
 
 const makeCamera = (): THREE.PerspectiveCamera =>
   new THREE.PerspectiveCamera(75, 1, 0.1, 100);
 
 describe('createCameraControls', () => {
-  it('orients the camera at (0, 1.6, 3.7) before the controls take over', () => {
+  it('orients the camera at the passed spawn pose', () => {
     const camera = makeCamera();
-    camera.position.set(0, 1.6, 3.7); // simulate shell.ts's pre-XR default
-    createCameraControls(camera, null);
-    expect(camera.position.x).toBeCloseTo(0);
-    expect(camera.position.y).toBeCloseTo(1.6);
-    expect(camera.position.z).toBeCloseTo(3.7);
+    createCameraControls(camera, null, QUADRICS_SPAWN_WORLD_XYZ);
+    expect(camera.position.x).toBeCloseTo(QUADRICS_SPAWN_WORLD_XYZ[0]);
+    expect(camera.position.y).toBeCloseTo(QUADRICS_SPAWN_WORLD_XYZ[1]);
+    expect(camera.position.z).toBeCloseTo(QUADRICS_SPAWN_WORLD_XYZ[2]);
+  });
+
+  it('honors a per-scene spawn override (tangent-planes case)', () => {
+    // Tangent-planes' derived pancake spawn-Z under the #263
+    // helper defaults: `anchor.z (-2.125) + 3.65 = 1.525`. This
+    // case is the regression guard for the per-scene path —
+    // proves the camera lands wherever the third arg says, not
+    // at a hardcoded cluster-uniform pose.
+    const camera = makeCamera();
+    const tangentPlanesSpawn = [0, 1.6, 1.525] as const;
+    createCameraControls(camera, null, tangentPlanesSpawn);
+    expect(camera.position.z).toBeCloseTo(1.525);
   });
 
   it('applies camera.lookAt(SURFACE_CENTER) before the first controls update', () => {
@@ -33,7 +52,7 @@ describe('createCameraControls', () => {
     // confirms lookAt ran (without it, an unrotated camera looks
     // toward +Z).
     const camera = makeCamera();
-    createCameraControls(camera, null);
+    createCameraControls(camera, null, QUADRICS_SPAWN_WORLD_XYZ);
     // Read the camera's forward via its quaternion rather than
     // `getWorldDirection`, which depends on `matrixWorld` (only updated
     // at render time). The quaternion is mutated synchronously by
@@ -49,7 +68,7 @@ describe('createCameraControls', () => {
 
   it('sets controls.target to SURFACE_CENTER', () => {
     const camera = makeCamera();
-    const controls = createCameraControls(camera, null);
+    const controls = createCameraControls(camera, null, QUADRICS_SPAWN_WORLD_XYZ);
     expect(controls.target.x).toBeCloseTo(SURFACE_CENTER.x);
     expect(controls.target.y).toBeCloseTo(SURFACE_CENTER.y);
     expect(controls.target.z).toBeCloseTo(SURFACE_CENTER.z);
@@ -57,21 +76,21 @@ describe('createCameraControls', () => {
 
   it('clamps distance to [1.5, 12] m around the cluster anchor', () => {
     const camera = makeCamera();
-    const controls = createCameraControls(camera, null);
+    const controls = createCameraControls(camera, null, QUADRICS_SPAWN_WORLD_XYZ);
     expect(controls.minDistance).toBe(1.5);
     expect(controls.maxDistance).toBe(12);
   });
 
   it('clamps polar angle to [0.1π, 0.85π]', () => {
     const camera = makeCamera();
-    const controls = createCameraControls(camera, null);
+    const controls = createCameraControls(camera, null, QUADRICS_SPAWN_WORLD_XYZ);
     expect(controls.minPolarAngle).toBeCloseTo(0.1 * Math.PI);
     expect(controls.maxPolarAngle).toBeCloseTo(0.85 * Math.PI);
   });
 
   it('enables damping with factor 0.05 (requires per-frame controls.update())', () => {
     const camera = makeCamera();
-    const controls = createCameraControls(camera, null);
+    const controls = createCameraControls(camera, null, QUADRICS_SPAWN_WORLD_XYZ);
     expect(controls.enableDamping).toBe(true);
     expect(controls.dampingFactor).toBeCloseTo(0.05);
   });
@@ -86,7 +105,7 @@ describe('first render-frame stability', () => {
   // implicit `update()` against the default `target=(0,0,0)`.
   it('does not jump on the first controls.update() tick', () => {
     const camera = makeCamera();
-    const controls = createCameraControls(camera, null);
+    const controls = createCameraControls(camera, null, QUADRICS_SPAWN_WORLD_XYZ);
     const positionBefore = camera.position.clone();
     const quaternionBefore = camera.quaternion.clone();
     controls.update();

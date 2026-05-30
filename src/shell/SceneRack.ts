@@ -23,15 +23,15 @@ import type { Pointer } from './Pointer';
 //     `SECTION_TAB_RACK_X` (also lines up with the post-plinth
 //     `PLINTH_SECTION_TAB_X = -0.42` within ~2 cm so the two racks
 //     read as one vertical column).
-//   * `SCENE_RACK_Z = 0.05` — tracks
-//     `quadrics PLINTH_ANCHOR_WORLD_XYZ.z` so the SceneRack bulbs
-//     sit directly above the plinth front edge instead of being
-//     stranded over the cutout (#225 PR1 v2 smoke: pre-PR1 z = -0.7
-//     left the bulbs floating over the math-object rendering box
-//     after the plinth shifted forward). The 0.75 m offset from the
-//     other three cluster scenes' still-pre-plinth UI at z = -0.7
-//     is a temporary mismatch that PR2 (#251) closes when those
-//     scenes port onto the same primitive.
+//   * Tab-local Z = 0 (#263 follow-up). Pre-#263 this was baked at
+//     0.05 to track quadrics' cluster-uniform plinth anchor; the
+//     per-scene wire-up moved that knob to `rack.group.position.z`,
+//     which the shell sets to each scene's `rackAnchorWorldXYZ`
+//     (= the plinth anchor) on boot + every mount swap. So the
+//     world Z of each tab equals the per-scene plinth anchor Z
+//     directly, and the rack tracks the plinth across SceneRack
+//     hops instead of floating ahead of it in smaller-envelope
+//     scenes.
 //   * `SCENE_TAB_PITCH = 0.20` — horizontal spacing between tabs.
 // These constants live here (rather than in SceneTab) because they
 // are layout concerns for the rack as a whole; per-tab visuals
@@ -39,7 +39,6 @@ import type { Pointer } from './Pointer';
 
 const SCENE_RACK_Y = 1.73;
 const SCENE_RACK_CENTER_X = -0.44;
-const SCENE_RACK_Z = 0.05;
 const SCENE_TAB_PITCH = 0.20;
 
 export interface SceneRackOptions {
@@ -87,7 +86,7 @@ export class SceneRack {
       // straddling the column; odd N reads as one tab on-axis with
       // the SectionTab column beneath, which is the visual we want.
       const x = SCENE_RACK_CENTER_X + (i - (n - 1) / 2) * SCENE_TAB_PITCH;
-      tab.group.position.set(x, SCENE_RACK_Y, SCENE_RACK_Z);
+      tab.group.position.set(x, SCENE_RACK_Y, 0);
       this.group.add(tab.group);
       tabs.push(tab);
     }

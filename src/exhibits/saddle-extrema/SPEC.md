@@ -770,11 +770,18 @@ cluster-shared `createPlinth` primitive from
 `src/scaffold/staging/Plinth.ts`, matching quadrics' PR1 ship and
 the master plan (`_private/plans/225-control-plinth.md` §4.2 PR2 /
 `251-cluster-on-plinth.md` §3.3). Drafting-table-console silhouette
-anchored at world `(0, 0, 0.05)` — cluster-uniform anchor.
-Working-surface depth = `Plinth.ts` default 0.5 m: the 2-slider rack
-fits comfortably in slot-Y ∈ [0.205, 0.345]; the 5-preset row and
+anchored at world `(0, 0, -2.05)` as of #263 — derived per-scene
+by `composeClusterStagePose(cutoutDescriptor)`. Saddle-extrema's
+preset-driven envelope (`STAGE_CUTOUT_HALF ≈ 1.5 × CUTOUT_VISUAL_
+MARGIN = 1.575`) puts the railing-front edge at z ≈ -2.425, ~2.1 m
+closer to the user than quadrics'; the plinth slides forward to
+keep the body-back / railing-tube clearance at 0.045 m. Working-
+surface depth = `Plinth.ts` default 0.5 m: the 2-slider rack fits
+comfortably in slot-Y ∈ [0.205, 0.345]; the 5-preset row and
 3-line readout deliberately float above the back edge at slot-Y >
-0.5, mirroring quadrics' preset-grid + classifier pattern.
+0.5, mirroring quadrics' preset-grid + classifier pattern. The
+per-scene pancake spawn `(0, 1.6, 1.6)` and VR offset `(0, 0,
+-0.6)` ride on the registered `Exhibit.stage` metadata.
 
 Every UI primitive's `group` is reparented under `plinth.group` via
 the slot manifest in `mount()`; positions are slot-local (11 slots

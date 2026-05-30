@@ -25,6 +25,7 @@ import {
   createStageFloor,
   type StageFloorHandles,
 } from '@/scaffold/staging/StageFloor';
+import { composeClusterStagePose } from '@/scaffold/staging/clusterStagePose';
 import {
   createContrastPit,
   type ContrastPitHandles,
@@ -89,13 +90,16 @@ const SURFACE_CENTER = new THREE.Vector3(0, 1.5, -4);
 const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.5).normalize();
 const BASE_COLOR = new THREE.Color(0.4, 0.7, 0.95);
 
-// Plinth (#225 / E1.4 PR2). Cluster-uniform anchor matches quadrics'
-// PR1 ship — railing/floor geometry is shared. Working-surface depth
-// default 0.5 m fits the 2-row slider rack with breathing room; the
-// 5-preset row and 3-line readout deliberately float above the back
-// edge (slot-Y > 0.5), mirroring quadrics' preset-grid + classifier
-// pattern.
-const PLINTH_ANCHOR_WORLD_XYZ = [0, 0, 0.05] as const;
+// Plinth (#225 / E1.4 PR2). Working-surface depth default 0.5 m fits
+// the 2-row slider rack with breathing room; the 5-preset row and
+// 3-line readout deliberately float above the back edge (slot-Y >
+// 0.5), mirroring quadrics' preset-grid + classifier pattern.
+// Anchor is derived per-scene from `composeClusterStagePose` (#263);
+// see `STAGE_POSE` declaration below (after `STAGE_CUTOUT_HALF`).
+// Saddle-extrema's preset-driven envelope (`STAGE_CUTOUT_HALF ×
+// CUTOUT_VISUAL_MARGIN ≈ 1.575`) makes the derived anchor `[0, 0,
+// -2.05]` — ~2.1 m closer to the math object than the pre-#263
+// cluster-uniform `0.05`.
 
 // Slot-local layout. Two-row slider rack centered on slot-Y = 0.275:
 // x at 0.345, y at 0.205 — inter-slider distance 0.14 m, matching the
@@ -133,6 +137,22 @@ const STAGE_CUTOUT_HALF = Math.max(
     ),
   ),
 );
+
+// CUTOUT_VISUAL_MARGIN: 1.05× outward expansion of the cutout (and
+// inner railing) so the rendered surface — especially the `saddle`
+// preset which reaches the full ±STAGE_CUTOUT_HALF domain — has a
+// small annular breathing margin between math and railing. PR #244
+// follow-up smoke. Hoisted to module scope (#263) so the same
+// descriptor drives both staging mounts AND `STAGE_POSE` derivation.
+const CUTOUT_VISUAL_MARGIN = 1.05;
+const CUTOUT_DESCRIPTOR = {
+  kind: 'rect' as const,
+  centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z] as const,
+  halfExtentX: STAGE_CUTOUT_HALF * CUTOUT_VISUAL_MARGIN,
+  halfExtentZ: STAGE_CUTOUT_HALF * CUTOUT_VISUAL_MARGIN,
+};
+const STAGE_POSE = composeClusterStagePose({ cutout: CUTOUT_DESCRIPTOR });
+const PLINTH_ANCHOR_WORLD_XYZ = STAGE_POSE.plinthAnchorWorldXYZ;
 
 // Slider rack — two-row symmetric straddle. Slot-Y values applied via
 // the slot manifest in mount(); per-slider plinth-Y derivations above
@@ -234,6 +254,11 @@ const saddleExtremaExhibit: Exhibit = {
   id: 'saddle-extrema',
   title: 'Critical points',
   cluster: CLUSTER_CALCULUS3,
+  stage: {
+    pancakeSpawnWorldXYZ: STAGE_POSE.pancakeSpawnWorldXYZ,
+    vrSpawnOffsetWorldXYZ: STAGE_POSE.vrSpawnOffsetWorldXYZ,
+    rackAnchorWorldXYZ: STAGE_POSE.plinthAnchorWorldXYZ,
+  },
 
   mount({ group, camera: cam, pointers: shellPointers }: ExhibitContext) {
     exhibitGroup = group;
@@ -261,18 +286,9 @@ const saddleExtremaExhibit: Exhibit = {
     // (`saddle` at ±1.5) reaches z = -5.5, so 2.5 m margin to the
     // extended back at z = -8. See plan §3.5.
     //
-    // CUTOUT_VISUAL_MARGIN: 1.05× outward expansion of the cutout
-    // (and inner railing) so the rendered surface — especially the
-    // `saddle` preset which reaches the full ±STAGE_CUTOUT_HALF
-    // domain — has a small annular breathing margin between math
-    // and railing. PR #244 follow-up smoke.
-    const CUTOUT_VISUAL_MARGIN = 1.05;
-    const cutoutDescriptor = {
-      kind: 'rect' as const,
-      centerXZ: [SURFACE_CENTER.x, SURFACE_CENTER.z] as const,
-      halfExtentX: STAGE_CUTOUT_HALF * CUTOUT_VISUAL_MARGIN,
-      halfExtentZ: STAGE_CUTOUT_HALF * CUTOUT_VISUAL_MARGIN,
-    };
+    // Module-scope `CUTOUT_DESCRIPTOR` (#263) — same value drives
+    // both staging mounts and `STAGE_POSE` derivation.
+    const cutoutDescriptor = CUTOUT_DESCRIPTOR;
     stageFloor = createStageFloor({
       cutout: cutoutDescriptor,
       backExtension: 3,

@@ -55,7 +55,11 @@ export const STAGE_RAILING_COLOR_RGB = [
 
 const POST_HEIGHT = 0.9;
 const POST_RADIUS = 0.04;
-const TUBE_RADIUS = 0.03;
+/** Top-rail tube radius. Consumed by `StageInnerRailing` so its rail
+ *  matches the outer railing's cross-section, and by
+ *  `scaffold/staging/clusterStagePose.ts` for the plinth-back / railing-
+ *  tube visual-margin derivation (#263). */
+export const STAGE_RAILING_TUBE_RADIUS = 0.03;
 
 export interface StageRailingOptions {
   /** Required. Same value the scene passed to `createStageFloor`. */
@@ -126,8 +130,8 @@ export function createStageRailing(
   // at post-cap height. Local +Y is the cylinder's long axis; the
   // quaternion orients it along the side.
   const tubeGeomXSpan = new THREE.CylinderGeometry(
-    TUBE_RADIUS,
-    TUBE_RADIUS,
+    STAGE_RAILING_TUBE_RADIUS,
+    STAGE_RAILING_TUBE_RADIUS,
     outer * 2,
     8,
     1,
@@ -135,8 +139,8 @@ export function createStageRailing(
   );
   geometries.push(tubeGeomXSpan);
   const tubeGeomZSpan = new THREE.CylinderGeometry(
-    TUBE_RADIUS,
-    TUBE_RADIUS,
+    STAGE_RAILING_TUBE_RADIUS,
+    STAGE_RAILING_TUBE_RADIUS,
     outer * 2 + back,
     8,
     1,

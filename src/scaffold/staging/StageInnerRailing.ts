@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   STAGE_RAILING_COLOR_RGB,
+  STAGE_RAILING_TUBE_RADIUS,
   type StageRailingHandles,
 } from '@/scaffold/staging/StageRailing';
 import type { StageCutoutDescriptor } from '@/scaffold/staging/StageFloor';
@@ -25,8 +26,8 @@ import type { StageCutoutDescriptor } from '@/scaffold/staging/StageFloor';
 //   geometry / dispose surface for no visual gain.
 //
 // Cluster-uniform visual vocabulary with the outer railing: same color,
-// same POST_HEIGHT, same POST_RADIUS, same TUBE_RADIUS. The inner is
-// recognized by *where it is* (around the cutout, not the perimeter),
+// same POST_HEIGHT, same POST_RADIUS, same STAGE_RAILING_TUBE_RADIUS.
+// The inner is recognized by *where it is* (around the cutout, not the perimeter),
 // not by being a different visual material. Color and palette tokens
 // are shared with `StageRailing` via import.
 //
@@ -41,7 +42,6 @@ import type { StageCutoutDescriptor } from '@/scaffold/staging/StageFloor';
 
 const POST_HEIGHT = 0.9;
 const POST_RADIUS = 0.04;
-const TUBE_RADIUS = 0.03;
 const CIRCLE_POST_COUNT = 8;
 const TORUS_RADIAL_SEGMENTS = 8;
 const TORUS_TUBULAR_SEGMENTS = 32;
@@ -123,8 +123,8 @@ function buildRectInner(
   // Two CylinderGeometry instances — same X-spanning vs Z-spanning
   // split as the outer railing.
   const tubeGeomXSpan = new THREE.CylinderGeometry(
-    TUBE_RADIUS,
-    TUBE_RADIUS,
+    STAGE_RAILING_TUBE_RADIUS,
+    STAGE_RAILING_TUBE_RADIUS,
     halfExtentX * 2,
     8,
     1,
@@ -132,8 +132,8 @@ function buildRectInner(
   );
   geometries.push(tubeGeomXSpan);
   const tubeGeomZSpan = new THREE.CylinderGeometry(
-    TUBE_RADIUS,
-    TUBE_RADIUS,
+    STAGE_RAILING_TUBE_RADIUS,
+    STAGE_RAILING_TUBE_RADIUS,
     halfExtentZ * 2,
     8,
     1,
@@ -192,7 +192,7 @@ function buildCircleInner(
   // orientation the cutout occupies.
   const torusGeom = new THREE.TorusGeometry(
     radius,
-    TUBE_RADIUS,
+    STAGE_RAILING_TUBE_RADIUS,
     TORUS_RADIAL_SEGMENTS,
     TORUS_TUBULAR_SEGMENTS,
   );

@@ -442,10 +442,17 @@ shared `createPlinth` primitive from `src/scaffold/staging/Plinth.ts`,
 matching quadrics' PR1 ship and the master plan
 (`_private/plans/225-control-plinth.md` §4.2 PR2 / `251-cluster-on-
 plinth.md` §3.2). Drafting-table-console silhouette anchored at world
-`(0, 0, 0.05)` — cluster-uniform anchor. Working-surface depth =
+`(0, 0, -0.625)` as of #263 — derived per-scene by
+`composeClusterStagePose(cutoutDescriptor)`. Gradient-levels' mid
+math envelope (BOUND = 3.0, no CUTOUT_VISUAL_MARGIN) puts the
+railing-front edge at z = -1.0, ~0.68 m closer to the user than
+quadrics'; the plinth slides forward to keep the body-back /
+railing-tube clearance at 0.045 m. Working-surface depth =
 `Plinth.ts` default 0.5 m: the 3-slider rack at `SLIDER_ROW_PITCH =
 0.14 m` fits in slot-Y ∈ [0.135, 0.415] with breathing room above
-and below.
+and below. The per-scene pancake spawn `(0, 1.6, 3.025)` and VR
+offset `(0, 0, 0.825)` ride on the registered `Exhibit.stage`
+metadata.
 
 Every UI primitive's `group` is reparented under `plinth.group` via
 the slot manifest in `mount()`; positions are slot-local. Slot
