@@ -13,11 +13,15 @@
 //      written every frame. Per parent-plan §3.5 v3 lock (option-c),
 //      the back-plate inherits this rotation transitively as a child
 //      of `group`, so panel + text yaw-billboard together.
-//   3. Back-plate quad construction + dispose — a dark MeshBasicMaterial
-//      PlaneGeometry sized to the subclass-supplied worst-case text
-//      bounds + padding. Subclass calls createPanel(dims) once during
-//      its ctor after laying out text children; subclass's dispose()
-//      chains disposePanel() after disposing text children.
+//   3. Back-plate slab construction + dispose — a dark MeshBasicMaterial
+//      BoxGeometry sized to the subclass-supplied worst-case text
+//      bounds + padding, with the front face flush at the subclass's
+//      requested z and the slab extruded behind it by
+//      READOUT_PANEL_DEPTH (#270 — gives the slab enough depth that
+//      yaw-billboard motion reads as a solid screen turning, not a
+//      flat decal sliding). Subclass calls createPanel(dims) once
+//      during its ctor after laying out text children; subclass's
+//      dispose() chains disposePanel() after disposing text children.
 //
 // What this base does NOT do:
 //   - The text children themselves (subclass-specific layouts).
@@ -29,7 +33,10 @@
 //     jitter.
 
 import * as THREE from 'three';
-import { READOUT_PANEL_COLOR_RGB } from './readoutTokens';
+import {
+  READOUT_PANEL_COLOR_RGB,
+  READOUT_PANEL_DEPTH,
+} from './readoutTokens';
 
 export interface PanelReadoutPanelDimensions {
   /** Half-width of the back-plate quad in group-local meters. */
@@ -39,7 +46,10 @@ export interface PanelReadoutPanelDimensions {
   /** Group-local (x, y) center of the back-plate. Defaults to (0, 0).
    *  Used when text is offset from group origin. */
   readonly center?: readonly [number, number];
-  /** Recess in group-local +Z. Defaults to -0.001 m (text in front). */
+  /** Front-face z (group-local +Z). The slab is extruded BEHIND this
+   *  by READOUT_PANEL_DEPTH, so subclasses think in terms of "where
+   *  does the screen surface sit" — the depth direction is internal.
+   *  Defaults to -0.001 m (text in front of the screen surface). */
   readonly localZ?: number;
 }
 
@@ -50,7 +60,7 @@ export abstract class PanelReadout {
   readonly group: THREE.Group;
 
   private panel: THREE.Mesh<
-    THREE.PlaneGeometry,
+    THREE.BoxGeometry,
     THREE.MeshBasicMaterial
   > | null = null;
   private readonly camWorld = new THREE.Vector3();
@@ -72,9 +82,10 @@ export abstract class PanelReadout {
     if (this.panel !== null) {
       throw new Error('PanelReadout.createPanel: already created');
     }
-    const geometry = new THREE.PlaneGeometry(
+    const geometry = new THREE.BoxGeometry(
       dims.halfWidth * 2,
       dims.halfHeight * 2,
+      READOUT_PANEL_DEPTH,
     );
     const material = new THREE.MeshBasicMaterial({
       color: new THREE.Color(...READOUT_PANEL_COLOR_RGB),
@@ -86,7 +97,12 @@ export abstract class PanelReadout {
     // Defensive against three.js's render-order-vs-scene-graph subtlety.
     mesh.renderOrder = -1;
     const [cx, cy] = dims.center ?? [0, 0];
-    mesh.position.set(cx, cy, dims.localZ ?? -0.001);
+    // dims.localZ is the SCREEN SURFACE z (front face). The slab's
+    // center sits half-a-depth behind, so the geometry extends BEHIND
+    // the screen surface — front-face position is unchanged from the
+    // old PlaneGeometry contract; text stays in front.
+    const frontZ = dims.localZ ?? -0.001;
+    mesh.position.set(cx, cy, frontZ - READOUT_PANEL_DEPTH / 2);
     this.group.add(mesh);
     this.panel = mesh;
   }

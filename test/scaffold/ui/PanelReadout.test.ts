@@ -29,6 +29,7 @@ import {
 import {
   READOUT_FONT_SIZE,
   READOUT_PANEL_COLOR_RGB,
+  READOUT_PANEL_DEPTH,
 } from '@/scaffold/ui/readoutTokens';
 import { EquationReadout } from '@/exhibits/quadrics/EquationReadout';
 import { TangentPlaneReadout } from '@/exhibits/tangent-planes/TangentPlaneReadout';
@@ -80,19 +81,26 @@ describe('PanelReadout', () => {
       const child = r.group.children[0];
       expect(child).toBeInstanceOf(THREE.Mesh);
       const mesh = child as THREE.Mesh<
-        THREE.PlaneGeometry,
+        THREE.BoxGeometry,
         THREE.MeshBasicMaterial
       >;
-      expect(mesh.geometry).toBeInstanceOf(THREE.PlaneGeometry);
+      expect(mesh.geometry).toBeInstanceOf(THREE.BoxGeometry);
       expect(mesh.geometry.parameters.width).toBeCloseTo(0.2, 6);
       expect(mesh.geometry.parameters.height).toBeCloseTo(0.1, 6);
+      expect(mesh.geometry.parameters.depth).toBeCloseTo(
+        READOUT_PANEL_DEPTH,
+        6,
+      );
       expect(mesh.material).toBeInstanceOf(THREE.MeshBasicMaterial);
       const expectedColor = new THREE.Color(...READOUT_PANEL_COLOR_RGB);
       expect(mesh.material.color.equals(expectedColor)).toBe(true);
       expect(mesh.renderOrder).toBe(-1);
       expect(mesh.position.x).toBeCloseTo(0, 6);
       expect(mesh.position.y).toBeCloseTo(0, 6);
-      expect(mesh.position.z).toBeCloseTo(-0.001, 6);
+      // Box center sits half-a-depth behind the requested front-face z
+      // (default -0.001) so the screen surface stays where the old
+      // PlaneGeometry quad lived; the depth extends away from the viewer.
+      expect(mesh.position.z).toBeCloseTo(-0.001 - READOUT_PANEL_DEPTH / 2, 6);
     });
 
     it('honors center and localZ overrides', () => {
@@ -106,7 +114,8 @@ describe('PanelReadout', () => {
       const mesh = r.group.children[0] as THREE.Mesh;
       expect(mesh.position.x).toBeCloseTo(0.03, 6);
       expect(mesh.position.y).toBeCloseTo(-0.02, 6);
-      expect(mesh.position.z).toBeCloseTo(-0.005, 6);
+      // localZ is the front-face z; box center sits depth/2 behind it.
+      expect(mesh.position.z).toBeCloseTo(-0.005 - READOUT_PANEL_DEPTH / 2, 6);
     });
 
     it('throws on a second call (single-shot guard)', () => {
@@ -152,7 +161,7 @@ describe('PanelReadout', () => {
       const r = new TestReadout();
       r.makePanel({ halfWidth: 0.1, halfHeight: 0.05 });
       const mesh = r.group.children[0] as THREE.Mesh<
-        THREE.PlaneGeometry,
+        THREE.BoxGeometry,
         THREE.MeshBasicMaterial
       >;
       const geomSpy = vi.spyOn(mesh.geometry, 'dispose');
