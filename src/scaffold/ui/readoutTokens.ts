@@ -46,9 +46,10 @@ export const READOUT_PANEL_COLOR_RGB = [0.08, 0.08, 0.1] as const;
 // as a solid screen turning, not a flat decal sliding (per #270 smoke
 // verdict on #252 / PR #269: panel-as-flat-decal-that-tracks-you).
 // Round 1 = 8mm; smoke verdict "getting there but not strong enough."
-// Round 2 = 12mm (current). Bracket narrows to [8mm, 16mm]; if 12mm is
-// still subtle, next try 14mm. If 12mm overshoots / slab visibly pokes
-// through the plinth working surface at extreme yaw, back down to
-// 10mm. Above ~16mm the slab is likely to clip through the plinth top
-// regardless. Tune one dial per round; smoke on Cloudflare PR preview.
-export const READOUT_PANEL_DEPTH = 0.012;
+// Round 2 = 12mm; smoke verdict "right track but still not strong
+// enough." Round 3 = 14mm (current). Bracket narrows to [12mm, 16mm];
+// if 14mm still subtle, next try 16mm (with attention to plinth-top
+// clipping at extreme yaw — that's the hard ceiling). If 14mm
+// overshoots, back to 13mm. Tune one dial per round; smoke on
+// Cloudflare PR preview.
+export const READOUT_PANEL_DEPTH = 0.014;
