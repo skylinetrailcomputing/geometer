@@ -55,6 +55,11 @@ import {
 } from '@/scaffold/staging/Plinth';
 import { createGradientArrow, type GradientArrowHandles } from './GradientArrow';
 import { GradientLevelsReadout } from './GradientLevelsReadout';
+import {
+  createReadoutPost,
+  type ReadoutPostHandles,
+} from '@/scaffold/ui/ReadoutPost';
+import { READOUT_POST_LENGTH } from '@/scaffold/ui/readoutTokens';
 import { BOUND, fJsRaw, gradJs } from './surfaceModel';
 
 // Gradient + level-surfaces scene (#162 epic). Third member of the
@@ -286,6 +291,7 @@ let phiSlider: Slider | undefined;
 let indicator: THREE.Mesh | undefined;
 let gradientArrow: GradientArrowHandles | undefined;
 let gradientLevelsReadout: GradientLevelsReadout | undefined;
+let gradientLevelsReadoutPost: ReadoutPostHandles | undefined;
 let thetaLabel: Label | undefined;
 let phiLabel: Label | undefined;
 let kLabel: Label | undefined;
@@ -450,6 +456,9 @@ const gradientLevelsExhibit: Exhibit = {
       magnitudeColor: YELLOW,
     });
 
+    // Post-mount stem (#286). See quadrics for the architecture note.
+    gradientLevelsReadoutPost = createReadoutPost();
+
     // Per-slider labels (#170). Right-anchored so worst-case secondary
     // text ("−2.00" at k_min, "−0.80π" at φ extremes) stays clear of
     // the slider thumb at any value. Slot positions applied via the
@@ -495,7 +504,8 @@ const gradientLevelsExhibit: Exhibit = {
       { id: 'label-theta', target: thetaLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_THETA_Y, 0.001] },
       { id: 'label-phi', target: phiLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_PHI_Y, 0.001] },
       { id: 'label-k', target: kLabel.group, localXYZ: [SLIDER_LABEL_X_OFFSET, PLINTH_K_Y, 0.001] },
-      { id: 'readout', target: gradientLevelsReadout.group, localXYZ: [0, PLINTH_READOUT_Y, 0] },
+      { id: 'readout', target: gradientLevelsReadout.group, localXYZ: [0, PLINTH_READOUT_Y, READOUT_POST_LENGTH] },
+      { id: 'readout-post', target: gradientLevelsReadoutPost.group, localXYZ: [0, PLINTH_READOUT_Y, 0], orientation: 'surface' },
       {
         id: 'world-axes',
         target: worldAxes.group,
@@ -650,6 +660,8 @@ const gradientLevelsExhibit: Exhibit = {
     gradientArrow = undefined;
     gradientLevelsReadout?.dispose();
     gradientLevelsReadout = undefined;
+    gradientLevelsReadoutPost?.dispose();
+    gradientLevelsReadoutPost = undefined;
     thetaLabel?.dispose();
     thetaLabel = undefined;
     phiLabel?.dispose();

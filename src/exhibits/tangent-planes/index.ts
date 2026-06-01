@@ -57,6 +57,11 @@ import {
 } from '@/scaffold/staging/Plinth';
 import { createTangentPlane, type TangentPlaneHandles } from './TangentPlane';
 import { TangentPlaneReadout } from './TangentPlaneReadout';
+import {
+  createReadoutPost,
+  type ReadoutPostHandles,
+} from '@/scaffold/ui/ReadoutPost';
+import { READOUT_POST_LENGTH } from '@/scaffold/ui/readoutTokens';
 
 // Tangent-planes scene (#147). First sub-issue of the #121 epic — sets up
 // the v0.6 scene's surface + θ/φ point selection so #148 (tangent-plane
@@ -263,6 +268,7 @@ let phiSlider: Slider | undefined;
 let indicator: THREE.Mesh | undefined;
 let tangentPlane: TangentPlaneHandles | undefined;
 let tangentPlaneReadout: TangentPlaneReadout | undefined;
+let tangentPlaneReadoutPost: ReadoutPostHandles | undefined;
 let thetaLabel: Label | undefined;
 let phiLabel: Label | undefined;
 let worldAxes: WorldAxes | undefined;
@@ -492,6 +498,9 @@ const tangentPlanesExhibit: Exhibit = {
       axisColors: [VERMILLION, BLUISH_GREEN, SKY_BLUE],
     });
 
+    // Post-mount stem (#286). See quadrics for the architecture note.
+    tangentPlaneReadoutPost = createReadoutPost();
+
     // Math-frame axis indicator. orientation: 'world' so the X/Y/Z
     // arrows read in the math frame, not the tabletop frame —
     // WorldAxes' faceCamera rotates only its child letter-Text nodes,
@@ -528,7 +537,13 @@ const tangentPlanesExhibit: Exhibit = {
       {
         id: 'readout',
         target: tangentPlaneReadout.group,
+        localXYZ: [0, PLINTH_READOUT_Y, READOUT_POST_LENGTH],
+      },
+      {
+        id: 'readout-post',
+        target: tangentPlaneReadoutPost.group,
         localXYZ: [0, PLINTH_READOUT_Y, 0],
+        orientation: 'surface',
       },
       {
         id: 'world-axes',
@@ -661,6 +676,8 @@ const tangentPlanesExhibit: Exhibit = {
     tangentPlane = undefined;
     tangentPlaneReadout?.dispose();
     tangentPlaneReadout = undefined;
+    tangentPlaneReadoutPost?.dispose();
+    tangentPlaneReadoutPost = undefined;
     thetaLabel?.dispose();
     thetaLabel = undefined;
     phiLabel?.dispose();

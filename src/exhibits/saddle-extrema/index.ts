@@ -58,6 +58,11 @@ import {
 } from './GraphSurface';
 import { DEFAULT_PRESET_INDEX, PRESETS } from './presets';
 import { SaddleExtremaReadout } from './SaddleExtremaReadout';
+import {
+  createReadoutPost,
+  type ReadoutPostHandles,
+} from '@/scaffold/ui/ReadoutPost';
+import { READOUT_POST_LENGTH } from '@/scaffold/ui/readoutTokens';
 import { buildAxisSnapPoints } from './snap-points';
 import {
   createTaylorOverlay,
@@ -238,6 +243,7 @@ let stageLighting: StageLightingHandles | undefined;
 let plinth: PlinthHandles | undefined;
 let activePresetIndex = DEFAULT_PRESET_INDEX;
 let saddleExtremaReadout: SaddleExtremaReadout | undefined;
+let saddleExtremaReadoutPost: ReadoutPostHandles | undefined;
 let camera: THREE.Camera | undefined;
 let pointers: readonly Pointer[] = [];
 
@@ -438,6 +444,9 @@ const saddleExtremaExhibit: Exhibit = {
       accentColor: YELLOW,
     });
 
+    // Post-mount stem (#286). See quadrics for the architecture note.
+    saddleExtremaReadoutPost = createReadoutPost();
+
     // Preset row (#178) — five archetypes left → right, mirroring the
     // PRESETS array order. The starter (saddle, DEFAULT_PRESET_INDEX)
     // is marked sticky-active so the user reads which archetype is
@@ -477,7 +486,13 @@ const saddleExtremaExhibit: Exhibit = {
     slots.push({
       id: 'readout',
       target: saddleExtremaReadout.group,
+      localXYZ: [0, PLINTH_READOUT_Y, READOUT_POST_LENGTH],
+    });
+    slots.push({
+      id: 'readout-post',
+      target: saddleExtremaReadoutPost.group,
       localXYZ: [0, PLINTH_READOUT_Y, 0],
+      orientation: 'surface',
     });
     slots.push({
       id: 'world-axes',
@@ -593,6 +608,8 @@ const saddleExtremaExhibit: Exhibit = {
     presetButtons = [];
     saddleExtremaReadout?.dispose();
     saddleExtremaReadout = undefined;
+    saddleExtremaReadoutPost?.dispose();
+    saddleExtremaReadoutPost = undefined;
     if (indicator) {
       indicator.geometry.dispose();
       (indicator.material as THREE.Material).dispose();

@@ -14,6 +14,11 @@ import { classify, getPlanePose } from './classify';
 import { createDoublePlane, type DoublePlaneHandles } from './DoublePlane';
 import { EquationReadout } from './EquationReadout';
 import { Label } from '@/scaffold/ui/Label';
+import {
+  createReadoutPost,
+  type ReadoutPostHandles,
+} from '@/scaffold/ui/ReadoutPost';
+import { READOUT_POST_LENGTH } from '@/scaffold/ui/readoutTokens';
 import { Preset, type LinearPresetValues, type PresetValues } from '@/scaffold/ui/Preset';
 import { PresetTween } from '@/scaffold/anim/PresetTween';
 import { createImplicitSurface } from '@/scaffold/render/ImplicitSurface';
@@ -878,6 +883,7 @@ let presetsExpanded = false;
 let pointers: readonly Pointer[] = [];
 let rackLabel: Label | undefined;
 let equationReadout: EquationReadout | undefined;
+let equationReadoutPost: ReadoutPostHandles | undefined;
 let rendererInfoProbe: RendererInfoProbe | undefined;
 let worldAxes: WorldAxes | undefined;
 let camera: THREE.Camera | undefined;
@@ -1244,6 +1250,14 @@ const quadricsExhibit: Exhibit = {
       coefficientColors: EQUATION_COEFFICIENT_COLORS,
     });
 
+    // Post-mount stem (#286). Sits in its own 'surface'-oriented
+    // plinth slot at the same XY as the readout, anchored statically
+    // to the working surface; the readout slot below is lifted by
+    // READOUT_POST_LENGTH so the readout group origin sits at the
+    // post tip. Panel face still yaws to camera via the unchanged
+    // PanelReadout.faceCamera.
+    equationReadoutPost = createReadoutPost();
+
     // Math-frame axis indicator (#43). Uses `orientation: 'world'`
     // so the indicator stays math-frame-aligned regardless of the
     // plinth's working-surface tilt — the X/Y/Z arrows have to read
@@ -1332,7 +1346,16 @@ const quadricsExhibit: Exhibit = {
     slots.push({
       id: 'equation-readout',
       target: equationReadout.group,
+      localXYZ: [0, PLINTH_EQUATION_READOUT_Y, READOUT_POST_LENGTH],
+    });
+    // Explicit `orientation: 'surface'` (#286 v3 second-Sonnet #1) —
+    // load-bearing for the post (no faceCamera overwrite); writing it
+    // out makes the intent visible at the slot site.
+    slots.push({
+      id: 'equation-readout-post',
+      target: equationReadoutPost.group,
       localXYZ: [0, PLINTH_EQUATION_READOUT_Y, 0],
+      orientation: 'surface',
     });
     slots.push({
       id: 'rack-label',
@@ -1384,6 +1407,7 @@ const quadricsExhibit: Exhibit = {
     if (canonicalFormsHeading) ownedDisposables.push(canonicalFormsHeading);
     if (rackLabel) ownedDisposables.push(rackLabel);
     if (equationReadout) ownedDisposables.push(equationReadout);
+    if (equationReadoutPost) ownedDisposables.push(equationReadoutPost);
     if (worldAxes) ownedDisposables.push(worldAxes);
   },
 
@@ -1658,6 +1682,7 @@ const quadricsExhibit: Exhibit = {
     pointers = [];
     rackLabel = undefined;
     equationReadout = undefined;
+    equationReadoutPost = undefined;
     // RendererInfoProbe holds a renderer reference for read-only stats —
     // no GPU resources to dispose. Reset to undefined so re-mount's
     // `if (isFpsOverlayEnabled())` conditional allocates fresh.

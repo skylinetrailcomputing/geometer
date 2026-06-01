@@ -53,3 +53,38 @@ export const READOUT_PANEL_COLOR_RGB = [0.08, 0.08, 0.1] as const;
 // overshoots, back to 13mm. Tune one dial per round; smoke on
 // Cloudflare PR preview.
 export const READOUT_PANEL_DEPTH = 0.014;
+
+// Post length: distance from the plinth working surface to the panel
+// mount point, along the surface normal (= slot-local +Z). Lifts the
+// readout off the desk so the post is a deliberate mounting element
+// rather than a vestigial pin. #286 / two-slot architecture: the
+// post sits in its own 'surface'-oriented plinth slot at slot-Z = 0;
+// the readout slot's localXYZ[2] = READOUT_POST_LENGTH lifts the
+// readout group origin to the post-tip position.
+//
+// First-pass: 0.12 m. Bracket [0.08, 0.18]; binary-search per
+// feedback_binary_search_visual_constants if smoke reports the
+// readout reads as "too floating" (→ shorter) or "stage-furniture
+// rather than display" (→ longer). One dial per round.
+export const READOUT_POST_LENGTH = 0.12;
+
+// Post radius: half-thickness of the cylindrical stem. 5 mm reads as
+// "thin metal stem" without disappearing at typical viewing distance.
+// First-pass smoke-tunable; bracket [0.003, 0.008]. One dial per round.
+export const READOUT_POST_RADIUS = 0.005;
+
+// Post color: matches PLINTH_BASE_COLOR_RGB at first-pass so the post
+// reads as extruded from the plinth body. Held as a SEPARATE token
+// (not imported from staging/Plinth.ts) so post-color tuning doesn't
+// bleed into the plinth body — if smoke flags the post as too
+// prominent / invisible / disconnected, this token is the tuning
+// seam. Bracket each component [0, 0.5]. Material is
+// MeshStandardMaterial with defaults (roughness=1, metalness=0)
+// matching the plinth body's constructor at Plinth.ts:319 exactly.
+// Immutable tuple per feedback_threejs_token_exports_immutable —
+// produce a fresh THREE.Color in each consumer.
+export const READOUT_POST_COLOR_RGB = [
+  0x40 / 255,
+  0x38 / 255,
+  0x44 / 255,
+] as const;
