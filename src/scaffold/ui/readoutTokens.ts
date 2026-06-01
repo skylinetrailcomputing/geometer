@@ -45,9 +45,10 @@ export const READOUT_PANEL_COLOR_RGB = [0.08, 0.08, 0.1] as const;
 // back-plate enough physical presence that yaw-billboard motion reads
 // as a solid screen turning, not a flat decal sliding (per #270 smoke
 // verdict on #252 / PR #269: panel-as-flat-decal-that-tracks-you).
-// First-pass at 8mm; binary-search bracket [4mm, 16mm]. Below ~4mm the
-// depth cue is too subtle to register at typical viewer distance;
-// above ~16mm the box can visibly poke through the plinth's working
-// surface at extreme yaw angles. Tune one dial per round; smoke on
-// Cloudflare PR preview.
-export const READOUT_PANEL_DEPTH = 0.008;
+// Round 1 = 8mm; smoke verdict "getting there but not strong enough."
+// Round 2 = 12mm (current). Bracket narrows to [8mm, 16mm]; if 12mm is
+// still subtle, next try 14mm. If 12mm overshoots / slab visibly pokes
+// through the plinth working surface at extreme yaw, back down to
+// 10mm. Above ~16mm the slab is likely to clip through the plinth top
+// regardless. Tune one dial per round; smoke on Cloudflare PR preview.
+export const READOUT_PANEL_DEPTH = 0.012;
