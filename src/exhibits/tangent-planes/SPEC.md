@@ -384,7 +384,9 @@ value. The pre-plinth mid-air `2.75` constant was deleted at PR2
 `TangentPlaneReadout` extends the shared `PanelReadout` base
 (`scaffold/ui/PanelReadout.ts`) which contributes the cluster-shared
 THREE.Group + boot-cloak + per-frame yaw `faceCamera` + dark
-`MeshBasicMaterial` back-plate quad.
+`MeshBasicMaterial` back-plate slab (front face flush with the original
+PlaneGeometry position, extruded behind by `READOUT_PANEL_DEPTH` so
+yaw-billboard motion reads as a solid screen turning — #270).
 
 Per parent plan #225 §3.5 v3 lock (option-c), the back-plate is a
 child of the readout's group, inheriting the yaw-billboard

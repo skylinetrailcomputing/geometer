@@ -574,8 +574,11 @@ enforces zero references in `.ts` files repo-wide.
 (`scaffold/ui/PanelReadout.ts`) which contributes (1) the THREE.Group
 construction + boot-cloak, (2) the per-frame yaw-only `faceCamera`
 billboard (formerly duplicated identical-by-copy across the four
-cluster readouts), and (3) a dark `MeshBasicMaterial` back-plate quad
-sized to the readout's worst-case content + padding.
+cluster readouts), and (3) a dark `MeshBasicMaterial` back-plate slab
+sized to the readout's worst-case content + padding (front face flush
+with the original PlaneGeometry position, extruded behind by
+`READOUT_PANEL_DEPTH` so yaw-billboard motion reads as a solid screen
+turning, not a flat decal sliding — #270).
 
 Per parent plan #225 §3.5 v3 lock (option-c), the back-plate sits as
 a child of the readout's group, so it inherits the yaw-billboard
